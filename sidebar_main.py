@@ -330,13 +330,31 @@ class SidebarWindow(tk.Tk):
                 bg=bg_color, 
                 font=("Segoe UI", 9),
                 anchor="w",
-                # Initial wrap, will be updated by event
+                justify="left",
                 wraplength=self.expanded_width - 40 
             )
             lbl_subject.pack(fill="x")
             
-            # Dynamic wrapping
-            card.bind("<Configure>", lambda e, lbl=lbl_subject: lbl.config(wraplength=e.width - 20))
+            # Preview (Body)
+            lbl_preview = tk.Label(
+                card, 
+                text=email['preview'], 
+                fg="#999999", 
+                bg=bg_color, 
+                font=("Segoe UI", 8),
+                anchor="w",
+                justify="left",
+                wraplength=self.expanded_width - 40 
+            )
+            lbl_preview.pack(fill="x")
+            
+            # Dynamic wrapping for both labels
+            def update_wraps(e, s=lbl_subject, p=lbl_preview):
+                width = e.width - 20
+                s.config(wraplength=width)
+                p.config(wraplength=width)
+                
+            card.bind("<Configure>", update_wraps)
 
     def draw_pin_icon(self):
         self.btn_pin.delete("all")
