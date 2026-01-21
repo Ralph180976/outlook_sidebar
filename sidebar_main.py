@@ -5,6 +5,7 @@ import time
 import json
 import os
 import win32com.client
+import re
 
 # --- Windows API Constants & Structures ---
 ABM_NEW = 0x00000000
@@ -162,7 +163,12 @@ class OutlookClient:
                 try:
                     subject = getattr(item, "Subject", "[No Subject]")
                     sender = getattr(item, "SenderName", "Unknown")
-                    body = getattr(item, "Body", "")[:100] + "..." # Preview
+                    raw_body = getattr(item, "Body", "")
+                    
+                    # Clean up body: remove newlines and extra spaces
+                    clean_body = re.sub(r'\s+', ' ', raw_body).strip()
+                    body = clean_body[:100] + "..." # Preview
+                    
                     unread = getattr(item, "UnRead", False)
                     
                     email_list.append({
