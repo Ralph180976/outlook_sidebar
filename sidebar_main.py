@@ -142,14 +142,21 @@ class OutlookClient:
         self.last_received_time = None
         self.connect()
         # Initialize last_received_time
-        self.check_latest_time()
+        if self.namespace:
+            self.check_latest_time()
 
     def connect(self):
+        """Attempts to connect to the Outlook COM object."""
         try:
             self.outlook = win32com.client.Dispatch("Outlook.Application")
             self.namespace = self.outlook.GetNamespace("MAPI")
+            # print("Connected to Outlook")
+            return True
         except Exception as e:
             print(f"Error connecting to Outlook: {e}")
+            self.outlook = None
+            self.namespace = None
+            return False
 
     def check_latest_time(self):
         """Initializes or updates the last received time without returning bool."""
@@ -161,68 +168,83 @@ class OutlookClient:
             item = items.GetFirst()
             if item:
                 self.last_received_time = item.ReceivedTime
-        except:
-            pass
+        except Exception:
+             # If we fail here, we might be disconnected, but this is just init
+             pass
 
     def check_new_mail(self):
-        """Checks if there is email newer than the last check."""
-        if not self.namespace: return False
-        try:
-            inbox = self.namespace.GetDefaultFolder(6)
-            items = inbox.Items
-            items.Sort("[ReceivedTime]", True)
-            item = items.GetFirst()
-            
-            if item:
-                current_time = item.ReceivedTime
-                # If we have a stored time and the new one is newer
-                if self.last_received_time and current_time > self.last_received_time:
-                    self.last_received_time = current_time
-                    return True
+        """Checks if there is email newer than the last check. Recovers connection if needed."""
+        # Retry loop (Try once, if fail, reconnect and try again)
+        for attempt in range(2):
+            if not self.namespace:
+                if not self.connect():
+                    return False # Still cannot connect
+
+            try:
+                inbox = self.namespace.GetDefaultFolder(6)
+                items = inbox.Items
+                items.Sort("[ReceivedTime]", True)
+                item = items.GetFirst()
                 
-                # Update tracker regardless to avoid stale alerts
-                self.last_received_time = current_time
-        except Exception as e:
-            print(f"Polling error: {e}")
+                if item:
+                    current_time = item.ReceivedTime
+                    # If we have a stored time and the new one is newer
+                    if self.last_received_time and current_time > self.last_received_time:
+                        self.last_received_time = current_time
+                        return True
+                    
+                    # Update tracker regardless to avoid stale alerts
+                    self.last_received_time = current_time
+                return False # No new mail
+                
+            except Exception as e:
+                print(f"Polling error (Attempt {attempt+1}): {e}")
+                self.namespace = None # Force reconnect next loop
+        
         return False
 
     def get_inbox_items(self, count=20):
-        if not self.namespace:
-            return []
+        # Retry loop
+        for attempt in range(2):
+            if not self.namespace:
+                if not self.connect():
+                    return []
+
+            try:
+                inbox = self.namespace.GetDefaultFolder(6) # 6 = olFolderInbox
+                items = inbox.Items
+                items.Sort("[ReceivedTime]", True) # Descending
+                
+                email_list = []
+                for i, item in enumerate(items):
+                    if i >= count:
+                        break
+                    try:
+                        subject = getattr(item, "Subject", "[No Subject]")
+                        sender = getattr(item, "SenderName", "Unknown")
+                        raw_body = getattr(item, "Body", "")
+                        
+                        # Clean up body: remove newlines and extra spaces
+                        clean_body = re.sub(r'\s+', ' ', raw_body).strip()
+                        body = clean_body[:100] + "..." # Preview
+                        
+                        unread = getattr(item, "UnRead", False)
+                        
+                        email_list.append({
+                            "sender": sender,
+                            "subject": subject,
+                            "preview": body,
+                            "unread": unread
+                        })
+                    except Exception as inner_e:
+                        print(f"Error reading item: {inner_e}")
+                        
+                return email_list
+            except Exception as e:
+                print(f"Fetch error (Attempt {attempt+1}): {e}")
+                self.namespace = None # Force reconnect
         
-        try:
-            inbox = self.namespace.GetDefaultFolder(6) # 6 = olFolderInbox
-            items = inbox.Items
-            items.Sort("[ReceivedTime]", True) # Descending
-            
-            email_list = []
-            for i, item in enumerate(items):
-                if i >= count:
-                    break
-                try:
-                    subject = getattr(item, "Subject", "[No Subject]")
-                    sender = getattr(item, "SenderName", "Unknown")
-                    raw_body = getattr(item, "Body", "")
-                    
-                    # Clean up body: remove newlines and extra spaces
-                    clean_body = re.sub(r'\s+', ' ', raw_body).strip()
-                    body = clean_body[:100] + "..." # Preview
-                    
-                    unread = getattr(item, "UnRead", False)
-                    
-                    email_list.append({
-                        "sender": sender,
-                        "subject": subject,
-                        "preview": body,
-                        "unread": unread
-                    })
-                except Exception as inner_e:
-                    print(f"Error reading item: {inner_e}")
-                    
-            return email_list
-        except Exception as e:
-            print(f"Error fetching items: {e}")
-            return []
+        return []
 
 class SidebarWindow(tk.Tk):
     def __init__(self):
