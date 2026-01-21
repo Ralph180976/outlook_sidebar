@@ -138,7 +138,10 @@ class OutlookClient:
     def __init__(self):
         self.outlook = None
         self.namespace = None
+        self.last_received_time = None
         self.connect()
+        # Initialize last_received_time
+        self.check_latest_time()
 
     def connect(self):
         try:
@@ -146,6 +149,41 @@ class OutlookClient:
             self.namespace = self.outlook.GetNamespace("MAPI")
         except Exception as e:
             print(f"Error connecting to Outlook: {e}")
+
+    def check_latest_time(self):
+        """Initializes or updates the last received time without returning bool."""
+        if not self.namespace: return
+        try:
+            inbox = self.namespace.GetDefaultFolder(6)
+            items = inbox.Items
+            items.Sort("[ReceivedTime]", True)
+            item = items.GetFirst()
+            if item:
+                self.last_received_time = item.ReceivedTime
+        except:
+            pass
+
+    def check_new_mail(self):
+        """Checks if there is email newer than the last check."""
+        if not self.namespace: return False
+        try:
+            inbox = self.namespace.GetDefaultFolder(6)
+            items = inbox.Items
+            items.Sort("[ReceivedTime]", True)
+            item = items.GetFirst()
+            
+            if item:
+                current_time = item.ReceivedTime
+                # If we have a stored time and the new one is newer
+                if self.last_received_time and current_time > self.last_received_time:
+                    self.last_received_time = current_time
+                    return True
+                
+                # Update tracker regardless to avoid stale alerts
+                self.last_received_time = current_time
+        except Exception as e:
+            print(f"Polling error: {e}")
+        return False
 
     def get_inbox_items(self, count=20):
         if not self.namespace:
@@ -198,6 +236,15 @@ class SidebarWindow(tk.Tk):
         self.hover_delay = 500 # ms
         self._hover_timer = None
         self._collapse_timer = None
+        
+        # Pulse Animation State
+        self.pulsing = False
+        self.pulse_colors = [
+            "#007ACC", "#228BDD", "#449CEE", "#66ADFF", "#88BEFF", "#AAEEFF", "#CCFFFF", 
+            "#AAEEFF", "#88BEFF", "#66ADFF", "#449CEE", "#228BDD"
+        ]
+        self.pulse_step = 0
+        self._pulse_job = None
         
         # Load Config
         self.load_config()
@@ -260,6 +307,10 @@ class SidebarWindow(tk.Tk):
         # Hot Strip Visual overlay (only visible when collapsed)
         self.hot_strip_frame = tk.Frame(self.main_frame, bg="#007ACC") # Blue strip
         
+        # Notification Light (Canvas) in Hot Strip
+        self.notification_light = tk.Canvas(self.hot_strip_frame, width=4, height=40, bg="#007ACC", highlightthickness=0)
+        self.notification_light.place(relx=0.5, rely=0.5, anchor="center")
+        
         # --- Events ---
         self.bind("<Enter>", self.on_enter)
         self.bind("<Leave>", self.on_leave)
@@ -270,6 +321,45 @@ class SidebarWindow(tk.Tk):
         
         # Initial State
         self.apply_state()
+        
+        # Start Polling
+        self.start_polling()
+        
+    def start_polling(self):
+        """Poll Outlook every 30 seconds for new mail."""
+        if self.outlook_client.check_new_mail():
+            self.start_pulse()
+            self.refresh_emails() # Auto-refresh list
+            
+        self.after(30000, self.start_polling) # 30s
+        
+    def start_pulse(self):
+        if not self.pulsing:
+            self.pulsing = True
+            self.pulse_step = 0
+            self.run_pulse_animation()
+            
+    def stop_pulse(self):
+        if self.pulsing:
+            self.pulsing = False
+            if self._pulse_job:
+                self.after_cancel(self._pulse_job)
+                self._pulse_job = None
+            # Reset color
+            self.hot_strip_frame.config(bg="#007ACC")
+            self.notification_light.config(bg="#007ACC")
+
+    def run_pulse_animation(self):
+        if not self.pulsing: return
+        
+        color = self.pulse_colors[self.pulse_step]
+        self.hot_strip_frame.config(bg=color)
+        self.notification_light.config(bg=color)
+        
+        self.pulse_step = (self.pulse_step + 1) % len(self.pulse_colors)
+        
+        # Slower speed for gentle pulse
+        self._pulse_job = self.after(100, self.run_pulse_animation)
         
     def load_config(self):
         try:
@@ -440,6 +530,9 @@ class SidebarWindow(tk.Tk):
         self.wm_attributes("-topmost", True)
 
     def on_enter(self, event):
+        # Stop pulsing on interaction
+        self.stop_pulse()
+        
         if self._collapse_timer:
             self.after_cancel(self._collapse_timer)
             self._collapse_timer = None
