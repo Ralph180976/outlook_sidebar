@@ -96,6 +96,36 @@ class AppBarManager:
         # Return the actual rectangle committed
         return self.abd.rc.left, self.abd.rc.top, self.abd.rc.right - self.abd.rc.left, self.abd.rc.bottom - self.abd.rc.top
 
+class ScrollableFrame(tk.Frame):
+    """
+    A scrollable frame that can contain multiple email cards.
+    """
+    def __init__(self, container, *args, **kwargs):
+        super().__init__(container, *args, **kwargs)
+        self.canvas = tk.Canvas(self, bg=kwargs.get("bg", "#222222"), highlightthickness=0)
+        self.scrollbar = tk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.scrollable_frame = tk.Frame(self.canvas, bg=kwargs.get("bg", "#222222"))
+
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(
+                scrollregion=self.canvas.bbox("all")
+            )
+        )
+
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
+        
+        # Mousewheel scrolling
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+
+    def _on_mousewheel(self, event):
+        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+
 class OutlookClient:
     def __init__(self):
         self.outlook = None
@@ -119,24 +149,26 @@ class OutlookClient:
             items.Sort("[ReceivedTime]", True) # Descending
             
             email_list = []
-            # We iterate manually to get just the top 'count' items efficiently
-            # Note: Items collection is 1-based index in COM, but python wrapper might handle iteration
             for i, item in enumerate(items):
                 if i >= count:
                     break
                 try:
-                    # Basic check to ensure it's a MailItem (has Subject/Sender)
-                    # Use getattr to be safe if it's a MeetingItem etc.
                     subject = getattr(item, "Subject", "[No Subject]")
                     sender = getattr(item, "SenderName", "Unknown")
-                    email_list.append(f"{sender}: {subject}")
+                    body = getattr(item, "Body", "")[:100] + "..." # Preview
+                    
+                    email_list.append({
+                        "sender": sender,
+                        "subject": subject,
+                        "preview": body
+                    })
                 except Exception as inner_e:
                     print(f"Error reading item: {inner_e}")
                     
             return email_list
         except Exception as e:
             print(f"Error fetching items: {e}")
-            return [f"Error: {e}"]
+            return []
 
 class SidebarWindow(tk.Tk):
     def __init__(self):
@@ -169,7 +201,6 @@ class SidebarWindow(tk.Tk):
 
         # --- AppBar Manager ---
         self.update_idletasks() 
-        # Trick to get HWND for overrideredirect window
         self.hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
         if not self.hwnd:
              self.hwnd = self.winfo_id()
@@ -198,26 +229,12 @@ class SidebarWindow(tk.Tk):
         self.btn_refresh = tk.Button(self.header, text="↻", command=self.refresh_emails, bg="#555555", fg="white", bd=0)
         self.btn_refresh.pack(side="right", padx=5)
 
-        # Content Area - Listbox for Emails
-        self.list_frame = tk.Frame(self.main_frame, bg="#222222")
-        self.list_frame.pack(expand=True, fill="both", padx=5, pady=5)
-
-        self.scrollbar = tk.Scrollbar(self.list_frame)
-        self.scrollbar.pack(side="right", fill="y")
-
-        self.email_listbox = tk.Listbox(
-            self.list_frame, 
-            bg="#222222", 
-            fg="#E0E0E0", 
-            selectbackground="#007ACC",
-            selectforeground="white",
-            bd=0, 
-            highlightthickness=0,
-            yscrollcommand=self.scrollbar.set,
-            font=("Segoe UI", 9)
-        )
-        self.email_listbox.pack(side="left", expand=True, fill="both")
-        self.scrollbar.config(command=self.email_listbox.yview)
+        # Content Area - Scrollable Frame for Emails
+        self.content_container = tk.Frame(self.main_frame, bg="#222222")
+        self.content_container.pack(expand=True, fill="both", padx=5, pady=5)
+        
+        self.scroll_frame = ScrollableFrame(self.content_container, bg="#222222")
+        self.scroll_frame.pack(expand=True, fill="both")
 
         # Resize Grip (Overlay on the right edge)
         self.resize_grip = tk.Frame(self.main_frame, bg="#666666", cursor="sb_h_double_arrow", width=5)
@@ -257,10 +274,45 @@ class SidebarWindow(tk.Tk):
             json.dump(data, f)
 
     def refresh_emails(self):
-        self.email_listbox.delete(0, tk.END)
+        # Clear existing
+        for widget in self.scroll_frame.scrollable_frame.winfo_children():
+            widget.destroy()
+
         emails = self.outlook_client.get_inbox_items(count=30)
+        
         for email in emails:
-            self.email_listbox.insert(tk.END, email)
+            # Create Card
+            card = tk.Frame(
+                self.scroll_frame.scrollable_frame, 
+                bg="#2d2d2d", 
+                highlightbackground="#555555", 
+                highlightthickness=1,
+                padx=5, pady=5
+            )
+            card.pack(fill="x", expand=True, padx=2, pady=2)
+            
+            # Sender
+            lbl_sender = tk.Label(
+                card, 
+                text=email['sender'], 
+                fg="white", 
+                bg="#2d2d2d", 
+                font=("Segoe UI", 9, "bold"),
+                anchor="w"
+            )
+            lbl_sender.pack(fill="x")
+            
+            # Subject
+            lbl_subject = tk.Label(
+                card, 
+                text=email['subject'], 
+                fg="#cccccc", 
+                bg="#2d2d2d", 
+                font=("Segoe UI", 9),
+                anchor="w",
+                wraplength=self.expanded_width - 40 # Approx wrap
+            )
+            lbl_subject.pack(fill="x")
 
     def draw_pin_icon(self):
         self.btn_pin.delete("all")
@@ -281,7 +333,7 @@ class SidebarWindow(tk.Tk):
             # Pinned: Always Expanded, Always Reserved (Docked)
             self.hot_strip_frame.place_forget()
             self.header.pack(fill="x", side="top")
-            self.list_frame.pack(expand=True, fill="both", padx=5, pady=5)
+            self.content_container.pack(expand=True, fill="both", padx=5, pady=5)
             self.resize_grip.place(relx=1.0, rely=0, anchor="ne", relheight=1.0)
             
             self.set_geometry(self.expanded_width)
@@ -293,7 +345,8 @@ class SidebarWindow(tk.Tk):
             # Expanded (Hover): Broad width, BUT acts as OVERLAY (No docking/reservation)
             self.hot_strip_frame.place_forget()
             self.header.pack(fill="x", side="top")
-            self.list_frame.pack(expand=True, fill="both", padx=5, pady=5)
+            # For overlay mode, we still show the content
+            self.content_container.pack(expand=True, fill="both", padx=5, pady=5)
             self.resize_grip.place(relx=1.0, rely=0, anchor="ne", relheight=1.0)
             
             # Unregister AppBar so we don't push other windows
@@ -307,7 +360,7 @@ class SidebarWindow(tk.Tk):
             
             # Hide internals to prevent squishing
             self.header.pack_forget()
-            self.list_frame.pack_forget()
+            self.content_container.pack_forget()
             self.resize_grip.place_forget()
             
             # Show Hot Strip
