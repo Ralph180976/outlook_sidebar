@@ -164,7 +164,6 @@ class OutlookClient:
                     sender = getattr(item, "SenderName", "Unknown")
                     body = getattr(item, "Body", "")[:100] + "..." # Preview
                     unread = getattr(item, "UnRead", False)
-                    print(f"DEBUG: '{subject}' | UnRead: {unread}") # Debug print
                     
                     email_list.append({
                         "sender": sender,
