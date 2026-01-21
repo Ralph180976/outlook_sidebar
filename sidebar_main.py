@@ -113,7 +113,7 @@ class ScrollableFrame(tk.Frame):
             )
         )
 
-        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.window_id = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
 
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
 
@@ -122,9 +122,16 @@ class ScrollableFrame(tk.Frame):
         
         # Mousewheel scrolling
         self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        
+        # Ensure scrollable frame matches canvas width
+        self.canvas.bind("<Configure>", self._on_canvas_configure)
 
     def _on_mousewheel(self, event):
         self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+    def _on_canvas_configure(self, event):
+        # Resize the inner frame to match the canvas width
+        self.canvas.itemconfig(self.window_id, width=event.width)
 
 class OutlookClient:
     def __init__(self):
@@ -157,6 +164,7 @@ class OutlookClient:
                     sender = getattr(item, "SenderName", "Unknown")
                     body = getattr(item, "Body", "")[:100] + "..." # Preview
                     unread = getattr(item, "UnRead", False)
+                    print(f"DEBUG: '{subject}' | UnRead: {unread}") # Debug print
                     
                     email_list.append({
                         "sender": sender,
@@ -323,9 +331,13 @@ class SidebarWindow(tk.Tk):
                 bg=bg_color, 
                 font=("Segoe UI", 9),
                 anchor="w",
-                wraplength=self.expanded_width - 40 # Approx wrap
+                # Initial wrap, will be updated by event
+                wraplength=self.expanded_width - 40 
             )
             lbl_subject.pack(fill="x")
+            
+            # Dynamic wrapping
+            card.bind("<Configure>", lambda e, lbl=lbl_subject: lbl.config(wraplength=e.width - 20))
 
     def draw_pin_icon(self):
         self.btn_pin.delete("all")
