@@ -156,11 +156,13 @@ class OutlookClient:
                     subject = getattr(item, "Subject", "[No Subject]")
                     sender = getattr(item, "SenderName", "Unknown")
                     body = getattr(item, "Body", "")[:100] + "..." # Preview
+                    unread = getattr(item, "UnRead", False)
                     
                     email_list.append({
                         "sender": sender,
                         "subject": subject,
-                        "preview": body
+                        "preview": body,
+                        "unread": unread
                     })
                 except Exception as inner_e:
                     print(f"Error reading item: {inner_e}")
@@ -281,22 +283,33 @@ class SidebarWindow(tk.Tk):
         emails = self.outlook_client.get_inbox_items(count=30)
         
         for email in emails:
+            # Determine styling based on UnRead status
+            is_unread = email.get('unread', False)
+            bg_color = "#2d2d2d"
+            # Blue border for unread, grey for read
+            border_color = "#007ACC" if is_unread else "#555555"
+            border_width = 2 if is_unread else 1
+            
             # Create Card
             card = tk.Frame(
                 self.scroll_frame.scrollable_frame, 
-                bg="#2d2d2d", 
-                highlightbackground="#555555", 
-                highlightthickness=1,
+                bg=bg_color, 
+                highlightbackground=border_color, 
+                highlightthickness=border_width,
                 padx=5, pady=5
             )
             card.pack(fill="x", expand=True, padx=2, pady=2)
             
             # Sender
+            sender_text = email['sender']
+            if is_unread:
+                sender_text = "● " + sender_text # Add indicator dot
+                
             lbl_sender = tk.Label(
                 card, 
-                text=email['sender'], 
+                text=sender_text, 
                 fg="white", 
-                bg="#2d2d2d", 
+                bg=bg_color, 
                 font=("Segoe UI", 9, "bold"),
                 anchor="w"
             )
@@ -307,7 +320,7 @@ class SidebarWindow(tk.Tk):
                 card, 
                 text=email['subject'], 
                 fg="#cccccc", 
-                bg="#2d2d2d", 
+                bg=bg_color, 
                 font=("Segoe UI", 9),
                 anchor="w",
                 wraplength=self.expanded_width - 40 # Approx wrap
