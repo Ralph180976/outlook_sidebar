@@ -6,6 +6,7 @@ import json
 import os
 import win32com.client
 import re
+import math # Added for animation
 
 # --- Windows API Constants & Structures ---
 ABM_NEW = 0x00000000
@@ -239,12 +240,11 @@ class SidebarWindow(tk.Tk):
         
         # Pulse Animation State
         self.pulsing = False
-        self.pulse_colors = [
-            "#007ACC", "#228BDD", "#449CEE", "#66ADFF", "#88BEFF", "#AAEEFF", "#CCFFFF", 
-            "#AAEEFF", "#88BEFF", "#66ADFF", "#449CEE", "#228BDD"
-        ]
         self.pulse_step = 0
         self._pulse_job = None
+        self.animation_speed = 0.05 # Increment per frame
+        self.base_color = "#007ACC"
+        self.pulse_color = "#99D9EA" # Lighter cyan/blue for the bar
         
         # Load Config
         self.load_config()
@@ -305,11 +305,8 @@ class SidebarWindow(tk.Tk):
         self.resize_grip.bind("<ButtonRelease-1>", self.on_resize_release)
 
         # Hot Strip Visual overlay (only visible when collapsed)
-        self.hot_strip_frame = tk.Frame(self.main_frame, bg="#007ACC") # Blue strip
-        
-        # Notification Light (Canvas) in Hot Strip
-        self.notification_light = tk.Canvas(self.hot_strip_frame, width=4, height=40, bg="#007ACC", highlightthickness=0)
-        self.notification_light.place(relx=0.5, rely=0.5, anchor="center")
+        # We use a Canvas now to draw the animation
+        self.hot_strip_canvas = tk.Canvas(self.main_frame, bg="#007ACC", highlightthickness=0)
         
         # --- Events ---
         self.bind("<Enter>", self.on_enter)
@@ -345,21 +342,45 @@ class SidebarWindow(tk.Tk):
             if self._pulse_job:
                 self.after_cancel(self._pulse_job)
                 self._pulse_job = None
-            # Reset color
-            self.hot_strip_frame.config(bg="#007ACC")
-            self.notification_light.config(bg="#007ACC")
+            # Reset
+            self.hot_strip_canvas.delete("pulse")
 
     def run_pulse_animation(self):
         if not self.pulsing: return
         
-        color = self.pulse_colors[self.pulse_step]
-        self.hot_strip_frame.config(bg=color)
-        self.notification_light.config(bg=color)
+        # Calculate Height factor using sine wave (0.0 to 1.0)
+        # math.sin goes from -1 to 1. We want 0 to 1 back to 0.
+        # shifting phase to start at 0
+        factor = (math.sin(self.pulse_step) + 1) / 2 # 0 to 1
         
-        self.pulse_step = (self.pulse_step + 1) % len(self.pulse_colors)
+        # Alternatively, for a "growth" from center:
+        # We can just cycle 0 -> PI
         
-        # Slower speed for gentle pulse
-        self._pulse_job = self.after(100, self.run_pulse_animation)
+        self.hot_strip_canvas.delete("pulse")
+        
+        w = self.hot_strip_width
+        h = self.screen_height
+        
+        # Dynamic height based on factor
+        # Let's make it grow to full height then shrink
+        bar_height = h * factor
+        
+        # Center coords
+        y1 = (h / 2) - (bar_height / 2)
+        y2 = (h / 2) + (bar_height / 2)
+        
+        # Draw the "light" bar
+        self.hot_strip_canvas.create_rectangle(
+            0, y1, w, y2,
+            fill=self.pulse_color,
+            outline="",
+            tags="pulse"
+        )
+        
+        self.pulse_step += self.animation_speed
+        
+        # Speed: 50ms (20fps) for smooth gentle pulse
+        self._pulse_job = self.after(50, self.run_pulse_animation)
         
     def load_config(self):
         try:
@@ -469,7 +490,7 @@ class SidebarWindow(tk.Tk):
         """Applies the current state (Pinned/Expanded/Collapsed) to the window and AppBar."""
         if self.is_pinned:
             # Pinned: Always Expanded, Always Reserved (Docked)
-            self.hot_strip_frame.place_forget()
+            self.hot_strip_canvas.place_forget()
             self.header.pack(fill="x", side="top")
             self.content_container.pack(expand=True, fill="both", padx=5, pady=5)
             self.resize_grip.place(relx=1.0, rely=0, anchor="ne", relheight=1.0)
@@ -481,7 +502,7 @@ class SidebarWindow(tk.Tk):
             
         elif self.is_expanded:
             # Expanded (Hover): Broad width, BUT acts as OVERLAY (No docking/reservation)
-            self.hot_strip_frame.place_forget()
+            self.hot_strip_canvas.place_forget()
             self.header.pack(fill="x", side="top")
             # For overlay mode, we still show the content
             self.content_container.pack(expand=True, fill="both", padx=5, pady=5)
@@ -502,7 +523,7 @@ class SidebarWindow(tk.Tk):
             self.resize_grip.place_forget()
             
             # Show Hot Strip
-            self.hot_strip_frame.place(relx=0, rely=0, relwidth=1, relheight=1)
+            self.hot_strip_canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
             
             self.set_geometry(self.hot_strip_width)
 
