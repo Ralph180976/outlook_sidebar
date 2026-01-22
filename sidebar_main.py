@@ -827,20 +827,9 @@ class SettingsWindow(tk.Toplevel):
         self.refresh_cb.set(current_label)
         self.refresh_cb.pack(side="left", padx=5)
 
-        # --- Icon Brightness Setting ---
-        bright_frame = tk.Frame(self, bg=self.colors["bg_root"])
-        bright_frame.pack(fill="x", padx=30, pady=(10, 0))
+        # --- Icon Brightness Setting REMOVED ---
+        # User requested fixed 75% brightness, slider removed.
         
-        tk.Label(bright_frame, text="Icon Brightness:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).pack(side="left")
-        
-        self.bright_scale = tk.Scale(
-            bright_frame, from_=0.1, to=2.0, resolution=0.1, orient="horizontal",
-            bg=self.colors["bg_root"], fg="white", highlightthickness=0,
-            troughcolor=self.colors["bg_card"], length=150
-        )
-        self.bright_scale.set(self.main_window.icon_brightness)
-        self.bright_scale.pack(side="left", padx=10)
-            
         # Footer / Save Button (Blocky Win11 Style)
         btn_save = tk.Button(
             self, text="Save Actions", command=self.save_and_close,
@@ -906,7 +895,7 @@ class SettingsWindow(tk.Toplevel):
             self.main_window.font_size = 9
             
         self.main_window.poll_interval = self.refresh_options.get(self.refresh_cb.get(), 30)
-        self.main_window.icon_brightness = self.bright_scale.get()
+        # self.main_window.icon_brightness = self.bright_scale.get() # Removed
         
         self.main_window.btn_count = count
         self.main_window.btn_config = new_config
@@ -933,7 +922,7 @@ class SidebarWindow(tk.Tk):
         self.font_family = "Segoe UI"
         self.font_size = 9
         self.poll_interval = 30 # seconds
-        self.icon_brightness = 1.0 # Default brightness
+        # self.icon_brightness = 1.0 # Removed
         self.hover_delay = 500 # ms
         self._hover_timer = None
         self._collapse_timer = None
@@ -1091,21 +1080,14 @@ class SidebarWindow(tk.Tk):
             
             r, g, b, a = pil_img.split()
             
-            # Apply brightness factor to alpha channel
-            # FIX: load_icon_white is a method of SidebarWindow, so use self.icon_brightness, not self.parent
-            brightness = getattr(self, "icon_brightness", 1.0) # Safe access
+            r, g, b, a = pil_img.split()
             
-            # Let's try scaling alpha.
-            # a_data = a.getdata()
-            # new_a_data = [min(255, int(x * brightness * 1.5)) if x > 10 else 0 for x in a_data]
-            # a.putdata(new_a_data)
+            # Use static 75% brightness (grey)
+            grey_val = 191
+            white_img = Image.new("RGBA", pil_img.size, (grey_val, grey_val, grey_val, 255))
             
-            # Used the mask logic before: mask = a.point(lambda p: 255 if p > 20 else 0)
-            # If brightness is high, we want MORE pixels to be white (lower threshold)
-            # Threshold = 20 / brightness?
-            
-            threshold = int(20 / max(0.1, brightness))
-            mask = a.point(lambda p: 255 if p > threshold else 0)
+            # Simple threshold mask
+            mask = a.point(lambda p: 255 if p > 20 else 0)
              
             # Use boosted mask
             final_img = Image.new("RGBA", pil_img.size, (0, 0, 0, 0))
@@ -1662,7 +1644,7 @@ class SidebarWindow(tk.Tk):
                 self.font_family = config.get("font_family", "Segoe UI")
                 self.font_size = config.get("font_size", 9)
                 self.poll_interval = config.get("poll_interval", 30)
-                self.icon_brightness = config.get("icon_brightness", 1.0)
+                # self.icon_brightness = config.get("icon_brightness", 1.0) # Removed
                 
                 if "buttons" in config:
                      self.btn_config = config["buttons"]
@@ -1676,7 +1658,7 @@ class SidebarWindow(tk.Tk):
             "font_family": self.font_family,
             "font_size": self.font_size,
             "poll_interval": self.poll_interval,
-            "icon_brightness": self.icon_brightness,
+            # "icon_brightness": self.icon_brightness, # Removed
             "buttons": self.btn_config
         }
         try:

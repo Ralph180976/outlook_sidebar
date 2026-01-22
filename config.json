@@ -1,0 +1,29 @@
+{
+    "dock_side": "Left",
+    "font_family": "Segoe UI",
+    "font_size": 9,
+    "poll_interval": 30,
+    "icon_brightness": 0.1,
+    "buttons": [
+        {
+            "icon": "Mark as Read.png",
+            "action1": "Mark Read",
+            "folder": ""
+        },
+        {
+            "icon": "Reply.png",
+            "action1": "Reply",
+            "folder": ""
+        },
+        {
+            "icon": "Delete.png",
+            "action1": "Delete",
+            "folder": ""
+        },
+        {
+            "icon": "Read & Delete.png",
+            "action1": "Read & Delete",
+            "folder": ""
+        }
+    ]
+}
