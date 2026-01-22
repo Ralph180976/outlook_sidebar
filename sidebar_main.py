@@ -911,7 +911,7 @@ class SidebarWindow(tk.Tk):
         super().__init__()
 
         # --- Configuration ---
-        self.min_width = 80  
+        self.min_width = 220  
         self.hot_strip_width = 10
         self.expanded_width = 300
         self.is_pinned = False
@@ -974,7 +974,7 @@ class SidebarWindow(tk.Tk):
         self.main_frame.place(relx=0, rely=0, relwidth=1, relheight=1)
 
         # Footer
-        self.footer = tk.Frame(self.main_frame, bg="#444444", height=10)
+        self.footer = tk.Frame(self.main_frame, bg="#444444", height=40)
         self.footer.pack(fill="x", side="bottom")
 
         # Header
@@ -1014,8 +1014,8 @@ class SidebarWindow(tk.Tk):
 
         # Refresh Button
         if os.path.exists("icons/Sync.png"):
-            # Increased by 5% -> (25, 25)
-            img = self.load_icon_white("icons/Sync.png", size=(25, 25))
+            # Increased by another 10% -> (28, 28)
+            img = self.load_icon_white("icons/Sync.png", size=(28, 28))
             if img:
                 self.image_cache["sync_header"] = img
                 self.btn_refresh = tk.Label(self.header, image=img, bg="#444444", cursor="hand2")
