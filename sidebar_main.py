@@ -651,7 +651,8 @@ class SettingsWindow(tk.Toplevel):
         
         # --- Main Content (Grid) ---
         container = tk.Frame(self, bg=self.colors["bg_root"], padx=20, pady=20)
-        container.pack(fill="both", expand=True)
+        # expand=False ensures it only takes necessary height, pulling bottom controls up
+        container.pack(fill="x", expand=False)
         
         # Table Headers
         headers = ["Icon", "Action", "Folders (for Move)"]
@@ -846,7 +847,8 @@ class SettingsWindow(tk.Toplevel):
             bg=self.colors["accent"], fg="black", font=("Segoe UI", 10, "bold"),
             bd=0, padx=30, pady=10, cursor="hand2", activebackground="#4CC2FF", activeforeground="black"
         )
-        btn_save.pack(side="bottom", pady=30)
+        # Changed to side="top" to adhere to flow logic and close gap
+        btn_save.pack(side="top", pady=20)
 
     def refresh_dropdown_options(self):
         """Filters available options for each dropdown to prevent duplicate selections."""
@@ -931,6 +933,7 @@ class SidebarWindow(tk.Tk):
         self.font_family = "Segoe UI"
         self.font_size = 9
         self.poll_interval = 30 # seconds
+        self.icon_brightness = 1.0 # Default brightness
         self.hover_delay = 500 # ms
         self._hover_timer = None
         self._collapse_timer = None
@@ -1648,6 +1651,39 @@ class SidebarWindow(tk.Tk):
         if not self.is_pinned:
             self.is_expanded = False
             self.apply_state() # Collapse and release space
+
+    def load_config(self):
+        try:
+            if os.path.exists("config.json"):
+                with open("config.json", "r") as f:
+                    config = json.load(f)
+                    
+                self.dock_side = config.get("dock_side", "Right")
+                self.font_family = config.get("font_family", "Segoe UI")
+                self.font_size = config.get("font_size", 9)
+                self.poll_interval = config.get("poll_interval", 30)
+                self.icon_brightness = config.get("icon_brightness", 1.0)
+                
+                if "buttons" in config:
+                     self.btn_config = config["buttons"]
+                     self.btn_count = len(self.btn_config)
+        except Exception as e:
+            print(f"Error loading config: {e}")
+
+    def save_config(self):
+        config = {
+            "dock_side": self.dock_side,
+            "font_family": self.font_family,
+            "font_size": self.font_size,
+            "poll_interval": self.poll_interval,
+            "icon_brightness": self.icon_brightness,
+            "buttons": self.btn_config
+        }
+        try:
+            with open("config.json", "w") as f:
+                json.dump(config, f, indent=4)
+        except Exception as e:
+            print(f"Error saving config: {e}")
 
 def ensure_single_instance():
     """Ensures only one instance runs by killing the previous one found in sidebar.lock."""
