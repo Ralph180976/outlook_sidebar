@@ -1025,9 +1025,22 @@ class SidebarWindow(tk.Tk):
         self.btn_refresh.pack(side="right", padx=5)
         self.btn_refresh.bind("<Button-1>", lambda e: self.refresh_emails())
         
-        # Tooltips
         ToolTip(self.btn_settings, "Settings")
         ToolTip(self.btn_refresh, "Refresh Email List")
+
+        # Share Button
+        if os.path.exists("icons/Share.png"):
+            img = self.load_icon_white("icons/Share.png", size=(24, 24))
+            if img:
+                self.image_cache["share_header"] = img
+                self.btn_share = tk.Label(self.header, image=img, bg="#444444", cursor="hand2")
+            else:
+                 self.btn_share = tk.Label(self.header, text="🔗", bg="#444444", fg="#aaaaaa", font=(self.font_family, 15), cursor="hand2")
+        else:
+            self.btn_share = tk.Label(self.header, text="🔗", bg="#444444", fg="#aaaaaa", font=(self.font_family, 15), cursor="hand2")
+        self.btn_share.pack(side="right", padx=5)
+        # No action yet, just tooltip
+        ToolTip(self.btn_share, "Sharing not available yet")
 
         # Content Area - Scrollable Frame for Emails
         self.content_container = tk.Frame(self.main_frame, bg="#222222")
