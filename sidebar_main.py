@@ -647,7 +647,7 @@ class SettingsWindow(tk.Toplevel):
         # Attribution Info Button
         btn_info = tk.Label(header, text="ⓘ", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 12), cursor="hand2")
         btn_info.pack(side="right", padx=10)
-        btn_info.bind("<Button-1>", self.show_attribution)
+        ToolTip(btn_info, "Icons made by IconKanan and Ardiansyah from www.flaticon.com")
         
         # --- Main Content (Grid) ---
         container = tk.Frame(self, bg=self.colors["bg_root"], padx=20, pady=20)
@@ -904,9 +904,7 @@ class SettingsWindow(tk.Toplevel):
         self.callback()
         self.destroy()
 
-    def show_attribution(self, event=None):
-        msg = "Icons made by IconKanan and Ardiansyah from www.flaticon.com"
-        messagebox.showinfo("Attribution", msg)
+    # show_attribution method removed
 
 class SidebarWindow(tk.Tk):
     def __init__(self):
