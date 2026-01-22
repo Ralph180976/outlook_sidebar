@@ -1014,7 +1014,8 @@ class SidebarWindow(tk.Tk):
 
         # Refresh Button
         if os.path.exists("icons/Sync.png"):
-            img = self.load_icon_white("icons/Sync.png", size=(24, 24))
+            # Increased by 5% -> (25, 25)
+            img = self.load_icon_white("icons/Sync.png", size=(25, 25))
             if img:
                 self.image_cache["sync_header"] = img
                 self.btn_refresh = tk.Label(self.header, image=img, bg="#444444", cursor="hand2")
@@ -1030,7 +1031,8 @@ class SidebarWindow(tk.Tk):
 
         # Share Button
         if os.path.exists("icons/Share.png"):
-            img = self.load_icon_white("icons/Share.png", size=(24, 24))
+            # Reduced by 10% -> (22, 22)
+            img = self.load_icon_white("icons/Share.png", size=(22, 22))
             if img:
                 self.image_cache["share_header"] = img
                 self.btn_share = tk.Label(self.header, image=img, bg="#444444", cursor="hand2")
