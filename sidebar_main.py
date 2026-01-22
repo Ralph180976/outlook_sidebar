@@ -6,11 +6,26 @@ import time
 import json
 import os
 import win32com.client
+import win32gui
+import win32con
 import re
 import math # Added for animation
 import glob
 from tkinter import messagebox
 from PIL import Image, ImageTk
+
+# --- Store Compatibility Imports ---
+import sys
+import shutil
+# Using ctypes for Mutex to avoid extra pywin32 module dependencies if not strictly needed,
+# though win32event is also fine since win32gui is used.
+# sticking to ctypes kernel32 for zero-dependency bloat for this specific feature.
+kernel32 = ctypes.windll.kernel32
+
+
+# --- Application Constants ---
+VERSION = "v1.0.2"
+
 
 # --- Windows API Constants & Structures ---
 ABM_NEW = 0x00000000
@@ -226,9 +241,10 @@ class ToolTip:
     """
     Creates a popup tooltip for a given widget.
     """
-    def __init__(self, widget, text):
+    def __init__(self, widget, text, side="bottom"):
         self.widget = widget
         self.text = text
+        self.side = side # "bottom", "left", "right", "top"
         self.tip_window = None
         self.widget.bind("<Enter>", self.enter)
         self.widget.bind("<Leave>", self.leave)
@@ -244,14 +260,10 @@ class ToolTip:
         if self.tip_window or not self.text:
             return
         
-        # Calculate position using widget coordinates
-        x = self.widget.winfo_rootx() + 20
-        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
-        
+        # Create window first to get size
         self.tip_window = tw = tk.Toplevel(self.widget)
         tw.wm_overrideredirect(True)
         tw.wm_attributes("-topmost", True)
-        tw.wm_geometry(f"+{x}+{y}")
         
         label = tk.Label(
             tw, 
@@ -265,6 +277,31 @@ class ToolTip:
             padx=4, pady=2
         )
         label.pack(ipadx=1)
+        
+        tw.update_idletasks() # Calculate size
+        
+        tw_width = tw.winfo_reqwidth()
+        tw_height = tw.winfo_reqheight()
+        
+        widget_x = self.widget.winfo_rootx()
+        widget_y = self.widget.winfo_rooty()
+        widget_w = self.widget.winfo_width()
+        widget_h = self.widget.winfo_height()
+        
+        if self.side == "left":
+            x = widget_x - tw_width - 5
+            y = widget_y + (widget_h // 2) - (tw_height // 2)
+        elif self.side == "right":
+            x = widget_x + widget_w + 5
+            y = widget_y + (widget_h // 2) - (tw_height // 2)
+        elif self.side == "top":
+            x = widget_x + (widget_w // 2) - (tw_width // 2)
+            y = widget_y - tw_height - 5
+        else: # bottom
+            x = widget_x + 20
+            y = widget_y + widget_h + 5
+            
+        tw.wm_geometry(f"+{x}+{y}")
 
     def hide_tip(self):
         """Hides the tooltip."""
@@ -647,7 +684,7 @@ class SettingsWindow(tk.Toplevel):
         # Attribution Info Button
         btn_info = tk.Label(header, text="ⓘ", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 12), cursor="hand2")
         btn_info.pack(side="right", padx=10)
-        ToolTip(btn_info, "Icons made by IconKanan and Ardiansyah from www.flaticon.com")
+        ToolTip(btn_info, "Icons made by IconKanan and Ardiansyah from www.flaticon.com", side="left")
         
         # --- Main Content (Grid) ---
         container = tk.Frame(self, bg=self.colors["bg_root"], padx=20, pady=20)
@@ -802,12 +839,12 @@ class SettingsWindow(tk.Toplevel):
         typo_frame.pack(fill="x", padx=30, pady=(10, 0))
         
         tk.Label(typo_frame, text="Font Family:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).pack(side="left")
-        self.font_fam_cb = ttk.Combobox(typo_frame, values=["Segoe UI", "Arial", "Verdana", "Tahoma", "Courier New", "Georgia"], width=15, state="readonly")
+        self.font_fam_cb = ttk.Combobox(typo_frame, values=["Segoe UI", "Arial", "Verdana", "Tahoma", "Courier New", "Georgia"], width=15, state="readonly", font=("Segoe UI", 12))
         self.font_fam_cb.set(self.main_window.font_family)
         self.font_fam_cb.pack(side="left", padx=(5, 20))
         
         tk.Label(typo_frame, text="Size:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).pack(side="left")
-        self.font_size_cb = ttk.Combobox(typo_frame, values=[str(i) for i in range(8, 17)], width=5, state="readonly")
+        self.font_size_cb = ttk.Combobox(typo_frame, values=[str(i) for i in range(8, 17)], width=5, state="readonly", font=("Segoe UI", 12))
         self.font_size_cb.set(str(self.main_window.font_size))
         self.font_size_cb.pack(side="left", padx=5)
         
@@ -817,7 +854,7 @@ class SettingsWindow(tk.Toplevel):
         sys_frame.pack(fill="x", padx=30, pady=(10, 0))
         
         tk.Label(sys_frame, text="Refresh Rate:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).pack(side="left")
-        self.refresh_cb = ttk.Combobox(sys_frame, values=list(self.refresh_options.keys()), width=10, state="readonly")
+        self.refresh_cb = ttk.Combobox(sys_frame, values=list(self.refresh_options.keys()), width=10, state="readonly", font=("Segoe UI", 12))
         
         current_label = "30s"
         for label, val in self.refresh_options.items():
@@ -838,6 +875,10 @@ class SettingsWindow(tk.Toplevel):
         )
         # Changed to side="top" to adhere to flow logic and close gap
         btn_save.pack(side="top", pady=20)
+
+        # Version Label
+        lbl_ver = tk.Label(self, text=VERSION, fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 8))
+        lbl_ver.place(relx=1.0, rely=1.0, anchor="se", x=-10, y=-5)
 
     def refresh_dropdown_options(self):
         """Filters available options for each dropdown to prevent duplicate selections."""
@@ -977,11 +1018,38 @@ class SidebarWindow(tk.Tk):
         self.footer = tk.Frame(self.main_frame, bg="#444444", height=40)
         self.footer.pack(fill="x", side="bottom")
         
-        # Outlook Button
-        self.btn_outlook = tk.Button(self.footer, text="Open Outlook", command=self.open_outlook_app,
-                                     bg="#0078D4", fg="white", bd=0, font=("Segoe UI", 9, "bold"),
-                                     activebackground="#2B88D8", activeforeground="white", cursor="hand2")
-        self.btn_outlook.pack(fill="y", padx=10, pady=5)
+        # Footer Buttons
+        # Pack order: Rightmost first.
+        
+        # 1. Outlook Button (Rightmost)
+        if os.path.exists("icons/Outlook_48x48.png"):
+             # Increase size to 32x32
+             try:
+                pil_img = Image.open("icons/Outlook_48x48.png").convert("RGBA")
+                pil_img = pil_img.resize((32, 32), Image.Resampling.LANCZOS)
+                img = ImageTk.PhotoImage(pil_img)
+                self.image_cache["outlook_footer"] = img
+                self.btn_outlook = tk.Label(self.footer, image=img, bg="#444444", cursor="hand2")
+                self.btn_outlook.pack(side="right", padx=(5, 10), pady=5)
+                self.btn_outlook.bind("<Button-1>", lambda e: self.open_outlook_app())
+                ToolTip(self.btn_outlook, "Open Outlook")
+             except Exception as e:
+                print(f"Error loading Outlook icon: {e}")
+                 
+        # 2. Calendar Button (Next to Outlook)
+        if os.path.exists("icons/OutlookCalendar_48x48.png"):
+             # Increase size to 32x32
+             try:
+                pil_img = Image.open("icons/OutlookCalendar_48x48.png").convert("RGBA")
+                pil_img = pil_img.resize((32, 32), Image.Resampling.LANCZOS)
+                img = ImageTk.PhotoImage(pil_img)
+                self.image_cache["calendar_footer"] = img
+                self.btn_calendar = tk.Label(self.footer, image=img, bg="#444444", cursor="hand2")
+                self.btn_calendar.pack(side="right", padx=5, pady=5)
+                self.btn_calendar.bind("<Button-1>", lambda e: self.open_calendar_app())
+                ToolTip(self.btn_calendar, "Open Calendar")
+             except Exception as e:
+                print(f"Error loading Calendar icon: {e}")
 
         # Header
         self.header = tk.Frame(self.main_frame, bg="#444444", height=40)
@@ -1267,14 +1335,139 @@ class SidebarWindow(tk.Tk):
         # Speed: 50ms (20fps) for smooth gentle pulse
         self._pulse_job = self.after(50, self.run_pulse_animation)
 
-    def open_outlook_app(self):
-        """Opens/Focuses the main Outlook window."""
+    # --- Outlook Window Management (COM-based) ---
+
+    def _get_outlook_app(self):
+        """
+        Gets the Outlook Application COM object.
+        Tries GetActiveObject first (reuses existing instance), falls back to Dispatch.
+        """
         try:
-             # Folder 6 is Inbox. Display() brings explorer to front.
-             if self.outlook_client and self.outlook_client.namespace:
-                self.outlook_client.namespace.GetDefaultFolder(6).Display()
-        except Exception as e:
-            print(f"Error opening Outlook: {e}")
+            # Try to connect to already-running Outlook
+            app = win32com.client.GetActiveObject("Outlook.Application")
+            return app
+        except:
+            pass
+        
+        # Fall back to Dispatch (may start Outlook if not running)
+        try:
+            app = win32com.client.Dispatch("Outlook.Application")
+            return app
+        except Exception:
+            return None
+
+    def _get_any_explorer(self, app):
+        """
+        Returns an existing Explorer window if one exists, otherwise None.
+        Tries ActiveExplorer first, then iterates Explorers collection.
+        """
+        if not app:
+            return None
+        
+        # Try ActiveExplorer first
+        try:
+            explorer = app.ActiveExplorer()
+            if explorer:
+                return explorer
+        except:
+            pass
+        
+        # Iterate Explorers collection
+        try:
+            explorers = app.Explorers
+            if explorers.Count > 0:
+                return explorers.Item(1)
+        except Exception:
+            pass
+        
+        return None
+
+    def _focus_window_by_hwnd(self, hwnd):
+        """
+        Brings a window to the foreground by its hwnd.
+        Handles minimized windows and SetForegroundWindow restrictions.
+        """
+        if not hwnd:
+            return False
+        
+        try:
+            # Check if minimized
+            if user32.IsIconic(hwnd):
+                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            else:
+                win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+            
+            # SetForegroundWindow can fail if our process doesn't have focus
+            # Workaround: briefly set TOPMOST then remove it
+            try:
+                win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0,
+                                      win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
+                win32gui.SetWindowPos(hwnd, win32con.HWND_NOTOPMOST, 0, 0, 0, 0,
+                                      win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
+            except:
+                pass
+            
+            win32gui.SetForegroundWindow(hwnd)
+            return True
+        except Exception:
+            return False
+
+    def _show_outlook_folder(self, folder_id):
+        """
+        Shows the specified Outlook folder (6=Inbox, 9=Calendar).
+        Reuses existing Explorer if available, otherwise creates one.
+        """
+        try:
+            app = self._get_outlook_app()
+            if not app:
+                return
+            
+            ns = app.GetNamespace("MAPI")
+            folder = ns.GetDefaultFolder(folder_id)
+            
+            # Try to get existing explorer
+            explorer = self._get_any_explorer(app)
+            
+            if explorer:
+                # Reuse existing explorer - switch folder
+                try:
+                    explorer.CurrentFolder = folder
+                except Exception:
+                    pass
+                
+                # Get hwnd and focus
+                try:
+                    hwnd = explorer.Hwnd if hasattr(explorer, 'Hwnd') else None
+                    if hwnd:
+                        self._focus_window_by_hwnd(hwnd)
+                    else:
+                        explorer.Activate()
+                except Exception:
+                    pass
+            else:
+                # No explorer exists - create one via GetExplorer
+                try:
+                    new_explorer = folder.GetExplorer()
+                    new_explorer.Display()
+                    
+                    # Focus the new window
+                    self.after(100, lambda: self._focus_window_by_hwnd(
+                        new_explorer.Hwnd if hasattr(new_explorer, 'Hwnd') else None
+                    ))
+                except Exception:
+                    # Ultimate fallback
+                    folder.Display()
+                    
+        except Exception:
+            pass
+
+    def open_outlook_app(self):
+        """Opens/Focuses the main Outlook window (Inbox)."""
+        self._show_outlook_folder(6)  # 6 = olFolderInbox
+
+    def open_calendar_app(self):
+        """Opens/Focuses the Outlook Calendar."""
+        self._show_outlook_folder(9)  # 9 = olFolderCalendar
         
     def load_config(self):
         try:
@@ -1666,17 +1859,43 @@ class SidebarWindow(tk.Tk):
             self.is_expanded = False
             self.apply_state() # Collapse and release space
 
+    def get_app_data_dir(self):
+        """Returns the appropriate application data directory."""
+        # Use %LOCALAPPDATA% (Preferred for modern Windows apps)
+        local_app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+        app_dir = os.path.join(local_app_data, "OutlookSidebar")
+        
+        if not os.path.exists(app_dir):
+            try:
+                os.makedirs(app_dir)
+            except OSError as e:
+                print(f"Error creating app data dir: {e}")
+                # Fallback to temp if strictly needed, or just fail
+        return app_dir
+
     def load_config(self):
         try:
-            if os.path.exists("config.json"):
-                with open("config.json", "r") as f:
+            app_dir = self.get_app_data_dir()
+            config_path = os.path.join(app_dir, "config.json")
+            
+            # If user config doesn't exist, check for bundled default in current dir (read-only)
+            if not os.path.exists(config_path):
+                bundled_config = "config.json"
+                if os.path.exists(bundled_config):
+                    try:
+                        # Copy bundled default to AppData so user can edit it later
+                        shutil.copy2(bundled_config, config_path)
+                    except Exception as e:
+                        print(f"Failed to copy default config: {e}")
+            
+            if os.path.exists(config_path):
+                with open(config_path, "r") as f:
                     config = json.load(f)
                     
                 self.dock_side = config.get("dock_side", "Right")
                 self.font_family = config.get("font_family", "Segoe UI")
                 self.font_size = config.get("font_size", 9)
                 self.poll_interval = config.get("poll_interval", 30)
-                # self.icon_brightness = config.get("icon_brightness", 1.0) # Removed
                 
                 if "buttons" in config:
                      self.btn_config = config["buttons"]
@@ -1685,51 +1904,62 @@ class SidebarWindow(tk.Tk):
             print(f"Error loading config: {e}")
 
     def save_config(self):
+        app_dir = self.get_app_data_dir()
+        config_path = os.path.join(app_dir, "config.json")
+        
         config = {
             "dock_side": self.dock_side,
             "font_family": self.font_family,
             "font_size": self.font_size,
             "poll_interval": self.poll_interval,
-            # "icon_brightness": self.icon_brightness, # Removed
             "buttons": self.btn_config
         }
         try:
-            with open("config.json", "w") as f:
+            with open(config_path, "w") as f:
                 json.dump(config, f, indent=4)
         except Exception as e:
             print(f"Error saving config: {e}")
 
-def ensure_single_instance():
-    """Ensures only one instance runs by killing the previous one found in sidebar.lock."""
-    pid_file = "sidebar.lock"
-    import subprocess
-    
-    if os.path.exists(pid_file):
-        try:
-            with open(pid_file, "r") as f:
-                content = f.read().strip()
-                if content:
-                    old_pid = int(content)
-                    
-                    if old_pid != os.getpid():
-                        print(f"Checking for existing instance: {old_pid}")
-                        try:
-                            # Use taskkill to force close the old process
-                            subprocess.run(f"taskkill /PID {old_pid} /F", shell=True, capture_output=True)
-                            print(f"Killed old instance: {old_pid}")
-                        except Exception as e:
-                            print(f"Error killing old instance: {e}")
-        except Exception as e:
-            print(f"Error checking lock file: {e}")
-            
-    # Write current PID
-    try:
-        with open(pid_file, "w") as f:
-            f.write(str(os.getpid()))
-    except Exception as e:
-        print(f"Error writing lock file: {e}")
+# --- Single Instance Logic (Mutex) ---
+
+class SingleInstance:
+    """
+    Limits application to a single instance using a Named Mutex.
+    Safe for MSIX and standard execution.
+    """
+    def __init__(self, name="Global\\OutlookSidebar_Mutex_v1"):
+        self.mutex_name = name
+        self.mutex_handle = None
+        self.last_error = 0
+
+    def already_running(self):
+        # CreateMutexW will return a handle. If it already existed, GetLastError returns ERROR_ALREADY_EXISTS
+        ERROR_ALREADY_EXISTS = 183
+        
+        self.mutex_handle = kernel32.CreateMutexW(None, False, self.mutex_name)
+        self.last_error = kernel32.GetLastError()
+        
+        if self.last_error == ERROR_ALREADY_EXISTS:
+            return True
+        return False
+        
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.mutex_handle:
+            kernel32.CloseHandle(self.mutex_handle)
 
 if __name__ == "__main__":
-    ensure_single_instance()
+    # Check Single Instance
+    app_instance = SingleInstance()
+    if app_instance.already_running():
+        # Optional: Bring existing window to front (Requires FindWindow/SetForegroundWindow logic)
+        # For now, just exit silently or print
+        # messagebox.showinfo("Outlook Sidebar", "The application is already running.")
+        sys.exit(0)
+
+    # Keep the mutex handle alive for the duration of the app
     app = SidebarWindow()
     app.mainloop()
+
