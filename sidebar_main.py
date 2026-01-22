@@ -177,6 +177,51 @@ class ScrollableFrame(tk.Frame):
         self.canvas.itemconfig(self.window_id, width=event.width)
 
 
+class RoundedFrame(tk.Canvas):
+    def __init__(self, parent, width, height, corner_radius, padding, color, bg, **kwargs):
+        tk.Canvas.__init__(self, parent, width=width, height=height, bg=bg, bd=0, highlightthickness=0, **kwargs)
+        self.radius = corner_radius
+        self.padding = padding
+        self.color = color
+        
+        self.id = self.create_rounded_rect(0, 0, width, height, self.radius, fill=self.color, outline="")
+        
+        # Inner frame for widgets
+        self.inner = tk.Frame(self, bg=self.color)
+        self.window_id = self.create_window((padding, padding), window=self.inner, anchor="nw")
+        
+        self.bind("<Configure>", self._on_resize)
+        
+    def _on_resize(self, event):
+        self.coords(self.id, self._rounded_rect_coords(0, 0, event.width, event.height, self.radius))
+        self.itemconfig(self.window_id, width=event.width - 2*self.padding, height=event.height - 2*self.padding)
+        
+    def create_rounded_rect(self, x1, y1, x2, y2, r, **kwargs):
+        return self.create_polygon(self._rounded_rect_coords(x1, y1, x2, y2, r), **kwargs)
+
+    def _rounded_rect_coords(self, x1, y1, x2, y2, r):
+        points = [x1+r, y1,
+                  x1+r, y1,
+                  x2-r, y1,
+                  x2-r, y1,
+                  x2, y1,
+                  x2, y1+r,
+                  x2, y1+r,
+                  x2, y2-r,
+                  x2, y2-r,
+                  x2, y2,
+                  x2-r, y2,
+                  x2-r, y2,
+                  x1+r, y2,
+                  x1+r, y2,
+                  x1, y2,
+                  x1, y2-r,
+                  x1, y2-r,
+                  x1, y1+r,
+                  x1, y1+r,
+                  x1, y1]
+        return points
+
 class ToolTip:
     """
     Creates a popup tooltip for a given widget.
@@ -525,7 +570,7 @@ class FolderPickerWindow(tk.Toplevel):
 class SettingsWindow(tk.Toplevel):
     def __init__(self, parent, callback):
         super().__init__(parent)
-        self.parent = parent
+        self.main_window = parent # Renamed from self.parent to avoid conflict
         self.callback = callback
         
         # --- Windows 11 Dark Theme ---
@@ -644,7 +689,7 @@ class SettingsWindow(tk.Toplevel):
             "None": ""
         }
         
-        current_config = self.parent.btn_config
+        current_config = self.main_window.btn_config
         row_config = current_config + [{}] * (4 - len(current_config))
         
         for i in range(4):
@@ -678,8 +723,8 @@ class SettingsWindow(tk.Toplevel):
                      if new_icon.lower().endswith(".png"):
                          path = os.path.join("icons", new_icon)
                          if os.path.exists(path):
-                             # Load using parent's loader
-                             img = self.parent.load_icon_white(path, size=(24, 24))
+                             # Load using main_window's loader
+                             img = self.main_window.load_icon_white(path, size=(24, 24))
                              if img:
                                  # Keep reference to avoid GC
                                  setattr(icon_label, "image", img) 
@@ -729,7 +774,7 @@ class SettingsWindow(tk.Toplevel):
             
             # Bind picker
             def open_picker(event, entry=e_folder):
-                folders = self.parent.outlook_client.get_folder_list()
+                folders = self.main_window.outlook_client.get_folder_list()
                 FolderPickerWindow(self, folders if folders else ["Inbox"], 
                                    lambda path: (entry.delete(0, tk.END), entry.insert(0, path)))
 
@@ -757,12 +802,12 @@ class SettingsWindow(tk.Toplevel):
         
         tk.Label(typo_frame, text="Font Family:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).pack(side="left")
         self.font_fam_cb = ttk.Combobox(typo_frame, values=["Segoe UI", "Arial", "Verdana", "Tahoma", "Courier New", "Georgia"], width=15, state="readonly")
-        self.font_fam_cb.set(self.parent.font_family)
+        self.font_fam_cb.set(self.main_window.font_family)
         self.font_fam_cb.pack(side="left", padx=(5, 20))
         
         tk.Label(typo_frame, text="Size:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).pack(side="left")
         self.font_size_cb = ttk.Combobox(typo_frame, values=[str(i) for i in range(8, 17)], width=5, state="readonly")
-        self.font_size_cb.set(str(self.parent.font_size))
+        self.font_size_cb.set(str(self.main_window.font_size))
         self.font_size_cb.pack(side="left", padx=5)
         
         # --- System Settings (Refresh Rate) ---
@@ -775,11 +820,25 @@ class SettingsWindow(tk.Toplevel):
         
         current_label = "30s"
         for label, val in self.refresh_options.items():
-            if val == self.parent.poll_interval:
+            if val == self.main_window.poll_interval:
                 current_label = label
                 break
         self.refresh_cb.set(current_label)
         self.refresh_cb.pack(side="left", padx=5)
+
+        # --- Icon Brightness Setting ---
+        bright_frame = tk.Frame(self, bg=self.colors["bg_root"])
+        bright_frame.pack(fill="x", padx=30, pady=(10, 0))
+        
+        tk.Label(bright_frame, text="Icon Brightness:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).pack(side="left")
+        
+        self.bright_scale = tk.Scale(
+            bright_frame, from_=0.1, to=2.0, resolution=0.1, orient="horizontal",
+            bg=self.colors["bg_root"], fg="white", highlightthickness=0,
+            troughcolor=self.colors["bg_card"], length=150
+        )
+        self.bright_scale.set(self.main_window.icon_brightness)
+        self.bright_scale.pack(side="left", padx=10)
             
         # Footer / Save Button (Blocky Win11 Style)
         btn_save = tk.Button(
@@ -837,18 +896,20 @@ class SettingsWindow(tk.Toplevel):
                     "folder": data["folder"].get()
                 })
         
-        # self.parent.dock_side = self.side_var.get() # Handled by auto-snap now
-        self.parent.font_family = self.font_fam_cb.get()
+        # self.main_window.dock_side = self.side_var.get() # Handled by auto-snap now
+        self.main_window.font_family = self.font_fam_cb.get()
         try:
-            self.parent.font_size = int(self.font_size_cb.get())
+            self.main_window.font_size = int(self.font_size_cb.get())
         except:
-            self.parent.font_size = 9
+            self.main_window.font_size = 9
             
-        self.parent.poll_interval = self.refresh_options.get(self.refresh_cb.get(), 30)
-        self.parent.btn_count = count
-        self.parent.btn_config = new_config
-        self.parent.save_config()
-        self.parent.apply_state() # Immediately apply side change
+        self.main_window.poll_interval = self.refresh_options.get(self.refresh_cb.get(), 30)
+        self.main_window.icon_brightness = self.bright_scale.get()
+        
+        self.main_window.btn_count = count
+        self.main_window.btn_config = new_config
+        self.main_window.save_config()
+        self.main_window.apply_state() # Immediately apply side change
         self.callback()
         self.destroy()
 
@@ -1020,10 +1081,29 @@ class SidebarWindow(tk.Tk):
             
             # Boost Alpha: Treat any non-transparent pixel as fully opaque (or at least boost it)
             # This fixes "dim" icons that have low opacity
-            r, g, b, a = pil_img.split()
-            # Threshold: if alpha > 20, make it 255. Else 0.
-            mask = a.point(lambda p: 255 if p > 20 else 0)
+            # Boost Alpha based on user setting
+            # If brightness is 1.0, threshold is 20. If 2.0 (max), threshold is lower (more sensitive) or we boost alpha values.
+            # User wants "Control Brightness".
+            # Simple approach: Multiply alpha by brightness factor.
             
+            r, g, b, a = pil_img.split()
+            
+            # Apply brightness factor to alpha channel
+            # FIX: load_icon_white is a method of SidebarWindow, so use self.icon_brightness, not self.parent
+            brightness = getattr(self, "icon_brightness", 1.0) # Safe access
+            
+            # Let's try scaling alpha.
+            # a_data = a.getdata()
+            # new_a_data = [min(255, int(x * brightness * 1.5)) if x > 10 else 0 for x in a_data]
+            # a.putdata(new_a_data)
+            
+            # Used the mask logic before: mask = a.point(lambda p: 255 if p > 20 else 0)
+            # If brightness is high, we want MORE pixels to be white (lower threshold)
+            # Threshold = 20 / brightness?
+            
+            threshold = int(20 / max(0.1, brightness))
+            mask = a.point(lambda p: 255 if p > threshold else 0)
+             
             # Use boosted mask
             final_img = Image.new("RGBA", pil_img.size, (0, 0, 0, 0))
             final_img.paste(white_img, (0, 0), mask=mask)
@@ -1067,6 +1147,14 @@ class SidebarWindow(tk.Tk):
                     item.Save()
                 elif act_name == "Open Email":
                     item.Display()
+                    try:
+                        # Maximize Window
+                        inspector = item.GetInspector
+                        inspector.WindowState = 2 # olMaximized
+                        # Force window to front
+                        inspector.Activate()
+                    except:
+                        pass
                 elif act_name == "Reply":
                     # Mark as read first
                     item.UnRead = False
@@ -1074,6 +1162,13 @@ class SidebarWindow(tk.Tk):
                     
                     reply = item.Reply()
                     reply.Display()
+                    try:
+                        # Maximize Window
+                        inspector = reply.GetInspector
+                        inspector.WindowState = 2 # olMaximized
+                        inspector.Activate()
+                    except:
+                        pass
                 elif act_name == "Move To...":
                     if folder_name:
                         target = self.outlook_client.find_folder_by_name(folder_name)
