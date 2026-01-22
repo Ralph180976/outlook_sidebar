@@ -583,7 +583,7 @@ class SettingsWindow(tk.Toplevel):
         header.bind("<Button-1>", self.start_move)
         header.bind("<B1-Motion>", self.on_move)
         
-        lbl_title = tk.Label(header, text="Button Configuration", fg=self.colors["fg_text"], bg=self.colors["bg_root"], font=("Segoe UI Variable Display", 12, "bold"))
+        lbl_title = tk.Label(header, text="Settings", fg=self.colors["fg_text"], bg=self.colors["bg_root"], font=("Segoe UI Variable Display", 12, "bold"))
         lbl_title.pack(side="left", padx=20, pady=10)
         lbl_title.bind("<Button-1>", self.start_move)
         lbl_title.bind("<B1-Motion>", self.on_move)
@@ -620,7 +620,7 @@ class SettingsWindow(tk.Toplevel):
             
         # Rows
         self.rows_data = [] 
-        self.action_options = ["None", "Mark Read", "Delete", "Flag", "Open Email", "Reply", "Move To..."]
+        self.action_options = ["None", "Mark Read", "Delete", "Read & Delete", "Flag", "Open Email", "Reply", "Move To..."]
         # Monochrome / Clean Unicode Icons AND Custom PNGs
         unicode_icons = ["", "🗑", "✉", "⚑", "↩", "📂", "↗", "✓", "✕", "⚠"]
         
@@ -637,6 +637,7 @@ class SettingsWindow(tk.Toplevel):
             "Reply": "Reply.png",
             "Delete": "Delete.png",
             "Mark Read": "Mark as Read.png",
+            "Read & Delete": "Read & Delete.png",
             "Open Email": "open.png",
             "Flag": "Flag.png",
             "Move To...": "Move to Folder.png",
@@ -649,28 +650,68 @@ class SettingsWindow(tk.Toplevel):
         for i in range(4):
             c_data = row_config[i]
             
-            # 1. Icon
-            cb_icon = ttk.Combobox(container, values=self.icons, width=3, state="readonly", font=("Segoe UI", 16))
-            cb_icon.set(c_data.get("icon", self.icons[0]))
-            cb_icon.grid(row=i+1, column=0, padx=8, pady=8, ipady=4)
+            # 1. Icon - Replaced with Spacer as per user request (Space reserved)
+            # cb_icon = ttk.Combobox(container, values=self.icons, width=3, state="readonly", font=("Segoe UI", 16))
+            # cb_icon.set(c_data.get("icon", self.icons[0]))
+            # cb_icon.grid(row=i+1, column=0, padx=8, pady=8, ipady=4)
+            
+            # 1. Icon Display (Dynamic Label)
+            lbl_icon = tk.Label(container, bg=self.colors["bg_root"], width=5) # Width roughly matches 30px
+            lbl_icon.grid(row=i+1, column=0, padx=8, pady=8)
+            
+            # Preserve the icon value for saving (start with current)
+            current_icon_val = c_data.get("icon", self.icons[0])
             
             # 2. Action (Previously Action 1)
             cb_act1 = ttk.Combobox(container, values=self.action_options, width=15, state="readonly", font=("Segoe UI", 10))
             cb_act1.set(c_data.get("action1", "None")) 
             cb_act1.grid(row=i+1, column=1, padx=8, pady=8, ipady=4)
             
-            # Auto-update Handler
-            def on_action_change(event, act_cb=cb_act1, icon_cb=cb_icon):
-                action = act_cb.get()
-                new_icon = self.ACTION_TO_ICON.get(action)
+            # Helper to update icon display based on action
+            def update_icon_display(action_widget, icon_label, row_idx):
+                action = action_widget.get()
+                new_icon = self.ACTION_TO_ICON.get(action, "")
                 
-                # Only update if we have a mapping and the file/icon actually exists in our list
-                # Or empty string is always valid
-                if new_icon is not None:
-                     if new_icon in self.icons:
-                         icon_cb.set(new_icon)
-                     elif new_icon == "":
-                         icon_cb.set("")
+                # Update visual
+                if new_icon:
+                     # Check if PNG or Unicode
+                     if new_icon.lower().endswith(".png"):
+                         path = os.path.join("icons", new_icon)
+                         if os.path.exists(path):
+                             # Load using parent's loader
+                             img = self.parent.load_icon_white(path, size=(24, 24))
+                             if img:
+                                 # Keep reference to avoid GC
+                                 setattr(icon_label, "image", img) 
+                                 # IMPORTANT: Reset width to 0 (auto) when showing image, otherwise '5' means 5 pixels!
+                                 icon_label.config(image=img, text="", width=0)
+                             else:
+                                 icon_label.config(text="?", image="", width=5)
+                         else:
+                             icon_label.config(text="?", image="", width=5)
+                     else:
+                         # Unicode
+                         icon_label.config(text=new_icon, image="", fg="white", font=("Segoe UI", 16), width=5)
+                else:
+                    icon_label.config(text="", image="", width=5)
+                
+                # Update underlying data for saving
+                # We need to update the entry in self.rows_data list, 
+                # but we are currently building it. 
+                # Better approach: Modify the specific dictionary in rows_data via mutable access
+                # BUT rows_data isn't fully populated yet.
+                # So we bind a function that looks up the row data LATER.
+                if len(self.rows_data) > row_idx:
+                    self.rows_data[row_idx]["icon_val"] = new_icon
+
+            # Initial Update
+            # We use a deferred call or just run it now contextually, but we need the 'row_idx' 
+            # which is loop variable 'i'. Be careful with closures.
+            
+            # Auto-update Handler
+            def on_action_change(event, act_cb=cb_act1, icon_lbl=lbl_icon, idx=i):
+                 update_icon_display(act_cb, icon_lbl, idx)
+                 self.refresh_dropdown_options() # Enforce uniqueness
             
             cb_act1.bind("<<ComboboxSelected>>", on_action_change)
             
@@ -695,10 +736,16 @@ class SettingsWindow(tk.Toplevel):
             btn_pick.bind("<Button-1>", open_picker)
 
             self.rows_data.append({
-                "icon": cb_icon,
+                "icon_val": current_icon_val, # Store value directly
                 "act1": cb_act1,
                 "folder": e_folder
             })
+            
+            # Trigger initial display update manually
+            update_icon_display(cb_act1, lbl_icon, i)
+            
+        # Initial Refresh of Options to filter out duplicates
+        self.refresh_dropdown_options()
             
         # --- Sidebar Placement Setting REMOVED (Auto-snap implemented) ---
         # placement_frame = tk.Frame(self, bg=self.colors["bg_root"])
@@ -742,6 +789,29 @@ class SettingsWindow(tk.Toplevel):
         )
         btn_save.pack(side="bottom", pady=30)
 
+    def refresh_dropdown_options(self):
+        """Filters available options for each dropdown to prevent duplicate selections."""
+        # 1. Collect all currently selected actions (exclude "None")
+        selected_actions = []
+        for row in self.rows_data:
+            act = row["act1"].get()
+            if act and act != "None":
+                selected_actions.append(act)
+        
+        # 2. Update each dropdown
+        for row in self.rows_data:
+            cb = row["act1"]
+            current = cb.get()
+            
+            # Allowed = All Options - (Selected Actions - My Selection)
+            # Basically, everything is allowed EXCEPT what others have picked.
+            # My current selection must remain valid/in list.
+            
+            unavailable = [x for x in selected_actions if x != current]
+            new_values = [opt for opt in self.action_options if opt not in unavailable]
+            
+            cb.config(values=new_values)
+
     def start_move(self, event):
         self._x = event.x
         self._y = event.y
@@ -761,7 +831,7 @@ class SettingsWindow(tk.Toplevel):
             if act1 != "None":
                 count += 1
                 new_config.append({
-                    "icon": data["icon"].get(),
+                    "icon": data["icon_val"], # Read preserved value
                     "action1": act1,
                     # action2 removed
                     "folder": data["folder"].get()
@@ -987,6 +1057,10 @@ class SidebarWindow(tk.Tk):
                     item.Save()
                 elif act_name == "Delete":
                     item.Delete()
+                elif act_name == "Read & Delete":
+                    item.UnRead = False
+                    item.Save()
+                    item.Delete()
                 elif act_name == "Flag":
                     if item.IsMarkedAsTask: item.ClearTaskFlag()
                     else: item.MarkAsTask(4)
@@ -994,6 +1068,10 @@ class SidebarWindow(tk.Tk):
                 elif act_name == "Open Email":
                     item.Display()
                 elif act_name == "Reply":
+                    # Mark as read first
+                    item.UnRead = False
+                    item.Save()
+                    
                     reply = item.Reply()
                     reply.Display()
                 elif act_name == "Move To...":
@@ -1476,6 +1554,37 @@ class SidebarWindow(tk.Tk):
             self.is_expanded = False
             self.apply_state() # Collapse and release space
 
+def ensure_single_instance():
+    """Ensures only one instance runs by killing the previous one found in sidebar.lock."""
+    pid_file = "sidebar.lock"
+    import subprocess
+    
+    if os.path.exists(pid_file):
+        try:
+            with open(pid_file, "r") as f:
+                content = f.read().strip()
+                if content:
+                    old_pid = int(content)
+                    
+                    if old_pid != os.getpid():
+                        print(f"Checking for existing instance: {old_pid}")
+                        try:
+                            # Use taskkill to force close the old process
+                            subprocess.run(f"taskkill /PID {old_pid} /F", shell=True, capture_output=True)
+                            print(f"Killed old instance: {old_pid}")
+                        except Exception as e:
+                            print(f"Error killing old instance: {e}")
+        except Exception as e:
+            print(f"Error checking lock file: {e}")
+            
+    # Write current PID
+    try:
+        with open(pid_file, "w") as f:
+            f.write(str(os.getpid()))
+    except Exception as e:
+        print(f"Error writing lock file: {e}")
+
 if __name__ == "__main__":
+    ensure_single_instance()
     app = SidebarWindow()
     app.mainloop()
