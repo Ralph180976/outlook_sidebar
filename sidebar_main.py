@@ -911,7 +911,7 @@ class SidebarWindow(tk.Tk):
         super().__init__()
 
         # --- Configuration ---
-        self.min_width = 220  
+        self.min_width = 300  
         self.hot_strip_width = 10
         self.expanded_width = 300
         self.is_pinned = False
@@ -976,6 +976,12 @@ class SidebarWindow(tk.Tk):
         # Footer
         self.footer = tk.Frame(self.main_frame, bg="#444444", height=40)
         self.footer.pack(fill="x", side="bottom")
+        
+        # Outlook Button
+        self.btn_outlook = tk.Button(self.footer, text="Open Outlook", command=self.open_outlook_app,
+                                     bg="#0078D4", fg="white", bd=0, font=("Segoe UI", 9, "bold"),
+                                     activebackground="#2B88D8", activeforeground="white", cursor="hand2")
+        self.btn_outlook.pack(fill="y", padx=10, pady=5)
 
         # Header
         self.header = tk.Frame(self.main_frame, bg="#444444", height=40)
@@ -1031,8 +1037,8 @@ class SidebarWindow(tk.Tk):
 
         # Share Button
         if os.path.exists("icons/Share.png"):
-            # Reduced by 10% -> (22, 22)
-            img = self.load_icon_white("icons/Share.png", size=(22, 22))
+            # Reduced by another 10% -> (20, 20)
+            img = self.load_icon_white("icons/Share.png", size=(20, 20))
             if img:
                 self.image_cache["share_header"] = img
                 self.btn_share = tk.Label(self.header, image=img, bg="#444444", cursor="hand2")
@@ -1260,6 +1266,15 @@ class SidebarWindow(tk.Tk):
         
         # Speed: 50ms (20fps) for smooth gentle pulse
         self._pulse_job = self.after(50, self.run_pulse_animation)
+
+    def open_outlook_app(self):
+        """Opens/Focuses the main Outlook window."""
+        try:
+             # Folder 6 is Inbox. Display() brings explorer to front.
+             if self.outlook_client and self.outlook_client.namespace:
+                self.outlook_client.namespace.GetDefaultFolder(6).Display()
+        except Exception as e:
+            print(f"Error opening Outlook: {e}")
         
     def load_config(self):
         try:
