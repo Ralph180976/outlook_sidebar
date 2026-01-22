@@ -1026,6 +1026,10 @@ class SidebarWindow(tk.Tk):
             self.btn_refresh = tk.Label(self.header, text="↻", bg="#444444", fg="#aaaaaa", font=(self.font_family, 15), cursor="hand2")
         self.btn_refresh.pack(side="right", padx=5)
         self.btn_refresh.bind("<Button-1>", lambda e: self.refresh_emails())
+        
+        # Tooltips
+        ToolTip(self.btn_settings, "Settings")
+        ToolTip(self.btn_refresh, "Refresh Email List")
 
         # Content Area - Scrollable Frame for Emails
         self.content_container = tk.Frame(self.main_frame, bg="#222222")

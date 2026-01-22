@@ -3,7 +3,6 @@
     "font_family": "Segoe UI",
     "font_size": 9,
     "poll_interval": 30,
-    "icon_brightness": 0.1,
     "buttons": [
         {
             "icon": "Mark as Read.png",
