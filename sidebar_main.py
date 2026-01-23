@@ -24,7 +24,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.0.2"
+VERSION = "v1.0.3"
 
 
 # --- Windows API Constants & Structures ---
