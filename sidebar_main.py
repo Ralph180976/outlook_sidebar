@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import tkinter as tk
 from tkinter import ttk
 import ctypes
@@ -13,6 +14,7 @@ import math # Added for animation
 import glob
 from tkinter import messagebox
 from PIL import Image, ImageTk
+from datetime import datetime, timedelta
 
 # --- Store Compatibility Imports ---
 import sys
@@ -24,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.0.3"
+VERSION = "v1.0.4"
 
 
 # --- Windows API Constants & Structures ---
@@ -377,7 +379,7 @@ class OutlookClient:
         
         return False
 
-    def get_inbox_items(self, count=20):
+    def get_inbox_items(self, count=20, unread_only=False, only_flagged=False, include_read_flagged=True, flag_date_filter="Anytime"):
         # Retry loop
         for attempt in range(2):
             if not self.namespace:
@@ -387,6 +389,49 @@ class OutlookClient:
             try:
                 inbox = self.namespace.GetDefaultFolder(6) # 6 = olFolderInbox
                 items = inbox.Items
+                
+                # Build restriction string
+                restricts = []
+                
+                if only_flagged:
+                    # [FlagStatus] <> 0 correctly identifies flagged items
+                    restricts.append("[FlagStatus] <> 0")
+                    # Sub-filter: Only apply unread restriction if NOT including read flagged
+                    if not include_read_flagged:
+                        restricts.append("[UnRead] = True")
+                    
+                    # Date Filter Logic
+                    if flag_date_filter and flag_date_filter != "Anytime":
+                        now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                        if flag_date_filter == "Today":
+                            start = now
+                            end = now + timedelta(days=1)
+                            restricts.append(f"[TaskDueDate] >= '{start.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{end.strftime('%m/%d/%Y %I:%M %p')}'")
+                        elif flag_date_filter == "Tomorrow":
+                            start = now + timedelta(days=1)
+                            end = now + timedelta(days=2)
+                            restricts.append(f"[TaskDueDate] >= '{start.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{end.strftime('%m/%d/%Y %I:%M %p')}'")
+                        elif flag_date_filter == "This Week":
+                            # Next 7 days
+                            end = now + timedelta(days=7)
+                            restricts.append(f"[TaskDueDate] >= '{now.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{end.strftime('%m/%d/%Y %I:%M %p')}'")
+                        elif flag_date_filter == "Next Week":
+                            # Days 7 to 14
+                            start = now + timedelta(days=7)
+                            end = now + timedelta(days=14)
+                            restricts.append(f"[TaskDueDate] >= '{start.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{end.strftime('%m/%d/%Y %I:%M %p')}'")
+                        elif flag_date_filter == "No Date":
+                            # Outlook uses 4501-01-01 for "No Date" tasks
+                            restricts.append("[TaskDueDate] > '01/01/4500'")
+                else:
+                    # Global filter: Only unread
+                    if unread_only:
+                        restricts.append("[UnRead] = True")
+                
+                if restricts:
+                    restrict_str = " AND ".join(restricts)
+                    items = items.Restrict(restrict_str)
+                
                 items.Sort("[ReceivedTime]", True) # Descending
                 
                 email_list = []
@@ -409,7 +454,10 @@ class OutlookClient:
                             "subject": subject,
                             "preview": body,
                             "unread": unread,
-                            "entry_id": getattr(item, "EntryID", "")
+                            "entry_id": getattr(item, "EntryID", ""),
+                            "received": getattr(item, "ReceivedTime", None),
+                            "flag_status": getattr(item, "FlagStatus", 0),
+                            "due_date": getattr(item, "TaskDueDate", None)
                         })
                     except Exception as inner_e:
                         print(f"Error reading item: {inner_e}")
@@ -652,7 +700,7 @@ class SettingsWindow(tk.Toplevel):
         self.configure(highlightbackground="#444444", highlightthickness=1)
         
         # Geometry
-        w, h = 680, 500 # Larger for spacing
+        w, h = 680, 550 # Increased height for spacing
         x = parent.winfo_x() + 20
         y = parent.winfo_y() + 50
         self.geometry(f"{w}x{h}+{x}+{y}")
@@ -864,6 +912,66 @@ class SettingsWindow(tk.Toplevel):
         self.refresh_cb.set(current_label)
         self.refresh_cb.pack(side="left", padx=5)
 
+        # --- Email List Settings ---
+        list_settings_frame = tk.Frame(self, bg=self.colors["bg_root"])
+        list_settings_frame.pack(fill="x", padx=30, pady=(10, 0))
+        
+        self.show_read_var = tk.BooleanVar(value=self.main_window.show_read)
+        self.chk_show_read = tk.Checkbutton(
+            list_settings_frame, text="Show Read Emails", 
+            variable=self.show_read_var,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 10)
+        )
+        self.chk_show_read.grid(row=0, column=0, sticky="w", pady=(0, 5))
+
+        # Flagged Filter Row
+        self.only_flagged_var = tk.BooleanVar(value=self.main_window.only_flagged)
+        self.chk_only_flagged = tk.Checkbutton(
+            list_settings_frame, text="Only Flagged Emails", 
+            variable=self.only_flagged_var,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 10)
+        )
+        self.chk_only_flagged.grid(row=1, column=0, sticky="w")
+
+        self.include_read_flagged_var = tk.BooleanVar(value=self.main_window.include_read_flagged)
+        self.chk_include_read_flagged = tk.Checkbutton(
+            list_settings_frame, text="Include Read", 
+            variable=self.include_read_flagged_var,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 10)
+        )
+        self.chk_include_read_flagged.grid(row=1, column=1, sticky="w", padx=(20, 0))
+
+        # Date Filter for Flagged
+        tk.Label(list_settings_frame, text="Due:", bg=self.colors["bg_root"], fg=self.colors["fg_dim"], font=("Segoe UI", 10)).grid(row=1, column=2, sticky="w", padx=(30, 5))
+        self.flag_date_cb = ttk.Combobox(
+            list_settings_frame, 
+            values=["Anytime", "Today", "Tomorrow", "This Week", "Next Week", "No Date"],
+            width=10, state="readonly", font=("Segoe UI", 10)
+        )
+        self.flag_date_cb.set(self.main_window.flag_date_filter)
+        self.flag_date_cb.grid(row=1, column=3, sticky="w")
+
+        # Disable sub-options if No Flagged Filter
+        def update_flag_options(event=None):
+            state = "normal" if self.only_flagged_var.get() else "disabled"
+            self.chk_include_read_flagged.config(state=state)
+            self.flag_date_cb.config(state=state)
+
+        self.chk_only_flagged.config(command=update_flag_options)
+        update_flag_options() # Initial state
+
         # --- Icon Brightness Setting REMOVED ---
         # User requested fixed 75% brightness, slider removed.
         
@@ -937,6 +1045,10 @@ class SettingsWindow(tk.Toplevel):
             
         self.main_window.poll_interval = self.refresh_options.get(self.refresh_cb.get(), 30)
         # self.main_window.icon_brightness = self.bright_scale.get() # Removed
+        self.main_window.show_read = self.show_read_var.get()
+        self.main_window.only_flagged = self.only_flagged_var.get()
+        self.main_window.include_read_flagged = self.include_read_flagged_var.get()
+        self.main_window.flag_date_filter = self.flag_date_cb.get()
         
         self.main_window.btn_count = count
         self.main_window.btn_config = new_config
@@ -961,6 +1073,10 @@ class SidebarWindow(tk.Tk):
         self.font_family = "Segoe UI"
         self.font_size = 9
         self.poll_interval = 30 # seconds
+        self.show_read = True
+        self.only_flagged = False
+        self.include_read_flagged = True
+        self.flag_date_filter = "Anytime"
         # self.icon_brightness = 1.0 # Removed
         self.hover_delay = 500 # ms
         self._hover_timer = None
@@ -1035,6 +1151,13 @@ class SidebarWindow(tk.Tk):
                 ToolTip(self.btn_outlook, "Open Outlook")
              except Exception as e:
                 print(f"Error loading Outlook icon: {e}")
+
+        # 0. Close Button (Leftmost)
+        # Use a simple text button or icon if available
+        self.btn_close = tk.Label(self.footer, text="✕", bg="#444444", fg="#aaaaaa", font=("Arial", 12), cursor="hand2")
+        self.btn_close.pack(side="left", padx=10, pady=5)
+        self.btn_close.bind("<Button-1>", lambda e: self.quit_application())
+        ToolTip(self.btn_close, "Close Application")
                  
         # 2. Calendar Button (Next to Outlook)
         if os.path.exists("icons/OutlookCalendar_48x48.png"):
@@ -1145,7 +1268,14 @@ class SidebarWindow(tk.Tk):
         
         # Initial State
         self.apply_state()
-        
+
+    def quit_application(self):
+        """Terminates the application."""
+        self.destroy()
+        sys.exit(0)
+
+
+
     def open_settings(self):
         # Callback is now refresh_emails to rebuild cards with new button config
         SettingsWindow(self, self.refresh_emails)
@@ -1484,6 +1614,10 @@ class SidebarWindow(tk.Tk):
                     {"label": "Trash", "icon": "✕", "action1": "Mark Read", "action2": "Delete", "folder": ""}, 
                     {"label": "Reply", "icon": "↩", "action1": "Reply", "action2": "None", "folder": ""}
                 ])
+                self.show_read = data.get("show_read", True)
+                self.only_flagged = data.get("only_flagged", False)
+                self.include_read_flagged = data.get("include_read_flagged", True)
+                self.flag_date_filter = data.get("flag_date_filter", "Anytime")
         except FileNotFoundError:
             pass
 
@@ -1496,7 +1630,11 @@ class SidebarWindow(tk.Tk):
             "font_size": self.font_size,
             "poll_interval": self.poll_interval,
             "btn_count": self.btn_count,
-            "btn_config": self.btn_config
+            "btn_config": self.btn_config,
+            "show_read": self.show_read,
+            "only_flagged": self.only_flagged,
+            "include_read_flagged": self.include_read_flagged,
+            "flag_date_filter": self.flag_date_filter
         }
         with open("sidebar_config.json", "w") as f:
             json.dump(data, f)
@@ -1511,7 +1649,13 @@ class SidebarWindow(tk.Tk):
         for widget in self.scroll_frame.scrollable_frame.winfo_children():
             widget.destroy()
 
-        emails = self.outlook_client.get_inbox_items(count=30)
+        emails = self.outlook_client.get_inbox_items(
+            count=30, 
+            unread_only=not self.show_read,
+            only_flagged=self.only_flagged,
+            include_read_flagged=self.include_read_flagged,
+            flag_date_filter=self.flag_date_filter
+        )
         
         for email in emails:
             # Determine styling based on UnRead status
@@ -1531,21 +1675,86 @@ class SidebarWindow(tk.Tk):
             )
             card.pack(fill="x", expand=True, padx=2, pady=2)
             
+            # --- Badge System (Follow-up Indicators) ---
+            badge_text = ""
+            badge_bg = "#555555" # Default
+            
+            if email.get('flag_status', 0) != 0:
+                due = email.get('due_date')
+                now_dt = datetime.now()
+                received = email.get('received')
+                
+                # Check for 4501 "No Date"
+                is_real_due = False
+                if due:
+                    try:
+                        # Extract date part for comparison
+                        due_short = due.replace(hour=0, minute=0, second=0, microsecond=0)
+                        now_short = now_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+                        
+                        if due_short.year < 3000: # Not the 4501 placeholder
+                            is_real_due = True
+                            diff = (due_short - now_short).days
+                            
+                            if diff < 0:
+                                badge_text = "OVERDUE"
+                                badge_bg = "#D83B01" # Dark Red/Orange
+                            elif diff == 0:
+                                badge_text = "DUE TODAY"
+                                badge_bg = "#FF8C00" # Orange
+                            elif diff == 1:
+                                badge_text = "TOMORROW"
+                                badge_bg = "#0078D4" # Blue
+                            elif diff < 7:
+                                badge_text = due_short.strftime("%a").upper()
+                                badge_bg = "#00B7C3" # Teal
+                            else:
+                                badge_text = due_short.strftime("%d %b").upper()
+                                badge_bg = "#666666"
+                    except:
+                        pass
+
+                if not is_real_due and received:
+                    # Show "Flagged X days ago"
+                    try:
+                        diff = (now_dt.astimezone() - received.astimezone()).days
+                        if diff == 0:
+                            badge_text = "FLAGGED TODAY"
+                        else:
+                            badge_text = f"FLAGGED {diff}D"
+                        badge_bg = "#8E8E8E"
+                    except:
+                        pass
+
+            header_frame = tk.Frame(card, bg=bg_color)
+            header_frame.pack(fill="x")
+
             # Sender
             sender_text = email['sender']
             if is_unread:
                 sender_text = "● " + sender_text # Add indicator dot
                 
             lbl_sender = tk.Label(
-                card, 
+                header_frame, 
                 text=sender_text, 
                 fg="white", 
                 bg=bg_color, 
                 font=(self.font_family, self.font_size, "bold"),
                 anchor="w"
             )
-            lbl_sender.pack(fill="x")
-            
+            lbl_sender.pack(side="left", fill="x", expand=True)
+
+            if badge_text:
+                lbl_badge = tk.Label(
+                    header_frame, 
+                    text=badge_text, 
+                    fg="white", 
+                    bg=badge_bg, 
+                    font=(self.font_family, self.font_size - 2, "bold"),
+                    padx=6, pady=2
+                )
+                lbl_badge.pack(side="right", padx=2)
+                
             # Subject
             lbl_subject = tk.Label(
                 card, 
