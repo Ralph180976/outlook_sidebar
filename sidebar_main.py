@@ -652,10 +652,11 @@ class FolderPickerWindow(tk.Toplevel):
         self.geometry(f"+{x}+{y}")
 
 
-class SettingsWindow(tk.Toplevel):
-    def __init__(self, parent, callback):
-        super().__init__(parent)
-        self.main_window = parent # Renamed from self.parent to avoid conflict
+class SettingsPanel(tk.Frame):
+    """Inline settings panel that extends from the sidebar."""
+    def __init__(self, parent, main_window, callback):
+        super().__init__(parent, bg="#202020")
+        self.main_window = main_window
         self.callback = callback
         
         # --- Windows 11 Dark Theme ---
@@ -693,30 +694,21 @@ class SettingsWindow(tk.Toplevel):
             darkcolor=self.colors["bg_root"]
         )
         
-        # Window attributes
-        self.overrideredirect(True)
-        self.wm_attributes("-topmost", True)
+        # Frame styling
         self.config(bg=self.colors["bg_root"])
         self.configure(highlightbackground="#444444", highlightthickness=1)
         
-        # Geometry
-        w, h = 680, 550 # Increased height for spacing
-        x = parent.winfo_x() + 20
-        y = parent.winfo_y() + 50
-        self.geometry(f"{w}x{h}+{x}+{y}")
+        # Fixed width for the settings panel
+        self.panel_width = 350
+        self.config(width=self.panel_width)
+        self.pack_propagate(False)  # Prevent shrinking
         
         # --- Header ---
         header = tk.Frame(self, bg=self.colors["bg_root"], height=40)
         header.pack(fill="x", side="top")
         
-        # Dragging
-        header.bind("<Button-1>", self.start_move)
-        header.bind("<B1-Motion>", self.on_move)
-        
         lbl_title = tk.Label(header, text="Settings", fg=self.colors["fg_text"], bg=self.colors["bg_root"], font=("Segoe UI Variable Display", 12, "bold"))
         lbl_title.pack(side="left", padx=20, pady=10)
-        lbl_title.bind("<Button-1>", self.start_move)
-        lbl_title.bind("<B1-Motion>", self.on_move)
         
         title_underline = tk.Frame(self, bg=self.colors["accent"], height=2)
         title_underline.pack(fill="x", side="top")
@@ -727,7 +719,7 @@ class SettingsWindow(tk.Toplevel):
         # Red Cross Close
         btn_close = tk.Label(header, text="✕", fg="#FFFFFF", bg="#C42B1C", font=("Arial", 10), width=5, cursor="hand2")
         btn_close.pack(side="right", fill="y", padx=0)
-        btn_close.bind("<Button-1>", lambda e: self.destroy())
+        btn_close.bind("<Button-1>", lambda e: self.close_panel())
 
         # Attribution Info Button
         btn_info = tk.Label(header, text="ⓘ", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 12), cursor="hand2")
@@ -975,14 +967,13 @@ class SettingsWindow(tk.Toplevel):
         # --- Icon Brightness Setting REMOVED ---
         # User requested fixed 75% brightness, slider removed.
         
-        # Footer / Save Button (Blocky Win11 Style)
-        btn_save = tk.Button(
-            self, text="Save Actions", command=self.save_and_close,
+        # Footer / Close Button (Blocky Win11 Style)
+        btn_close = tk.Button(
+            self, text="Close Settings", command=self.close_panel,
             bg=self.colors["accent"], fg="black", font=("Segoe UI", 10, "bold"),
             bd=0, padx=30, pady=10, cursor="hand2", activebackground="#4CC2FF", activeforeground="black"
         )
-        # Changed to side="top" to adhere to flow logic and close gap
-        btn_save.pack(side="top", pady=20)
+        btn_close.pack(side="top", pady=20)
 
         # Version Label
         lbl_ver = tk.Label(self, text=VERSION, fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 8))
@@ -1011,18 +1002,8 @@ class SettingsWindow(tk.Toplevel):
             
             cb.config(values=new_values)
 
-    def start_move(self, event):
-        self._x = event.x
-        self._y = event.y
-
-    def on_move(self, event):
-        deltax = event.x - self._x
-        deltay = event.y - self._y
-        x = self.winfo_x() + deltax
-        y = self.winfo_y() + deltay
-        self.geometry(f"+{x}+{y}")
-
-    def save_and_close(self):
+    def apply_changes(self):
+        """Apply current settings to the main window."""
         new_config = []
         count = 0
         for data in self.rows_data:
@@ -1030,13 +1011,11 @@ class SettingsWindow(tk.Toplevel):
             if act1 != "None":
                 count += 1
                 new_config.append({
-                    "icon": data["icon_val"], # Read preserved value
+                    "icon": data["icon_val"],
                     "action1": act1,
-                    # action2 removed
                     "folder": data["folder"].get()
                 })
         
-        # self.main_window.dock_side = self.side_var.get() # Handled by auto-snap now
         self.main_window.font_family = self.font_fam_cb.get()
         try:
             self.main_window.font_size = int(self.font_size_cb.get())
@@ -1044,7 +1023,6 @@ class SettingsWindow(tk.Toplevel):
             self.main_window.font_size = 9
             
         self.main_window.poll_interval = self.refresh_options.get(self.refresh_cb.get(), 30)
-        # self.main_window.icon_brightness = self.bright_scale.get() # Removed
         self.main_window.show_read = self.show_read_var.get()
         self.main_window.only_flagged = self.only_flagged_var.get()
         self.main_window.include_read_flagged = self.include_read_flagged_var.get()
@@ -1053,11 +1031,12 @@ class SettingsWindow(tk.Toplevel):
         self.main_window.btn_count = count
         self.main_window.btn_config = new_config
         self.main_window.save_config()
-        self.main_window.apply_state() # Immediately apply side change
         self.callback()
-        self.destroy()
 
-    # show_attribution method removed
+    def close_panel(self):
+        """Close the settings panel and restore sidebar width."""
+        self.apply_changes()
+        self.main_window.toggle_settings_panel()
 
 class SidebarWindow(tk.Tk):
     def __init__(self):
@@ -1067,7 +1046,7 @@ class SidebarWindow(tk.Tk):
         self.min_width = 300  
         self.hot_strip_width = 10
         self.expanded_width = 300
-        self.is_pinned = False
+        self.is_pinned = True
         self.is_expanded = False
         self.dock_side = "Left" # "Left" or "Right"
         self.font_family = "Segoe UI"
@@ -1077,10 +1056,14 @@ class SidebarWindow(tk.Tk):
         self.only_flagged = False
         self.include_read_flagged = True
         self.flag_date_filter = "Anytime"
-        # self.icon_brightness = 1.0 # Removed
         self.hover_delay = 500 # ms
         self._hover_timer = None
         self._collapse_timer = None
+        
+        # Settings Panel State
+        self.settings_panel_open = False
+        self.settings_panel = None
+        self.settings_panel_width = 350
         
         # Pulse Animation State
         self.pulsing = False
@@ -1127,8 +1110,13 @@ class SidebarWindow(tk.Tk):
         self.appbar = AppBarManager(self.hwnd)
         
         # --- UI Components ---
-        self.main_frame = tk.Frame(self, bg="#222222")
-        self.main_frame.place(relx=0, rely=0, relwidth=1, relheight=1)
+        # Container frame that holds main content and settings panel side by side
+        self.content_wrapper = tk.Frame(self, bg="#222222")
+        self.content_wrapper.pack(fill="both", expand=True)
+        
+        # Main sidebar content frame
+        self.main_frame = tk.Frame(self.content_wrapper, bg="#222222")
+        self.main_frame.pack(side="left", fill="both", expand=True)
 
         # Footer
         self.footer = tk.Frame(self.main_frame, bg="#444444", height=40)
@@ -1277,8 +1265,34 @@ class SidebarWindow(tk.Tk):
 
 
     def open_settings(self):
-        # Callback is now refresh_emails to rebuild cards with new button config
-        SettingsWindow(self, self.refresh_emails)
+        """Toggle the settings panel."""
+        self.toggle_settings_panel()
+
+    def toggle_settings_panel(self):
+        """Show or hide the settings panel and adjust window width."""
+        if self.settings_panel_open:
+            # Close the panel
+            if self.settings_panel:
+                self.settings_panel.pack_forget()
+                self.settings_panel.destroy()
+                self.settings_panel = None
+            self.settings_panel_open = False
+            
+            # Restore original width
+            if self.is_pinned:
+                self.appbar.set_pos(self.expanded_width, self.monitor_x, self.monitor_y, self.screen_width, self.screen_height)
+            self.set_geometry(self.expanded_width)
+        else:
+            # Open the panel
+            self.settings_panel = SettingsPanel(self.content_wrapper, self, self.refresh_emails)
+            self.settings_panel.pack(side="left", fill="both")
+            self.settings_panel_open = True
+            
+            # Expand width to accommodate panel
+            new_width = self.expanded_width + self.settings_panel_width
+            if self.is_pinned:
+                self.appbar.set_pos(new_width, self.monitor_x, self.monitor_y, self.screen_width, self.screen_height)
+            self.set_geometry(new_width)
         
     def load_icon_white(self, path, size=None):
         """Loads an image, converts it to white, and returns ImageTk.PhotoImage."""
@@ -1604,7 +1618,7 @@ class SidebarWindow(tk.Tk):
             with open("sidebar_config.json", "r") as f:
                 data = json.load(f)
                 self.expanded_width = data.get("width", 300)
-                self.is_pinned = data.get("pinned", False)
+                self.is_pinned = data.get("pinned", True)
                 self.dock_side = data.get("dock_side", "Left")
                 self.font_family = data.get("font_family", "Segoe UI")
                 self.font_size = data.get("font_size", 9)
