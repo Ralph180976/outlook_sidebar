@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.0.4"
+VERSION = "v1.0.5"
 
 
 # --- Windows API Constants & Structures ---
@@ -699,7 +699,7 @@ class SettingsPanel(tk.Frame):
         self.configure(highlightbackground="#444444", highlightthickness=1)
         
         # Fixed width for the settings panel
-        self.panel_width = 350
+        self.panel_width = 370
         self.config(width=self.panel_width)
         self.pack_propagate(False)  # Prevent shrinking
         
@@ -726,10 +726,9 @@ class SettingsPanel(tk.Frame):
         btn_info.pack(side="right", padx=10)
         ToolTip(btn_info, "Icons made by IconKanan and Ardiansyah from www.flaticon.com", side="left")
         
-        # --- Main Content (Grid) ---
-        container = tk.Frame(self, bg=self.colors["bg_root"], padx=20, pady=20)
-        # expand=False ensures it only takes necessary height, pulling bottom controls up
-        container.pack(fill="x", expand=False)
+        # --- Button Configuration Table ---
+        container = tk.Frame(self, bg=self.colors["bg_root"], pady=20)
+        container.pack(fill="x", expand=False, padx=(2, 20))  # 2px left padding
         
         # Table Headers
         headers = ["Icon", "Action", "Folders (for Move)"]
@@ -1063,7 +1062,7 @@ class SidebarWindow(tk.Tk):
         # Settings Panel State
         self.settings_panel_open = False
         self.settings_panel = None
-        self.settings_panel_width = 350
+        self.settings_panel_width = 370
         
         # Pulse Animation State
         self.pulsing = False
@@ -1114,7 +1113,7 @@ class SidebarWindow(tk.Tk):
         self.content_wrapper = tk.Frame(self, bg="#222222")
         self.content_wrapper.pack(fill="both", expand=True)
         
-        # Main sidebar content frame
+        # Main sidebar content frame (expands to fill space when settings closed)
         self.main_frame = tk.Frame(self.content_wrapper, bg="#222222")
         self.main_frame.pack(side="left", fill="both", expand=True)
 
@@ -1146,6 +1145,10 @@ class SidebarWindow(tk.Tk):
         self.btn_close.pack(side="left", padx=10, pady=5)
         self.btn_close.bind("<Button-1>", lambda e: self.quit_application())
         ToolTip(self.btn_close, "Close Application")
+        
+        # Version Label
+        self.lbl_version = tk.Label(self.footer, text=VERSION, bg="#444444", fg="#888888", font=("Segoe UI", 8))
+        self.lbl_version.pack(side="left", padx=5, pady=5)
                  
         # 2. Calendar Button (Next to Outlook)
         if os.path.exists("icons/OutlookCalendar_48x48.png"):
@@ -1269,7 +1272,7 @@ class SidebarWindow(tk.Tk):
         self.toggle_settings_panel()
 
     def toggle_settings_panel(self):
-        """Show or hide the settings panel and adjust window width."""
+        """Show or hide the settings panel alongside the email list."""
         if self.settings_panel_open:
             # Close the panel
             if self.settings_panel:
@@ -1278,20 +1281,27 @@ class SidebarWindow(tk.Tk):
                 self.settings_panel = None
             self.settings_panel_open = False
             
+            # Unfreeze main_frame so it can expand/contract with window resize
+            self.main_frame.pack_propagate(True)
+            self.main_frame.config(width=0)  # Remove fixed width
+            self.main_frame.pack(side="left", fill="both", expand=True)
+            
             # Restore original width
-            if self.is_pinned:
-                self.appbar.set_pos(self.expanded_width, self.monitor_x, self.monitor_y, self.screen_width, self.screen_height)
             self.set_geometry(self.expanded_width)
         else:
-            # Open the panel
+            # Freeze main_frame at its current width before expanding
+            current_width = self.main_frame.winfo_width()
+            self.main_frame.config(width=current_width)
+            self.main_frame.pack_propagate(False)
+            self.main_frame.pack(side="left", fill="y", expand=False)
+            
+            # Open the panel alongside email list
             self.settings_panel = SettingsPanel(self.content_wrapper, self, self.refresh_emails)
-            self.settings_panel.pack(side="left", fill="both")
+            self.settings_panel.pack(side="left", fill="y")
             self.settings_panel_open = True
             
-            # Expand width to accommodate panel
+            # Expand window by exactly +350px
             new_width = self.expanded_width + self.settings_panel_width
-            if self.is_pinned:
-                self.appbar.set_pos(new_width, self.monitor_x, self.monitor_y, self.screen_width, self.screen_height)
             self.set_geometry(new_width)
         
     def load_icon_white(self, path, size=None):
