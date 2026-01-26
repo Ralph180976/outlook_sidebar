@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.0.8"
+VERSION = "v1.0.9"
 
 
 # --- Windows API Constants & Structures ---
@@ -777,7 +777,7 @@ class SettingsPanel(tk.Frame):
         create_section_header(self, "Button Selection")
         
         # --- Button Configuration Table ---
-        container = tk.Frame(self, bg=self.colors["bg_root"], pady=20)
+        container = tk.Frame(self, bg=self.colors["bg_root"], pady=12)
         container.pack(fill="x", expand=False, padx=(2, 20))  # 2px left padding
         
         # Table Headers
@@ -788,7 +788,7 @@ class SettingsPanel(tk.Frame):
                 container, text=text, 
                 bg=self.colors["bg_root"], fg=self.colors["fg_dim"], 
                 font=("Segoe UI", 9)
-            ).grid(row=0, column=col, sticky="w", padx=8, pady=(0, 15))
+            ).grid(row=0, column=col, sticky="w", padx=8, pady=(0, 8))
             
         # Rows
         self.rows_data = [] 
@@ -829,7 +829,7 @@ class SettingsPanel(tk.Frame):
             
             # 1. Icon Display (Dynamic Label)
             lbl_icon = tk.Label(container, bg=self.colors["bg_root"], width=5) # Width roughly matches 30px
-            lbl_icon.grid(row=i+1, column=0, padx=8, pady=8)
+            lbl_icon.grid(row=i+1, column=0, padx=8, pady=5)
             
             # Preserve the icon value for saving (start with current)
             current_icon_val = c_data.get("icon", self.icons[0])
@@ -837,7 +837,7 @@ class SettingsPanel(tk.Frame):
             # 2. Action (Previously Action 1)
             cb_act1 = ttk.Combobox(container, values=self.action_options, width=15, state="readonly", font=("Segoe UI", 10))
             cb_act1.set(c_data.get("action1", "None")) 
-            cb_act1.grid(row=i+1, column=1, padx=8, pady=8, ipady=4)
+            cb_act1.grid(row=i+1, column=1, padx=8, pady=5, ipady=1)
             
             # Helper to update icon display based on action
             def update_icon_display(action_widget, icon_label, row_idx):
@@ -890,11 +890,11 @@ class SettingsPanel(tk.Frame):
             
             # 3. Folder Picker UI (Entry + Button) - Shifted to Column 2
             f_frame = tk.Frame(container, bg=self.colors["bg_root"])
-            f_frame.grid(row=i+1, column=2, padx=8, pady=8)
+            f_frame.grid(row=i+1, column=2, padx=8, pady=5)
             
             e_folder = ttk.Entry(f_frame, width=15, font=("Segoe UI", 10))
             e_folder.insert(0, c_data.get("folder", ""))
-            e_folder.pack(side="left", ipady=4)
+            e_folder.pack(side="left", ipady=1)
 
             # Picker Button
             btn_pick = tk.Label(f_frame, text="...", bg=self.colors["bg_card"], fg="white", font=("Segoe UI", 8), width=3, cursor="hand2")
@@ -923,6 +923,22 @@ class SettingsPanel(tk.Frame):
         # --- Sidebar Placement Setting REMOVED (Auto-snap implemented) ---
         # placement_frame = tk.Frame(self, bg=self.colors["bg_root"])
         # ...
+
+        # --- Interaction Settings ---
+        interaction_frame = tk.Frame(self, bg=self.colors["bg_root"])
+        interaction_frame.pack(fill="x", padx=(18, 30), pady=(5, 10))
+        
+        self.buttons_on_hover_var = tk.BooleanVar(value=self.main_window.buttons_on_hover)
+        tk.Checkbutton(interaction_frame, text="Show Buttons on Hover", variable=self.buttons_on_hover_var, 
+                       command=self.update_button_config, bg=self.colors["bg_root"], fg="white", 
+                       selectcolor=self.colors["bg_card"], activebackground=self.colors["bg_root"], 
+                       activeforeground="white", font=("Segoe UI", 9)).pack(side="left", padx=(0, 15))
+                       
+        self.email_double_click_var = tk.BooleanVar(value=self.main_window.email_double_click)
+        tk.Checkbutton(interaction_frame, text="Double Click to Open", variable=self.email_double_click_var, 
+                       command=self.update_button_config, bg=self.colors["bg_root"], fg="white", 
+                       selectcolor=self.colors["bg_card"], activebackground=self.colors["bg_root"], 
+                       activeforeground="white", font=("Segoe UI", 9)).pack(side="left")
 
         # === SECTION 2: General Settings ===
         create_section_header(self, "General Settings")
@@ -1004,12 +1020,12 @@ class SettingsPanel(tk.Frame):
         
         # Single Window Button
         self.btn_single_window = tk.Button(
-            window_frame, text="Single Window", 
+            window_frame, text="Email Only", 
             command=lambda: self.select_window_mode("single"),
             bg=self.colors["accent"] if is_single else self.colors["bg_card"],
             fg="black" if is_single else "white",
             font=("Segoe UI", 10, "bold") if is_single else ("Segoe UI", 10),
-            bd=0, padx=20, pady=8,
+            bd=0, padx=20, pady=4,
             activebackground=self.colors["accent"],
             activeforeground="black"
         )
@@ -1017,12 +1033,12 @@ class SettingsPanel(tk.Frame):
         
         # Dual Window Button
         self.btn_dual_window = tk.Button(
-            window_frame, text="Dual Window", 
+            window_frame, text="Emails & Reminders", 
             command=lambda: self.select_window_mode("dual"),
             bg=self.colors["accent"] if not is_single else self.colors["bg_card"],
             fg="black" if not is_single else "white",
             font=("Segoe UI", 10, "bold") if not is_single else ("Segoe UI", 10),
-            bd=0, padx=20, pady=8,
+            bd=0, padx=20, pady=4,
             activebackground=self.colors["bg_card"],
             activeforeground="white"
         )
@@ -1081,6 +1097,61 @@ class SettingsPanel(tk.Frame):
         )
         self.chk_has_attachment.grid(row=1, column=0, sticky="w", pady=(0, 5))
         print("DEBUG: show_has_attachment checkbox created and gridded")
+        
+        # --- Email Window Content ---
+        self.email_content_visible = False
+        self.btn_email_content = tk.Button(
+            list_settings_frame, text="Email Window Content",
+            command=self.toggle_email_content_options,
+            bg=self.colors["bg_card"], fg="white",
+            font=("Segoe UI", 10),
+            bd=0, padx=10, pady=4,
+            cursor="hand2"
+        )
+        self.btn_email_content.grid(row=2, column=0, sticky="w", pady=(10, 5))
+        
+        self.email_content_frame = tk.Frame(list_settings_frame, bg=self.colors["bg_root"])
+        self.email_content_frame.grid(row=3, column=0, sticky="w", padx=(20, 0))
+        self.email_content_frame.grid_remove() # Initially hidden
+        
+        # Checkboxes
+        self.email_show_sender_var = tk.BooleanVar(value=self.main_window.email_show_sender)
+        tk.Checkbutton(self.email_content_frame, text="Who From", variable=self.email_show_sender_var, 
+                       command=self.update_email_filters, bg=self.colors["bg_root"], fg="white", 
+                       selectcolor=self.colors["bg_card"], activebackground=self.colors["bg_root"], 
+                       activeforeground="white", font=("Segoe UI", 9)).grid(row=0, column=0, sticky="w")
+                       
+        self.email_show_subject_var = tk.BooleanVar(value=self.main_window.email_show_subject)
+        tk.Checkbutton(self.email_content_frame, text="Subject Line", variable=self.email_show_subject_var, 
+                       command=self.update_email_filters, bg=self.colors["bg_root"], fg="white", 
+                       selectcolor=self.colors["bg_card"], activebackground=self.colors["bg_root"], 
+                       activeforeground="white", font=("Segoe UI", 9)).grid(row=1, column=0, sticky="w")
+
+        self.email_show_body_var = tk.BooleanVar(value=self.main_window.email_show_body)
+        tk.Checkbutton(self.email_content_frame, text="Content Body", variable=self.email_show_body_var, 
+                       command=self.update_email_filters, bg=self.colors["bg_root"], fg="white", 
+                       selectcolor=self.colors["bg_card"], activebackground=self.colors["bg_root"], 
+                       activeforeground="white", font=("Segoe UI", 9)).grid(row=2, column=0, sticky="w")
+        
+        # Number of Lines Selector
+        lines_frame = tk.Frame(self.email_content_frame, bg=self.colors["bg_root"])
+        lines_frame.grid(row=3, column=0, sticky="w", pady=(5,0))
+        tk.Label(lines_frame, text="Lines:", bg=self.colors["bg_root"], fg="#cccccc", font=("Segoe UI", 10)).pack(side="left")
+        
+        self.email_body_lines_var = tk.StringVar(value=str(self.main_window.email_body_lines))
+        self.cb_lines = ttk.Combobox(lines_frame, textvariable=self.email_body_lines_var, values=["1", "2", "3", "4"], width=3, state="readonly", font=("Segoe UI", 8))
+        self.cb_lines.pack(side="left", padx=5)
+        self.cb_lines.bind("<<ComboboxSelected>>", self.update_email_filters)
+        
+        # Configure dropdown font size
+        def configure_lines_dropdown():
+             try:
+                 popdown = self.cb_lines.tk.call('ttk::combobox::PopdownWindow', self.cb_lines)
+                 listbox = f'{popdown}.f.l'
+                 self.cb_lines.tk.call(listbox, 'configure', '-font', ('Segoe UI', 10))
+             except:
+                 pass
+        self.cb_lines['postcommand'] = configure_lines_dropdown
 
         # === SECTION 5: Reminder Settings ===
         create_section_header(self, "Reminder Settings")
@@ -1089,57 +1160,125 @@ class SettingsPanel(tk.Frame):
         reminder_frame.pack(fill="x", padx=(18, 30), pady=(10, 0))
         
         # --- 1. Follow-up Flags ---
-        tk.Label(reminder_frame, text="Follow-up Flags:", bg=self.colors["bg_root"], fg=self.colors["fg_text"], 
-                font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="w", pady=(0, 5), columnspan=2)
-        
         self.reminder_show_flagged_var = tk.BooleanVar(value=self.main_window.reminder_show_flagged)
-        chk_flagged = tk.Checkbutton(
-            reminder_frame, text="Show Flagged Items", 
+        chk_followup = tk.Checkbutton(
+            reminder_frame, text="Follow-up Flags", 
             variable=self.reminder_show_flagged_var,
-            command=self.update_reminder_filters,
+            command=self.toggle_followup_options,
             bg=self.colors["bg_root"], fg="white",
             selectcolor=self.colors["bg_card"],
             activebackground=self.colors["bg_root"],
             activeforeground="white",
-            font=("Segoe UI", 9)
+            font=("Segoe UI", 9, "bold")
         )
-        chk_flagged.grid(row=1, column=0, sticky="w", padx=(10, 0))
+        chk_followup.grid(row=0, column=0, sticky="w", pady=(0, 5))
         
-        tk.Label(reminder_frame, text="Due:", bg=self.colors["bg_root"], fg=self.colors["fg_dim"], 
-                font=("Segoe UI", 9)).grid(row=1, column=1, sticky="w", padx=(20, 5))
-        self.reminder_due_cb = ttk.Combobox(
-            reminder_frame, 
-            values=["Anytime", "Today", "Tomorrow", "This Week", "Next Week", "Overdue", "No Date"],
-            width=10, state="readonly", font=("Segoe UI", 9)
+        # Toggle button for showing/hiding options
+        self.followup_options_visible = True  # Track visibility state
+        self.btn_toggle_followup = tk.Button(
+            reminder_frame, text="Hide Options",
+            command=self.toggle_followup_visibility,
+            bg=self.colors["bg_card"], fg="white",
+            font=("Segoe UI", 8),
+            bd=0, padx=8, pady=2,
+            cursor="hand2"
         )
-        self.reminder_due_cb.set(self.main_window.reminder_due_filter)
-        self.reminder_due_cb.grid(row=1, column=2, sticky="w")
-        self.reminder_due_cb.bind("<<ComboboxSelected>>", self.update_reminder_filters)
+        self.btn_toggle_followup.grid(row=0, column=1, sticky="w", padx=(10, 0), pady=(0, 5))
+        
+        # Initially hide button if Follow-up Flags is unchecked
+        if not self.main_window.reminder_show_flagged:
+            self.btn_toggle_followup.grid_remove()
+        
+        # Container for due date checkboxes (conditionally shown)
+        self.followup_options_frame = tk.Frame(reminder_frame, bg=self.colors["bg_root"])
+        self.followup_options_frame.grid(row=1, column=0, sticky="w", padx=(20, 0), columnspan=3)
+        
+        # Due date checkboxes
+        self.due_options = ["Today", "Tomorrow", "This Week", "Next Week", "Overdue", "No Date"]
+        self.due_vars = {}
+        
+        for idx, option in enumerate(self.due_options):
+            var = tk.BooleanVar(value=False)  # Default to unchecked
+            self.due_vars[option] = var
+            
+            chk = tk.Checkbutton(
+                self.followup_options_frame, text=option,
+                variable=var,
+                command=self.update_reminder_filters,
+                bg=self.colors["bg_root"], fg="white",
+                selectcolor=self.colors["bg_card"],
+                activebackground=self.colors["bg_root"],
+                activeforeground="white",
+                font=("Segoe UI", 9)
+            )
+            chk.grid(row=idx // 3, column=idx % 3, sticky="w", padx=(0, 15), pady=2)
+        
+        # "All" checkbox
+        self.due_all_var = tk.BooleanVar(value=False)
+        chk_all = tk.Checkbutton(
+            self.followup_options_frame, text="All",
+            variable=self.due_all_var,
+            command=self.toggle_all_due_options,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 9, "bold")
+        )
+        chk_all.grid(row=2, column=0, sticky="w", pady=(5, 0))
+        
+        # Initially hide if not enabled
+        if not self.main_window.reminder_show_flagged:
+            self.followup_options_frame.grid_remove()
         
         # --- 2. Categories ---
-        tk.Label(reminder_frame, text="Categories:", bg=self.colors["bg_root"], fg=self.colors["fg_text"], 
-                font=("Segoe UI", 9, "bold")).grid(row=2, column=0, sticky="w", pady=(10, 5), columnspan=2)
-        
         self.reminder_show_categorized_var = tk.BooleanVar(value=self.main_window.reminder_show_categorized)
         chk_categorized = tk.Checkbutton(
-            reminder_frame, text="Show Categorized Items", 
+            reminder_frame, text="Categories", 
             variable=self.reminder_show_categorized_var,
             command=self.update_reminder_filters,
             bg=self.colors["bg_root"], fg="white",
             selectcolor=self.colors["bg_card"],
             activebackground=self.colors["bg_root"],
             activeforeground="white",
-            font=("Segoe UI", 9)
+            font=("Segoe UI", 9, "bold")
         )
-        chk_categorized.grid(row=3, column=0, sticky="w", padx=(10, 0), columnspan=3)
+        chk_categorized.grid(row=3, column=0, sticky="w", pady=(10, 5), columnspan=3)
         
-        # --- 3. Importance Levels ---
-        tk.Label(reminder_frame, text="Importance:", bg=self.colors["bg_root"], fg=self.colors["fg_text"], 
-                font=("Segoe UI", 9, "bold")).grid(row=4, column=0, sticky="w", pady=(10, 5), columnspan=2)
+        # --- 3. Importance ---
+        self.reminder_show_importance_var = tk.BooleanVar(value=self.main_window.reminder_show_importance)  # Initialize from config
+        chk_importance = tk.Checkbutton(
+            reminder_frame, text="Importance", 
+            variable=self.reminder_show_importance_var,
+            command=self.toggle_importance_options,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 9, "bold")
+        )
+        chk_importance.grid(row=4, column=0, sticky="w", pady=(10, 5))
+        
+        # Toggle button for showing/hiding options
+        self.importance_options_visible = True
+        self.btn_toggle_importance = tk.Button(
+            reminder_frame, text="Hide Options",
+            command=self.toggle_importance_visibility,
+            bg=self.colors["bg_card"], fg="white",
+            font=("Segoe UI", 8),
+            bd=0, padx=8, pady=2,
+            cursor="hand2"
+        )
+        self.btn_toggle_importance.grid(row=4, column=1, sticky="w", padx=(10, 0), pady=(10, 5))
+        self.btn_toggle_importance.grid_remove()  # Initially hidden
+        
+        # Container for importance checkboxes
+        self.importance_options_frame = tk.Frame(reminder_frame, bg=self.colors["bg_root"])
+        self.importance_options_frame.grid(row=5, column=0, sticky="w", padx=(20, 0), columnspan=3)
         
         self.reminder_high_importance_var = tk.BooleanVar(value=self.main_window.reminder_high_importance)
         chk_high = tk.Checkbutton(
-            reminder_frame, text="High", 
+            self.importance_options_frame, text="High", 
             variable=self.reminder_high_importance_var,
             command=self.update_reminder_filters,
             bg=self.colors["bg_root"], fg="white",
@@ -1148,11 +1287,11 @@ class SettingsPanel(tk.Frame):
             activeforeground="white",
             font=("Segoe UI", 9)
         )
-        chk_high.grid(row=5, column=0, sticky="w", padx=(10, 0))
+        chk_high.grid(row=0, column=0, sticky="w", padx=(0, 15), pady=2)
         
         self.reminder_normal_importance_var = tk.BooleanVar(value=self.main_window.reminder_normal_importance)
         chk_normal = tk.Checkbutton(
-            reminder_frame, text="Normal", 
+            self.importance_options_frame, text="Normal", 
             variable=self.reminder_normal_importance_var,
             command=self.update_reminder_filters,
             bg=self.colors["bg_root"], fg="white",
@@ -1161,11 +1300,11 @@ class SettingsPanel(tk.Frame):
             activeforeground="white",
             font=("Segoe UI", 9)
         )
-        chk_normal.grid(row=5, column=1, sticky="w")
+        chk_normal.grid(row=0, column=1, sticky="w", padx=(0, 15), pady=2)
         
         self.reminder_low_importance_var = tk.BooleanVar(value=self.main_window.reminder_low_importance)
         chk_low = tk.Checkbutton(
-            reminder_frame, text="Low", 
+            self.importance_options_frame, text="Low", 
             variable=self.reminder_low_importance_var,
             command=self.update_reminder_filters,
             bg=self.colors["bg_root"], fg="white",
@@ -1174,15 +1313,49 @@ class SettingsPanel(tk.Frame):
             activeforeground="white",
             font=("Segoe UI", 9)
         )
-        chk_low.grid(row=5, column=2, sticky="w")
+        chk_low.grid(row=0, column=2, sticky="w", pady=2)
         
-        # --- 4. Meeting Requests ---
-        tk.Label(reminder_frame, text="Meetings:", bg=self.colors["bg_root"], fg=self.colors["fg_text"], 
-                font=("Segoe UI", 9, "bold")).grid(row=6, column=0, sticky="w", pady=(10, 5), columnspan=2)
+        # Initially hide
+        self.importance_options_frame.grid_remove()
         
+        # --- 4. Meetings ---
+        self.reminder_show_meetings_var = tk.BooleanVar(value=self.main_window.reminder_show_meetings)  # Initialize from config
+        chk_meetings = tk.Checkbutton(
+            reminder_frame, text="Meetings", 
+            variable=self.reminder_show_meetings_var,
+            command=self.toggle_meetings_options,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 9, "bold")
+        )
+        chk_meetings.grid(row=6, column=0, sticky="w", pady=(10, 5))
+        
+        # Toggle button
+        self.meetings_options_visible = True
+        self.btn_toggle_meetings = tk.Button(
+            reminder_frame, text="Hide Options",
+            command=self.toggle_meetings_visibility,
+            bg=self.colors["bg_card"], fg="white",
+            font=("Segoe UI", 8),
+            bd=0, padx=8, pady=2,
+            cursor="hand2"
+        )
+        self.btn_toggle_meetings.grid(row=6, column=1, sticky="w", padx=(10, 0), pady=(10, 5))
+        self.btn_toggle_meetings.grid_remove()  # Initially hidden
+        
+        # Track if defaults have been applied
+        self.meetings_defaults_applied = False
+        
+        # Container for meeting options
+        self.meetings_options_frame = tk.Frame(reminder_frame, bg=self.colors["bg_root"])
+        self.meetings_options_frame.grid(row=7, column=0, sticky="w", padx=(20, 0), columnspan=3)
+        
+        # Status checkboxes
         self.reminder_pending_meetings_var = tk.BooleanVar(value=self.main_window.reminder_pending_meetings)
         chk_pending = tk.Checkbutton(
-            reminder_frame, text="Pending", 
+            self.meetings_options_frame, text="Pending", 
             variable=self.reminder_pending_meetings_var,
             command=self.update_reminder_filters,
             bg=self.colors["bg_root"], fg="white",
@@ -1191,11 +1364,11 @@ class SettingsPanel(tk.Frame):
             activeforeground="white",
             font=("Segoe UI", 9)
         )
-        chk_pending.grid(row=7, column=0, sticky="w", padx=(10, 0))
+        chk_pending.grid(row=0, column=0, sticky="w", padx=(0, 15), pady=2)
         
         self.reminder_accepted_meetings_var = tk.BooleanVar(value=self.main_window.reminder_accepted_meetings)
         chk_accepted = tk.Checkbutton(
-            reminder_frame, text="Accepted", 
+            self.meetings_options_frame, text="Accepted", 
             variable=self.reminder_accepted_meetings_var,
             command=self.update_reminder_filters,
             bg=self.colors["bg_root"], fg="white",
@@ -1204,11 +1377,11 @@ class SettingsPanel(tk.Frame):
             activeforeground="white",
             font=("Segoe UI", 9)
         )
-        chk_accepted.grid(row=7, column=1, sticky="w")
+        chk_accepted.grid(row=0, column=1, sticky="w", pady=2)
         
         self.reminder_declined_meetings_var = tk.BooleanVar(value=self.main_window.reminder_declined_meetings)
         chk_declined = tk.Checkbutton(
-            reminder_frame, text="Declined", 
+            self.meetings_options_frame, text="Declined", 
             variable=self.reminder_declined_meetings_var,
             command=self.update_reminder_filters,
             bg=self.colors["bg_root"], fg="white",
@@ -1217,15 +1390,65 @@ class SettingsPanel(tk.Frame):
             activeforeground="white",
             font=("Segoe UI", 9)
         )
-        chk_declined.grid(row=7, column=2, sticky="w")
+        chk_declined.grid(row=0, column=2, sticky="w", pady=2)
         
-        # --- 5. Task Integration ---
-        tk.Label(reminder_frame, text="Tasks:", bg=self.colors["bg_root"], fg=self.colors["fg_text"], 
-                font=("Segoe UI", 9, "bold")).grid(row=8, column=0, sticky="w", pady=(10, 5), columnspan=2)
+        # Date filters
+        self.meeting_date_options = ["Today", "Tomorrow", "This Week", "Next Week"]
+        self.meeting_date_vars = {}
+        
+        for idx, option in enumerate(self.meeting_date_options):
+            var = tk.BooleanVar(value=False)
+            self.meeting_date_vars[option] = var
+            
+            chk = tk.Checkbutton(
+                self.meetings_options_frame, text=option,
+                variable=var,
+                command=self.update_reminder_filters,
+                bg=self.colors["bg_root"], fg="white",
+                selectcolor=self.colors["bg_card"],
+                activebackground=self.colors["bg_root"],
+                activeforeground="white",
+                font=("Segoe UI", 9)
+            )
+            chk.grid(row=1 + (idx // 2), column=idx % 2, sticky="w", padx=(0, 15), pady=2)
+        
+        # Initially hide
+        self.meetings_options_frame.grid_remove()
+        
+        # --- 5. Tasks ---
+        self.reminder_show_tasks_var = tk.BooleanVar(value=self.main_window.reminder_show_tasks)  # Initialize from config
+        chk_tasks_master = tk.Checkbutton(
+            reminder_frame, text="Tasks", 
+            variable=self.reminder_show_tasks_var,
+            command=self.toggle_tasks_options,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 9, "bold")
+        )
+        chk_tasks_master.grid(row=8, column=0, sticky="w", pady=(10, 5))
+        
+        # Toggle button
+        self.tasks_options_visible = True
+        self.btn_toggle_tasks = tk.Button(
+            reminder_frame, text="Hide Options",
+            command=self.toggle_tasks_visibility,
+            bg=self.colors["bg_card"], fg="white",
+            font=("Segoe UI", 8),
+            bd=0, padx=8, pady=2,
+            cursor="hand2"
+        )
+        self.btn_toggle_tasks.grid(row=8, column=1, sticky="w", padx=(10, 0), pady=(10, 5))
+        self.btn_toggle_tasks.grid_remove()  # Initially hidden
+        
+        # Container for task options
+        self.tasks_options_frame = tk.Frame(reminder_frame, bg=self.colors["bg_root"])
+        self.tasks_options_frame.grid(row=9, column=0, sticky="w", padx=(20, 0), columnspan=3)
         
         self.reminder_tasks_var = tk.BooleanVar(value=self.main_window.reminder_tasks)
         chk_tasks = tk.Checkbutton(
-            reminder_frame, text="Tasks", 
+            self.tasks_options_frame, text="Tasks", 
             variable=self.reminder_tasks_var,
             command=self.update_reminder_filters,
             bg=self.colors["bg_root"], fg="white",
@@ -1234,11 +1457,11 @@ class SettingsPanel(tk.Frame):
             activeforeground="white",
             font=("Segoe UI", 9)
         )
-        chk_tasks.grid(row=9, column=0, sticky="w", padx=(10, 0))
+        chk_tasks.grid(row=0, column=0, sticky="w", padx=(0, 15), pady=2)
         
         self.reminder_todo_var = tk.BooleanVar(value=self.main_window.reminder_todo)
         chk_todo = tk.Checkbutton(
-            reminder_frame, text="To-Do", 
+            self.tasks_options_frame, text="To-Do", 
             variable=self.reminder_todo_var,
             command=self.update_reminder_filters,
             bg=self.colors["bg_root"], fg="white",
@@ -1247,11 +1470,11 @@ class SettingsPanel(tk.Frame):
             activeforeground="white",
             font=("Segoe UI", 9)
         )
-        chk_todo.grid(row=9, column=1, sticky="w")
+        chk_todo.grid(row=0, column=1, sticky="w", padx=(0, 15), pady=2)
         
         self.reminder_has_reminder_var = tk.BooleanVar(value=self.main_window.reminder_has_reminder)
         chk_has_reminder = tk.Checkbutton(
-            reminder_frame, text="Has Reminder", 
+            self.tasks_options_frame, text="Has Reminder", 
             variable=self.reminder_has_reminder_var,
             command=self.update_reminder_filters,
             bg=self.colors["bg_root"], fg="white",
@@ -1260,7 +1483,11 @@ class SettingsPanel(tk.Frame):
             activeforeground="white",
             font=("Segoe UI", 9)
         )
-        chk_has_reminder.grid(row=9, column=2, sticky="w")
+        chk_has_reminder.grid(row=0, column=2, sticky="w", pady=2)
+        
+        # Initially hide
+        self.tasks_options_frame.grid_remove()
+
 
 
         # --- Icon Brightness Setting REMOVED ---
@@ -1308,28 +1535,177 @@ class SettingsPanel(tk.Frame):
         self.main_window.poll_interval = self.refresh_options.get(self.refresh_cb.get(), 30)
         self.main_window.save_config()
 
+    def toggle_email_content_options(self):
+        """Show/hide email content options."""
+        if self.email_content_visible:
+            self.email_content_frame.grid_remove()
+            self.email_content_visible = False
+        else:
+            self.email_content_frame.grid()
+            self.email_content_visible = True
+
     def update_email_filters(self, event=None):
         """Apply email filter changes immediately."""
         print("DEBUG: update_email_filters called")
         self.main_window.show_read = self.show_read_var.get()
         self.main_window.show_has_attachment = self.show_has_attachment_var.get()
-        print(f"DEBUG: show_read={self.main_window.show_read}, show_has_attachment={self.main_window.show_has_attachment}")
+        
+        # Email Window Content
+        self.main_window.email_show_sender = self.email_show_sender_var.get()
+        self.main_window.email_show_subject = self.email_show_subject_var.get()
+        self.main_window.email_show_body = self.email_show_body_var.get()
+        try:
+            self.main_window.email_body_lines = int(self.email_body_lines_var.get())
+        except:
+            self.main_window.email_body_lines = 1
+            
+        print(f"DEBUG: Content Settings: Sender={self.main_window.email_show_sender}, Subject={self.main_window.email_show_subject}, Body={self.main_window.email_show_body}, Lines={self.main_window.email_body_lines}")
+        
         self.main_window.save_config()
         print(f"DEBUG: Calling callback: {self.callback}")
         self.callback()  # refresh_emails
         print("DEBUG: Callback completed")
 
+    def toggle_followup_options(self):
+        """Show/hide follow-up due date options based on checkbox state."""
+        if self.reminder_show_flagged_var.get():
+            # Set default selections (Today, Tomorrow, Overdue) on first check
+            if not getattr(self, "followup_defaults_applied", False):
+                if "Today" in self.due_vars: self.due_vars["Today"].set(True)
+                if "Tomorrow" in self.due_vars: self.due_vars["Tomorrow"].set(True)
+                if "Overdue" in self.due_vars: self.due_vars["Overdue"].set(True)
+                self.followup_defaults_applied = True
+            
+            self.followup_options_frame.grid()
+            self.btn_toggle_followup.grid()  # Show the toggle button
+        else:
+            self.followup_options_frame.grid_remove()
+            self.btn_toggle_followup.grid_remove()  # Hide the toggle button
+        self.update_reminder_filters()
+
+    def toggle_followup_visibility(self):
+        """Toggle visibility of follow-up options and update button text."""
+        if self.followup_options_visible:
+            # Hide options
+            self.followup_options_frame.grid_remove()
+            self.btn_toggle_followup.config(text="Show Options")
+            self.followup_options_visible = False
+        else:
+            # Show options
+            self.followup_options_frame.grid()
+            self.btn_toggle_followup.config(text="Hide Options")
+            self.followup_options_visible = True
+
+    def toggle_all_due_options(self):
+        """Select or deselect all due date options."""
+        all_checked = self.due_all_var.get()
+        for var in self.due_vars.values():
+            var.set(all_checked)
+        self.update_reminder_filters()
+
+    def toggle_importance_options(self):
+        """Show/hide importance options based on checkbox state."""
+        if self.reminder_show_importance_var.get():
+            # Set default selections (all) if first time checking
+            if not self.reminder_high_importance_var.get() and not self.reminder_normal_importance_var.get() and not self.reminder_low_importance_var.get():
+                self.reminder_high_importance_var.set(True)
+                self.reminder_normal_importance_var.set(True)
+                self.reminder_low_importance_var.set(True)
+            self.importance_options_frame.grid()
+            self.btn_toggle_importance.grid()
+        else:
+            self.importance_options_frame.grid_remove()
+            self.btn_toggle_importance.grid_remove()
+        self.update_reminder_filters()
+
+    def toggle_importance_visibility(self):
+        """Toggle visibility of importance options and update button text."""
+        if self.importance_options_visible:
+            self.importance_options_frame.grid_remove()
+            self.btn_toggle_importance.config(text="Show Options")
+            self.importance_options_visible = False
+        else:
+            self.importance_options_frame.grid()
+            self.btn_toggle_importance.config(text="Hide Options")
+            self.importance_options_visible = True
+
+    def toggle_meetings_options(self):
+        """Show/hide meetings options based on checkbox state."""
+        if self.reminder_show_meetings_var.get():
+            # Set default selections (Pending, Accepted, Declined, Today, Tomorrow) on first enable
+            if not self.meetings_defaults_applied:
+                self.reminder_pending_meetings_var.set(True)
+                self.reminder_accepted_meetings_var.set(True)
+                self.reminder_declined_meetings_var.set(True)
+                # Set date filters: Today and Tomorrow
+                if "Today" in self.meeting_date_vars:
+                    self.meeting_date_vars["Today"].set(True)
+                if "Tomorrow" in self.meeting_date_vars:
+                    self.meeting_date_vars["Tomorrow"].set(True)
+                self.meetings_defaults_applied = True
+            self.meetings_options_frame.grid()
+            self.btn_toggle_meetings.grid()
+        else:
+            self.meetings_options_frame.grid_remove()
+            self.btn_toggle_meetings.grid_remove()
+        self.update_reminder_filters()
+
+    def toggle_meetings_visibility(self):
+        """Toggle visibility of meetings options and update button text."""
+        if self.meetings_options_visible:
+            self.meetings_options_frame.grid_remove()
+            self.btn_toggle_meetings.config(text="Show Options")
+            self.meetings_options_visible = False
+        else:
+            self.meetings_options_frame.grid()
+            self.btn_toggle_meetings.config(text="Hide Options")
+            self.meetings_options_visible = True
+
+    def toggle_tasks_options(self):
+        """Show/hide tasks options based on checkbox state."""
+        if self.reminder_show_tasks_var.get():
+            self.tasks_options_frame.grid()
+            self.btn_toggle_tasks.grid()
+        else:
+            self.tasks_options_frame.grid_remove()
+            self.btn_toggle_tasks.grid_remove()
+        self.update_reminder_filters()
+
+    def toggle_tasks_visibility(self):
+        """Toggle visibility of tasks options and update button text."""
+        if self.tasks_options_visible:
+            self.tasks_options_frame.grid_remove()
+            self.btn_toggle_tasks.config(text="Show Options")
+            self.tasks_options_visible = False
+        else:
+            self.tasks_options_frame.grid()
+            self.btn_toggle_tasks.config(text="Hide Options")
+            self.tasks_options_visible = True
+
+
     def update_reminder_filters(self, event=None):
         """Apply reminder filter changes immediately."""
         self.main_window.reminder_show_flagged = self.reminder_show_flagged_var.get()
-        self.main_window.reminder_due_filter = self.reminder_due_cb.get()
+        
+        # Collect selected due date filters from checkboxes
+        selected_due_filters = [option for option, var in self.due_vars.items() if var.get()]
+        self.main_window.reminder_due_filters = selected_due_filters  # Store as list
+        
         self.main_window.reminder_show_categorized = self.reminder_show_categorized_var.get()
+        self.main_window.reminder_show_importance = self.reminder_show_importance_var.get()
         self.main_window.reminder_high_importance = self.reminder_high_importance_var.get()
         self.main_window.reminder_normal_importance = self.reminder_normal_importance_var.get()
         self.main_window.reminder_low_importance = self.reminder_low_importance_var.get()
+        self.main_window.reminder_show_meetings = self.reminder_show_meetings_var.get()
         self.main_window.reminder_pending_meetings = self.reminder_pending_meetings_var.get()
         self.main_window.reminder_accepted_meetings = self.reminder_accepted_meetings_var.get()
         self.main_window.reminder_declined_meetings = self.reminder_declined_meetings_var.get()
+        
+        # Collect selected meeting date filters
+        selected_meeting_dates = [option for option, var in self.meeting_date_vars.items() if var.get()]
+        self.main_window.reminder_meeting_dates = selected_meeting_dates
+        
+        self.main_window.reminder_show_tasks = self.reminder_show_tasks_var.get()
         self.main_window.reminder_tasks = self.reminder_tasks_var.get()
         self.main_window.reminder_todo = self.reminder_todo_var.get()
         self.main_window.reminder_has_reminder = self.reminder_has_reminder_var.get()
@@ -1352,6 +1728,11 @@ class SettingsPanel(tk.Frame):
         
         self.main_window.btn_count = count
         self.main_window.btn_config = new_config
+        
+        # Save Interaction Settings
+        self.main_window.buttons_on_hover = self.buttons_on_hover_var.get()
+        self.main_window.email_double_click = self.email_double_click_var.get()
+        
         self.main_window.save_config()
         self.callback()  # refresh_emails
 
@@ -1414,7 +1795,15 @@ class SidebarWindow(tk.Tk):
         self.show_has_attachment = False  # Filter for emails with attachments
         self.only_flagged = False
         self.include_read_flagged = True
+        self.include_read_flagged = True
         self.flag_date_filter = "Anytime"
+        
+        # Email Content Settings
+        self.email_show_sender = True
+        self.email_show_subject = True
+        self.email_show_body = True
+        self.email_body_lines = 2
+        
         self.hover_delay = 500 # ms
         self._hover_timer = None
         self._collapse_timer = None
@@ -1428,16 +1817,26 @@ class SidebarWindow(tk.Tk):
         self.window_mode = "single"  # "single" or "dual"
         
         # Reminder Filter State
-        self.reminder_show_flagged = True  # Default ON
-        self.reminder_due_filter = "Anytime"
+        self.reminder_show_flagged = False  # Default OFF
+        self.reminder_due_filters = []  # List of selected due date filters
         self.reminder_show_categorized = False
         self.reminder_categories = []  # List of selected categories
+        
+        # Importance
+        self.reminder_show_importance = False # Master toggle
         self.reminder_high_importance = False
         self.reminder_normal_importance = False
         self.reminder_low_importance = False
+        
+        # Meetings
+        self.reminder_show_meetings = False # Master toggle
         self.reminder_pending_meetings = False
-        self.reminder_accepted_meetings = True  # Default ON
+        self.reminder_accepted_meetings = False # Default OFF
         self.reminder_declined_meetings = False
+        self.reminder_meeting_dates = [] # List of selected meeting date filters
+        
+        # Tasks
+        self.reminder_show_tasks = False # Master toggle
         self.reminder_tasks = False
         self.reminder_todo = False
         self.reminder_has_reminder = False
@@ -1457,6 +1856,8 @@ class SidebarWindow(tk.Tk):
             {"label": "Trash", "icon": "✕", "action1": "Mark Read", "action2": "Delete", "folder": ""}, 
             {"label": "Reply", "icon": "↩", "action1": "Reply", "action2": "None", "folder": ""}
         ]
+        self.buttons_on_hover = False
+        self.email_double_click = False
         
         # Load Config
         self.load_config()
@@ -2126,6 +2527,22 @@ class SidebarWindow(tk.Tk):
             self.reminder_placeholder.grid(row=1, column=0, sticky="nsew", padx=0, pady=(2, 0))
             self.grid_container.rowconfigure(1, weight=1)
 
+    def open_email(self, entry_id):
+        """Opens the specific email item."""
+        try:
+             # Ensure connection
+             if not self.outlook_client.namespace:
+                 self.outlook_client.connect()
+             
+             if self.outlook_client.namespace:
+                 # Use GetItemFromID for direct access
+                 item = self.outlook_client.namespace.GetItemFromID(entry_id)
+                 item.Display()
+             else:
+                 print("Error: Not connected to Outlook")
+        except Exception as e:
+             print(f"Error opening email: {e}")
+
     def refresh_emails(self):
         # Update UI fonts for header elements
         self.lbl_title.config(font=(self.font_family, 10, "bold"))
@@ -2142,6 +2559,10 @@ class SidebarWindow(tk.Tk):
         )
         
         for email in emails:
+            lbl_sender = None
+            lbl_subject = None
+            lbl_preview = None
+            
             # Determine styling based on UnRead status
             is_unread = email.get('unread', False)
             bg_color = "#2d2d2d"
@@ -2214,19 +2635,20 @@ class SidebarWindow(tk.Tk):
             header_frame.pack(fill="x")
 
             # Sender
-            sender_text = email['sender']
-            if is_unread:
-                sender_text = "● " + sender_text # Add indicator dot
-                
-            lbl_sender = tk.Label(
-                header_frame, 
-                text=sender_text, 
-                fg="white", 
-                bg=bg_color, 
-                font=(self.font_family, self.font_size, "bold"),
-                anchor="w"
-            )
-            lbl_sender.pack(side="left", fill="x", expand=True)
+            if self.email_show_sender:
+                sender_text = email['sender']
+                if is_unread:
+                    sender_text = "● " + sender_text # Add indicator dot
+                    
+                lbl_sender = tk.Label(
+                    header_frame, 
+                    text=sender_text, 
+                    fg="white", 
+                    bg=bg_color, 
+                    font=(self.font_family, self.font_size, "bold"),
+                    anchor="w"
+                )
+                lbl_sender.pack(side="left", fill="x", expand=True)
 
 
             # Attachment indicator (only show if setting is enabled)
@@ -2252,34 +2674,89 @@ class SidebarWindow(tk.Tk):
                 lbl_badge.pack(side="right", padx=2)
                 
             # Subject
-            lbl_subject = tk.Label(
-                card, 
-                text=email['subject'], 
-                fg="#cccccc", 
-                bg=bg_color, 
-                font=(self.font_family, self.font_size),
-                anchor="w",
-                justify="left",
-                wraplength=self.expanded_width - 40 
-            )
-            lbl_subject.pack(fill="x")
+            if self.email_show_subject:
+                lbl_subject = tk.Label(
+                    card, 
+                    text=email['subject'], 
+                    fg="#cccccc", 
+                    bg=bg_color, 
+                    font=(self.font_family, self.font_size),
+                    anchor="w",
+                    justify="left",
+                    wraplength=self.expanded_width - 40 
+                )
+                lbl_subject.pack(fill="x")
             
             # Preview (Body)
-            lbl_preview = tk.Label(
-                card, 
-                text=email['preview'], 
-                fg="#999999", 
-                bg=bg_color, 
-                font=(self.font_family, self.font_size - 1),
-                anchor="w",
-                justify="left",
-                wraplength=self.expanded_width - 40 
-            )
-            lbl_preview.pack(fill="x")
+            if self.email_show_body:
+                try:
+                    lines = int(self.email_body_lines)
+                except:
+                    lines = 2
+                    
+                lbl_preview = tk.Text(
+                    card, 
+                    height=lines,
+                    bg=bg_color, 
+                    fg="#999999", 
+                    font=(self.font_family, self.font_size - 1),
+                    bd=0,
+                    highlightthickness=0,
+                    wrap="word",
+                    cursor="arrow"
+                )
+                lbl_preview.insert("1.0", email['preview'])
+                lbl_preview.config(state="disabled") # Read-only
+                lbl_preview.pack(fill="x")
+                
+                # Forward clicks to card handler (we need to capture the lambda from outer scope or re-bind)
+                # Since we are inside the loop, we can just bind.
+                # Note: We need to see how card click is handled. 
+                # Assuming standard binding later in loop, we mimic it for this widget.
+                # Or relying on bindtags. Text widget interrupts bindings usually.
+                # Let's add a tag binding later if needed, or bind right here if we know the callback.
+                # Looking at original code, card.bind is called later.
+                # I will store this widget in a list or just bind it later if I can find the binder.
+                # For now I'll create it. The tool chunk ends here.
             
-            # --- Action Frame (Always Visible) ---
+            # --- Action Frame ---
             action_frame = tk.Frame(card, bg=bg_color)
-            action_frame.pack(fill="x", expand=True, padx=2, pady=(0, 2))
+            
+            # Hover Logic
+            if self.buttons_on_hover:
+                # Define handlers
+                def show_actions(e, af=action_frame):
+                    af.pack(fill="x", expand=True, padx=2, pady=(0, 2))
+                    
+                def hide_actions(e, af=action_frame, c=card):
+                    # Only hide if mouse is strictly OUTSIDE the card and all children
+                    # winfo_containing returns the widget under mouse
+                    x, y = c.winfo_pointerxy()
+                    widget = c.winfo_containing(x, y)
+                    
+                    # Check if widget is card or child of card
+                    is_descendant = False
+                    if widget:
+                        if widget == c:
+                            is_descendant = True
+                        elif str(widget).startswith(str(c)):
+                            is_descendant = True
+                            
+                    if not is_descendant:
+                        af.pack_forget()
+
+                # Start hidden
+                action_frame.pack_forget()
+                
+                # Bind Enter/Leave to card
+                card.bind("<Enter>", show_actions)
+                card.bind("<Leave>", hide_actions)
+                
+                # Propagate binding to children? No, events bubble to card? 
+                # Tkinter <Enter>/<Leave> on Frame fires when entering frame.
+            else:
+                # Always visible
+                action_frame.pack(fill="x", expand=True, padx=2, pady=(0, 2))
             
             # Add buttons to action_frame
             # Filter for valid buttons (Must have Icon AND Action)
@@ -2351,14 +2828,35 @@ class SidebarWindow(tk.Tk):
                 # Click handler
                 btn.bind("<Button-1>", lambda e, c=conf, em=email: self.handle_custom_action(c, em))
             
-            # --- Bindings Removed ---
-            # card.bind("<Button-1>", ...) 
+            # Click Logic (Open Email)
+            def on_card_click(e, eid=email['entry_id']):
+                self.open_email(eid)
             
+            if self.email_double_click:
+                 # Require Double Click
+                 card.bind("<Double-Button-1>", on_card_click)
+                 if lbl_sender: lbl_sender.bind("<Double-Button-1>", on_card_click)
+                 if lbl_subject: lbl_subject.bind("<Double-Button-1>", on_card_click)
+                 if lbl_preview: lbl_preview.bind("<Double-Button-1>", on_card_click)
+                 
+                 # Optional: Single click handles focus or selection
+                 card.bind("<Button-1>", lambda e: card.focus_set())
+            else:
+                 # Standard Single Click
+                 card.bind("<Button-1>", on_card_click)
+                 if lbl_sender: lbl_sender.bind("<Button-1>", on_card_click)
+                 if lbl_subject: lbl_subject.bind("<Button-1>", on_card_click)
+                 if lbl_preview: lbl_preview.bind("<Button-1>", on_card_click) 
+            
+            # Dynamic wrapping for both labels
             # Dynamic wrapping for both labels
             def update_wraps(e, s=lbl_subject, p=lbl_preview):
                 width = e.width - 20
-                s.config(wraplength=width)
-                p.config(wraplength=width)
+                if s:
+                    s.config(wraplength=width)
+                # Only wrap if it's a Label (Text widgets handle wrapping internally)
+                if p and isinstance(p, tk.Label):
+                    p.config(wraplength=width)
                 
             card.bind("<Configure>", update_wraps)
 
@@ -2605,6 +3103,38 @@ class SidebarWindow(tk.Tk):
                 if "buttons" in config:
                      self.btn_config = config["buttons"]
                      self.btn_count = len(self.btn_config)
+                
+                self.buttons_on_hover = config.get("buttons_on_hover", False)
+                self.email_double_click = config.get("email_double_click", False)
+                     
+                # Reminder Settings
+                self.reminder_show_flagged = config.get("reminder_show_flagged", False)
+                self.reminder_due_filters = config.get("reminder_due_filters", [])
+                
+                self.reminder_show_categorized = config.get("reminder_show_categorized", False)
+                # self.reminder_categories = config.get("reminder_categories", [])
+                
+                self.reminder_show_importance = config.get("reminder_show_importance", False)
+                self.reminder_high_importance = config.get("reminder_high_importance", False)
+                self.reminder_normal_importance = config.get("reminder_normal_importance", False)
+                self.reminder_low_importance = config.get("reminder_low_importance", False)
+                
+                self.reminder_show_meetings = config.get("reminder_show_meetings", False)
+                self.reminder_pending_meetings = config.get("reminder_pending_meetings", False)
+                self.reminder_accepted_meetings = config.get("reminder_accepted_meetings", False)
+                self.reminder_declined_meetings = config.get("reminder_declined_meetings", False)
+                self.reminder_meeting_dates = config.get("reminder_meeting_dates", [])
+                
+                self.reminder_show_tasks = config.get("reminder_show_tasks", False)
+                self.reminder_tasks = config.get("reminder_tasks", False)
+                self.reminder_todo = config.get("reminder_todo", False)
+                self.reminder_has_reminder = config.get("reminder_has_reminder", False)
+                
+                # Email Content Settings
+                self.email_show_sender = config.get("email_show_sender", True)
+                self.email_show_subject = config.get("email_show_subject", True)
+                self.email_show_body = config.get("email_show_body", True)
+                self.email_body_lines = config.get("email_body_lines", 2)
         except Exception as e:
             print(f"Error loading config: {e}")
 
@@ -2617,7 +3147,38 @@ class SidebarWindow(tk.Tk):
             "font_family": self.font_family,
             "font_size": self.font_size,
             "poll_interval": self.poll_interval,
-            "buttons": self.btn_config
+            "buttons": self.btn_config,
+            "buttons_on_hover": self.buttons_on_hover,
+            "email_double_click": self.email_double_click,
+            
+            # Reminder Settings
+            "reminder_show_flagged": self.reminder_show_flagged,
+            "reminder_due_filters": self.reminder_due_filters,
+            
+            "reminder_show_categorized": self.reminder_show_categorized,
+            # "reminder_categories": self.reminder_categories,
+            
+            "reminder_show_importance": self.reminder_show_importance,
+            "reminder_high_importance": self.reminder_high_importance,
+            "reminder_normal_importance": self.reminder_normal_importance,
+            "reminder_low_importance": self.reminder_low_importance,
+            
+            "reminder_show_meetings": self.reminder_show_meetings,
+            "reminder_pending_meetings": self.reminder_pending_meetings,
+            "reminder_accepted_meetings": self.reminder_accepted_meetings,
+            "reminder_declined_meetings": self.reminder_declined_meetings,
+            "reminder_meeting_dates": self.reminder_meeting_dates,
+            
+            "reminder_show_tasks": self.reminder_show_tasks,
+            "reminder_tasks": self.reminder_tasks,
+            "reminder_todo": self.reminder_todo,
+            "reminder_has_reminder": self.reminder_has_reminder,
+            
+            # Email Content Settings
+            "email_show_sender": self.email_show_sender,
+            "email_show_subject": self.email_show_subject,
+            "email_show_body": self.email_show_body,
+            "email_body_lines": self.email_body_lines
         }
         try:
             with open(config_path, "w") as f:
