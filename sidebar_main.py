@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.0.5"
+VERSION = "v1.0.6"
 
 
 # --- Windows API Constants & Structures ---
@@ -726,6 +726,23 @@ class SettingsPanel(tk.Frame):
         btn_info.pack(side="right", padx=10)
         ToolTip(btn_info, "Icons made by IconKanan and Ardiansyah from www.flaticon.com", side="left")
         
+        # Helper method to create section headers
+        def create_section_header(parent, title):
+            """Creates a section header with title and divider line."""
+            section_frame = tk.Frame(parent, bg=self.colors["bg_root"])
+            section_frame.pack(fill="x", padx=2, pady=(15, 5))
+            
+            # Title label
+            tk.Label(section_frame, text=title, bg=self.colors["bg_root"], fg=self.colors["fg_text"], 
+                    font=("Segoe UI", 11, "bold")).pack(side="left", anchor="w")
+            
+            # Divider line (partial width)
+            divider = tk.Frame(section_frame, bg="#555555", height=1)
+            divider.pack(side="left", fill="x", expand=True, padx=(10, 0))
+        
+        # === SECTION 1: Button Selection ===
+        create_section_header(self, "Button Selection")
+        
         # --- Button Configuration Table ---
         container = tk.Frame(self, bg=self.colors["bg_root"], pady=20)
         container.pack(fill="x", expand=False, padx=(2, 20))  # 2px left padding
@@ -834,6 +851,7 @@ class SettingsPanel(tk.Frame):
             def on_action_change(event, act_cb=cb_act1, icon_lbl=lbl_icon, idx=i):
                  update_icon_display(act_cb, icon_lbl, idx)
                  self.refresh_dropdown_options() # Enforce uniqueness
+                 self.update_button_config()  # Apply changes immediately
             
             cb_act1.bind("<<ComboboxSelected>>", on_action_change)
             
@@ -873,24 +891,29 @@ class SettingsPanel(tk.Frame):
         # placement_frame = tk.Frame(self, bg=self.colors["bg_root"])
         # ...
 
+        # === SECTION 2: General Settings ===
+        create_section_header(self, "General Settings")
+
         # --- Typography Setting ---
         typo_frame = tk.Frame(self, bg=self.colors["bg_root"])
-        typo_frame.pack(fill="x", padx=30, pady=(10, 0))
+        typo_frame.pack(fill="x", padx=(20, 30), pady=(10, 0))
         
         tk.Label(typo_frame, text="Font Family:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).pack(side="left")
         self.font_fam_cb = ttk.Combobox(typo_frame, values=["Segoe UI", "Arial", "Verdana", "Tahoma", "Courier New", "Georgia"], width=15, state="readonly", font=("Segoe UI", 12))
         self.font_fam_cb.set(self.main_window.font_family)
         self.font_fam_cb.pack(side="left", padx=(5, 20))
+        self.font_fam_cb.bind("<<ComboboxSelected>>", self.update_font_settings)
         
         tk.Label(typo_frame, text="Size:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).pack(side="left")
         self.font_size_cb = ttk.Combobox(typo_frame, values=[str(i) for i in range(8, 17)], width=5, state="readonly", font=("Segoe UI", 12))
         self.font_size_cb.set(str(self.main_window.font_size))
         self.font_size_cb.pack(side="left", padx=5)
+        self.font_size_cb.bind("<<ComboboxSelected>>", self.update_font_settings)
         
         # --- System Settings (Refresh Rate) ---
         self.refresh_options = {"15s": 15, "30s": 30, "1m": 60, "2m": 120, "5m": 300}
         sys_frame = tk.Frame(self, bg=self.colors["bg_root"])
-        sys_frame.pack(fill="x", padx=30, pady=(10, 0))
+        sys_frame.pack(fill="x", padx=(18, 30), pady=(10, 0))
         
         tk.Label(sys_frame, text="Refresh Rate:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).pack(side="left")
         self.refresh_cb = ttk.Combobox(sys_frame, values=list(self.refresh_options.keys()), width=10, state="readonly", font=("Segoe UI", 12))
@@ -902,15 +925,50 @@ class SettingsPanel(tk.Frame):
                 break
         self.refresh_cb.set(current_label)
         self.refresh_cb.pack(side="left", padx=5)
+        self.refresh_cb.bind("<<ComboboxSelected>>", self.update_refresh_rate)
+
+        # === SECTION 3: Window Selection ===
+        create_section_header(self, "Window Selection")
+        
+        # --- Window Split Settings ---
+        window_frame = tk.Frame(self, bg=self.colors["bg_root"])
+        window_frame.pack(fill="x", padx=(18, 30), pady=(10, 0))
+        
+        # Email Window percentage (display only, calculated)
+        tk.Label(window_frame, text="Email Window:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).grid(row=0, column=0, sticky="w", pady=(0, 5))
+        self.lbl_email_pct = tk.Label(window_frame, text="100%", fg=self.colors["fg_text"], bg=self.colors["bg_root"], font=("Segoe UI", 10, "bold"))
+        self.lbl_email_pct.grid(row=0, column=1, sticky="w", padx=(10, 0), pady=(0, 5))
+        
+        # Reminder Window percentage (selectable)
+        tk.Label(window_frame, text="Reminder Window:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).grid(row=1, column=0, sticky="w")
+        self.reminder_pct_cb = ttk.Combobox(window_frame, values=["0%", "25%", "50%"], width=8, state="readonly", font=("Segoe UI", 10))
+        self.reminder_pct_cb.set("0%")  # Default to 0%
+        self.reminder_pct_cb.grid(row=1, column=1, sticky="w", padx=(10, 0))
+        
+        # Update handler for reminder percentage
+        def update_window_split(event=None):
+            reminder_str = self.reminder_pct_cb.get()
+            reminder_pct = int(reminder_str.rstrip('%'))
+            email_pct = 100 - reminder_pct
+            self.lbl_email_pct.config(text=f"{email_pct}%")
+            # TODO: Apply split to main window layout
+            # self.main_window.reminder_pct = reminder_pct
+            # self.main_window.save_config()
+        
+        self.reminder_pct_cb.bind("<<ComboboxSelected>>", update_window_split)
+
+        # === SECTION 4: Email Settings ===
+        create_section_header(self, "Email Settings")
 
         # --- Email List Settings ---
         list_settings_frame = tk.Frame(self, bg=self.colors["bg_root"])
-        list_settings_frame.pack(fill="x", padx=30, pady=(10, 0))
+        list_settings_frame.pack(fill="x", padx=(18, 30), pady=(10, 0))
         
         self.show_read_var = tk.BooleanVar(value=self.main_window.show_read)
         self.chk_show_read = tk.Checkbutton(
             list_settings_frame, text="Show Read Emails", 
             variable=self.show_read_var,
+            command=self.update_email_filters,
             bg=self.colors["bg_root"], fg="white",
             selectcolor=self.colors["bg_card"],
             activebackground=self.colors["bg_root"],
@@ -919,61 +977,66 @@ class SettingsPanel(tk.Frame):
         )
         self.chk_show_read.grid(row=0, column=0, sticky="w", pady=(0, 5))
 
+        # === SECTION 5: Reminder Settings ===
+        create_section_header(self, "Reminder Settings")
+        
+        # --- Flagged Email Filters ---
+        flagged_settings_frame = tk.Frame(self, bg=self.colors["bg_root"])
+        flagged_settings_frame.pack(fill="x", padx=(18, 30), pady=(10, 0))
+
         # Flagged Filter Row
         self.only_flagged_var = tk.BooleanVar(value=self.main_window.only_flagged)
-        self.chk_only_flagged = tk.Checkbutton(
-            list_settings_frame, text="Only Flagged Emails", 
-            variable=self.only_flagged_var,
-            bg=self.colors["bg_root"], fg="white",
-            selectcolor=self.colors["bg_card"],
-            activebackground=self.colors["bg_root"],
-            activeforeground="white",
-            font=("Segoe UI", 10)
-        )
-        self.chk_only_flagged.grid(row=1, column=0, sticky="w")
-
-        self.include_read_flagged_var = tk.BooleanVar(value=self.main_window.include_read_flagged)
-        self.chk_include_read_flagged = tk.Checkbutton(
-            list_settings_frame, text="Include Read", 
-            variable=self.include_read_flagged_var,
-            bg=self.colors["bg_root"], fg="white",
-            selectcolor=self.colors["bg_card"],
-            activebackground=self.colors["bg_root"],
-            activeforeground="white",
-            font=("Segoe UI", 10)
-        )
-        self.chk_include_read_flagged.grid(row=1, column=1, sticky="w", padx=(20, 0))
-
-        # Date Filter for Flagged
-        tk.Label(list_settings_frame, text="Due:", bg=self.colors["bg_root"], fg=self.colors["fg_dim"], font=("Segoe UI", 10)).grid(row=1, column=2, sticky="w", padx=(30, 5))
-        self.flag_date_cb = ttk.Combobox(
-            list_settings_frame, 
-            values=["Anytime", "Today", "Tomorrow", "This Week", "Next Week", "No Date"],
-            width=10, state="readonly", font=("Segoe UI", 10)
-        )
-        self.flag_date_cb.set(self.main_window.flag_date_filter)
-        self.flag_date_cb.grid(row=1, column=3, sticky="w")
-
-        # Disable sub-options if No Flagged Filter
+        
+        # Define update_flag_options here so it can be used in command
         def update_flag_options(event=None):
             state = "normal" if self.only_flagged_var.get() else "disabled"
             self.chk_include_read_flagged.config(state=state)
             self.flag_date_cb.config(state=state)
+            self.update_email_filters()  # Apply changes
 
-        self.chk_only_flagged.config(command=update_flag_options)
+        self.chk_only_flagged = tk.Checkbutton(
+            flagged_settings_frame, text="Only Flagged Emails", 
+            variable=self.only_flagged_var,
+            command=update_flag_options,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 10)
+        )
+        self.chk_only_flagged.grid(row=0, column=0, sticky="w")
+
+        self.include_read_flagged_var = tk.BooleanVar(value=self.main_window.include_read_flagged)
+        self.chk_include_read_flagged = tk.Checkbutton(
+            flagged_settings_frame, text="Include Read", 
+            variable=self.include_read_flagged_var,
+            command=self.update_email_filters,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 10)
+        )
+        self.chk_include_read_flagged.grid(row=1, column=0, sticky="w", padx=(20, 0))
+
+        # Date Filter for Flagged
+        tk.Label(flagged_settings_frame, text="Due:", bg=self.colors["bg_root"], fg=self.colors["fg_dim"], font=("Segoe UI", 10)).grid(row=1, column=1, sticky="w", padx=(20, 5))
+        self.flag_date_cb = ttk.Combobox(
+            flagged_settings_frame, 
+            values=["Anytime", "Today", "Tomorrow", "This Week", "Next Week", "No Date"],
+            width=10, state="readonly", font=("Segoe UI", 10)
+        )
+        self.flag_date_cb.set(self.main_window.flag_date_filter)
+        self.flag_date_cb.grid(row=1, column=2, sticky="w")
+        self.flag_date_cb.bind("<<ComboboxSelected>>", self.update_email_filters)
+
+        # Disable sub-options if No Flagged Filter
+        
         update_flag_options() # Initial state
 
         # --- Icon Brightness Setting REMOVED ---
         # User requested fixed 75% brightness, slider removed.
         
-        # Footer / Close Button (Blocky Win11 Style)
-        btn_close = tk.Button(
-            self, text="Close Settings", command=self.close_panel,
-            bg=self.colors["accent"], fg="black", font=("Segoe UI", 10, "bold"),
-            bd=0, padx=30, pady=10, cursor="hand2", activebackground="#4CC2FF", activeforeground="black"
-        )
-        btn_close.pack(side="top", pady=20)
-
         # Version Label
         lbl_ver = tk.Label(self, text=VERSION, fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 8))
         lbl_ver.place(relx=1.0, rely=1.0, anchor="se", x=-10, y=-5)
@@ -1001,8 +1064,32 @@ class SettingsPanel(tk.Frame):
             
             cb.config(values=new_values)
 
-    def apply_changes(self):
-        """Apply current settings to the main window."""
+    def update_font_settings(self, event=None):
+        """Apply font changes immediately."""
+        self.main_window.font_family = self.font_fam_cb.get()
+        try:
+            self.main_window.font_size = int(self.font_size_cb.get())
+        except:
+            self.main_window.font_size = 9
+        self.main_window.save_config()
+        self.callback()  # refresh_emails
+
+    def update_refresh_rate(self, event=None):
+        """Apply refresh rate change immediately."""
+        self.main_window.poll_interval = self.refresh_options.get(self.refresh_cb.get(), 30)
+        self.main_window.save_config()
+
+    def update_email_filters(self, event=None):
+        """Apply email filter changes immediately."""
+        self.main_window.show_read = self.show_read_var.get()
+        self.main_window.only_flagged = self.only_flagged_var.get()
+        self.main_window.include_read_flagged = self.include_read_flagged_var.get()
+        self.main_window.flag_date_filter = self.flag_date_cb.get()
+        self.main_window.save_config()
+        self.callback()  # refresh_emails
+
+    def update_button_config(self):
+        """Apply button config changes immediately."""
         new_config = []
         count = 0
         for data in self.rows_data:
@@ -1015,26 +1102,13 @@ class SettingsPanel(tk.Frame):
                     "folder": data["folder"].get()
                 })
         
-        self.main_window.font_family = self.font_fam_cb.get()
-        try:
-            self.main_window.font_size = int(self.font_size_cb.get())
-        except:
-            self.main_window.font_size = 9
-            
-        self.main_window.poll_interval = self.refresh_options.get(self.refresh_cb.get(), 30)
-        self.main_window.show_read = self.show_read_var.get()
-        self.main_window.only_flagged = self.only_flagged_var.get()
-        self.main_window.include_read_flagged = self.include_read_flagged_var.get()
-        self.main_window.flag_date_filter = self.flag_date_cb.get()
-        
         self.main_window.btn_count = count
         self.main_window.btn_config = new_config
         self.main_window.save_config()
-        self.callback()
+        self.callback()  # refresh_emails
 
     def close_panel(self):
-        """Close the settings panel and restore sidebar width."""
-        self.apply_changes()
+        """Close the settings panel."""
         self.main_window.toggle_settings_panel()
 
 class SidebarWindow(tk.Tk):
