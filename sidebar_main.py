@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.0.9"
+VERSION = "v1.1.0"
 
 
 # --- Windows API Constants & Structures ---
@@ -379,7 +379,106 @@ class OutlookClient:
         
         return False
 
-    def get_inbox_items(self, count=20, unread_only=False, only_flagged=False, include_read_flagged=True, flag_date_filter="Anytime"):
+    def get_calendar_items(self, start_date, end_date):
+        """Fetches calendar items between start and end dates."""
+        for attempt in range(2):
+            if not self.namespace:
+                 if not self.connect(): return []
+            try:
+                # 9 = olFolderCalendar
+                cal = self.namespace.GetDefaultFolder(9)
+                items = cal.Items
+                items.Sort("[Start]")
+                items.IncludeRecurrences = True
+                
+                restrict = f"[Start] >= '{start_date}' AND [Start] <= '{end_date}'"
+                items = items.Restrict(restrict)
+                
+                results = []
+                for item in items:
+                    try:
+                        results.append({
+                            "subject": item.Subject,
+                            "start": item.Start,
+                            "location": getattr(item, "Location", ""),
+                            "entry_id": item.EntryID,
+                            "is_meeting": True
+                        })
+                    except:
+                        continue
+                return results
+            except Exception as e:
+                print(f"Calendar error: {e}")
+                self.namespace = None
+        return []
+
+    def get_tasks(self, due_filters=None):
+        """Fetches Outlook Tasks (Folder 13) that are not complete."""
+        for attempt in range(2):
+            if not self.namespace:
+                 if not self.connect(): return []
+            try:
+                tasks_folder = self.namespace.GetDefaultFolder(13) # 13 = olFolderTasks
+                items = tasks_folder.Items
+                
+                # Base Filter: Not Complete
+                restricts = ["[Complete] = False"]
+                
+                # Date Filter Logic (Use [DueDate] for Tasks)
+                if due_filters and len(due_filters) > 0:
+                    date_queries = []
+                    now = datetime.now()
+                    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                    tomorrow = today + timedelta(days=1)
+                    db_tomorrow = today + timedelta(days=2)
+                    
+                    for filter_name in due_filters:
+                        if filter_name == "Overdue":
+                            date_queries.append(f"[DueDate] < '{today.strftime('%m/%d/%Y %I:%M %p')}'") 
+                        elif filter_name == "Today":
+                            date_queries.append(f"([DueDate] >= '{today.strftime('%m/%d/%Y %I:%M %p')}' AND [DueDate] < '{tomorrow.strftime('%m/%d/%Y %I:%M %p')}')")
+                        elif filter_name == "Tomorrow":
+                            date_queries.append(f"([DueDate] >= '{tomorrow.strftime('%m/%d/%Y %I:%M %p')}' AND [DueDate] < '{db_tomorrow.strftime('%m/%d/%Y %I:%M %p')}')")
+                        elif filter_name == "Next 7 Days":
+                            next_week = today + timedelta(days=8)
+                            date_queries.append(f"([DueDate] >= '{today.strftime('%m/%d/%Y %I:%M %p')}' AND [DueDate] < '{next_week.strftime('%m/%d/%Y %I:%M %p')}')")
+                        elif filter_name == "No Date":
+                            date_queries.append("([DueDate] IS NULL OR [DueDate] > '01/01/4500')")
+                    
+                    if date_queries:
+                        combined_date_query = " OR ".join(date_queries)
+                        restricts.append(f"({combined_date_query})")
+
+                if restricts:
+                    restrict_str = " AND ".join(restricts)
+                    items = items.Restrict(restrict_str)
+                
+                items.Sort("[DueDate]", False) # Ascending? False is Descending?
+                # Usually we want Ascending (Oldest/Overdue first). False = Descending?
+                # Check logic. param: Descending. False = Ascending. Correct.
+                
+                results = []
+                count = 0
+                for item in items:
+                    if count > 50: break
+                    try:
+                        results.append({
+                            "subject": item.Subject,
+                            "due": item.DueDate, # Date object
+                            "entry_id": item.EntryID,
+                            "is_task": True
+                        })
+                        count += 1
+                    except:
+                        continue
+                return results
+
+            except Exception as e:
+                print(f"Tasks error: {e}")
+                self.namespace = None
+        return []
+
+    def get_inbox_items(self, count=20, unread_only=False, only_flagged=False, due_filters=None):
         # Retry loop
         for attempt in range(2):
             if not self.namespace:
@@ -396,35 +495,35 @@ class OutlookClient:
                 if only_flagged:
                     # [FlagStatus] <> 0 correctly identifies flagged items
                     restricts.append("[FlagStatus] <> 0")
-                    # Sub-filter: Only apply unread restriction if NOT including read flagged
-                    if not include_read_flagged:
-                        restricts.append("[UnRead] = True")
                     
-                    # Date Filter Logic
-                    if flag_date_filter and flag_date_filter != "Anytime":
-                        now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-                        if flag_date_filter == "Today":
-                            start = now
-                            end = now + timedelta(days=1)
-                            restricts.append(f"[TaskDueDate] >= '{start.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{end.strftime('%m/%d/%Y %I:%M %p')}'")
-                        elif flag_date_filter == "Tomorrow":
-                            start = now + timedelta(days=1)
-                            end = now + timedelta(days=2)
-                            restricts.append(f"[TaskDueDate] >= '{start.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{end.strftime('%m/%d/%Y %I:%M %p')}'")
-                        elif flag_date_filter == "This Week":
-                            # Next 7 days
-                            end = now + timedelta(days=7)
-                            restricts.append(f"[TaskDueDate] >= '{now.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{end.strftime('%m/%d/%Y %I:%M %p')}'")
-                        elif flag_date_filter == "Next Week":
-                            # Days 7 to 14
-                            start = now + timedelta(days=7)
-                            end = now + timedelta(days=14)
-                            restricts.append(f"[TaskDueDate] >= '{start.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{end.strftime('%m/%d/%Y %I:%M %p')}'")
-                        elif flag_date_filter == "No Date":
-                            # Outlook uses 4501-01-01 for "No Date" tasks
-                            restricts.append("[TaskDueDate] > '01/01/4500'")
+                    # Date Filter Logic (Multiple Selections)
+                    if due_filters and len(due_filters) > 0:
+                        date_queries = []
+                        now = datetime.now()
+                        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                        tomorrow = today + timedelta(days=1)
+                        db_tomorrow = today + timedelta(days=2)
+                        
+                        for filter_name in due_filters:
+                            if filter_name == "Overdue":
+                                # Due < Today
+                                date_queries.append(f"[TaskDueDate] < '{today.strftime('%m/%d/%Y %I:%M %p')}'") 
+                            elif filter_name == "Today":
+                                date_queries.append(f"([TaskDueDate] >= '{today.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{tomorrow.strftime('%m/%d/%Y %I:%M %p')}')")
+                            elif filter_name == "Tomorrow":
+                                date_queries.append(f"([TaskDueDate] >= '{tomorrow.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{db_tomorrow.strftime('%m/%d/%Y %I:%M %p')}')")
+                            elif filter_name == "Next 7 Days":
+                                next_week = today + timedelta(days=8) # Inclusive of today? usually implies future
+                                date_queries.append(f"([TaskDueDate] >= '{today.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{next_week.strftime('%m/%d/%Y %I:%M %p')}')")
+                            elif filter_name == "No Date":
+                                date_queries.append("([TaskDueDate] IS NULL OR [TaskDueDate] > '01/01/4500')")
+                        
+                        if date_queries:
+                            # Join with OR
+                            combined_date_query = " OR ".join(date_queries)
+                            restricts.append(f"({combined_date_query})")
                 else:
-                    # Global filter: Only unread
+                    # Global filter: Only unread (if not showing flags)
                     if unread_only:
                         restricts.append("[UnRead] = True")
                 
@@ -772,12 +871,20 @@ class SettingsPanel(tk.Frame):
             # Divider line (partial width)
             divider = tk.Frame(section_frame, bg="#555555", height=1)
             divider.pack(side="left", fill="x", expand=True, padx=(10, 0))
+
+        # --- Scrollable Container ---
+        self.scroll_frame = ScrollableFrame(self, bg=self.colors["bg_root"])
+        self.scroll_frame.pack(fill="both", expand=True, padx=2, pady=2)
+        
+        main_content = self.scroll_frame.scrollable_frame
+        main_content.config(bg=self.colors["bg_root"])
+
         
         # === SECTION 1: Button Selection ===
-        create_section_header(self, "Button Selection")
+        create_section_header(main_content, "Button Selection")
         
         # --- Button Configuration Table ---
-        container = tk.Frame(self, bg=self.colors["bg_root"], pady=12)
+        container = tk.Frame(main_content, bg=self.colors["bg_root"], pady=12)
         container.pack(fill="x", expand=False, padx=(2, 20))  # 2px left padding
         
         # Table Headers
@@ -925,7 +1032,7 @@ class SettingsPanel(tk.Frame):
         # ...
 
         # --- Interaction Settings ---
-        interaction_frame = tk.Frame(self, bg=self.colors["bg_root"])
+        interaction_frame = tk.Frame(main_content, bg=self.colors["bg_root"])
         interaction_frame.pack(fill="x", padx=(18, 30), pady=(5, 10))
         
         self.buttons_on_hover_var = tk.BooleanVar(value=self.main_window.buttons_on_hover)
@@ -941,10 +1048,10 @@ class SettingsPanel(tk.Frame):
                        activeforeground="white", font=("Segoe UI", 9)).pack(side="left")
 
         # === SECTION 2: General Settings ===
-        create_section_header(self, "General Settings")
+        create_section_header(main_content, "General Settings")
 
         # --- Typography Setting ---
-        typo_frame = tk.Frame(self, bg=self.colors["bg_root"])
+        typo_frame = tk.Frame(main_content, bg=self.colors["bg_root"])
         typo_frame.pack(fill="x", padx=(20, 30), pady=(10, 0))
         
         tk.Label(typo_frame, text="Font Family:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).pack(side="left")
@@ -990,7 +1097,7 @@ class SettingsPanel(tk.Frame):
         
         # --- System Settings (Refresh Rate) ---
         self.refresh_options = {"15s": 15, "30s": 30, "1m": 60, "2m": 120, "5m": 300}
-        sys_frame = tk.Frame(self, bg=self.colors["bg_root"])
+        sys_frame = tk.Frame(main_content, bg=self.colors["bg_root"])
         sys_frame.pack(fill="x", padx=(18, 30), pady=(10, 0))
         
         tk.Label(sys_frame, text="Refresh Rate:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).pack(side="left")
@@ -1006,10 +1113,10 @@ class SettingsPanel(tk.Frame):
         self.refresh_cb.bind("<<ComboboxSelected>>", self.update_refresh_rate)
 
         # === SECTION 3: Window Selection ===
-        create_section_header(self, "Window Selection")
+        create_section_header(main_content, "Window Selection")
         
         # --- Window Mode Selector ---
-        window_frame = tk.Frame(self, bg=self.colors["bg_root"])
+        window_frame = tk.Frame(main_content, bg=self.colors["bg_root"])
         window_frame.pack(fill="x", padx=(18, 30), pady=(10, 0))
         
         # Track window mode (initialize from main window)
@@ -1045,10 +1152,10 @@ class SettingsPanel(tk.Frame):
         self.btn_dual_window.pack(side="left", fill="x", expand=True)
 
         # === SECTION 4: Email Settings ===
-        create_section_header(self, "Email Settings")
+        create_section_header(main_content, "Email Settings")
 
         # --- Email List Settings ---
-        list_settings_frame = tk.Frame(self, bg=self.colors["bg_root"])
+        list_settings_frame = tk.Frame(main_content, bg=self.colors["bg_root"])
         list_settings_frame.pack(fill="x", padx=(18, 30), pady=(10, 0))
         
         print("DEBUG: Creating email settings checkboxes")
@@ -1154,9 +1261,9 @@ class SettingsPanel(tk.Frame):
         self.cb_lines['postcommand'] = configure_lines_dropdown
 
         # === SECTION 5: Reminder Settings ===
-        create_section_header(self, "Reminder Settings")
+        create_section_header(main_content, "Reminder Settings")
         
-        reminder_frame = tk.Frame(self, bg=self.colors["bg_root"])
+        reminder_frame = tk.Frame(main_content, bg=self.colors["bg_root"])
         reminder_frame.pack(fill="x", padx=(18, 30), pady=(10, 0))
         
         # --- 1. Follow-up Flags ---
@@ -1709,8 +1816,10 @@ class SettingsPanel(tk.Frame):
         self.main_window.reminder_tasks = self.reminder_tasks_var.get()
         self.main_window.reminder_todo = self.reminder_todo_var.get()
         self.main_window.reminder_has_reminder = self.reminder_has_reminder_var.get()
+        self.main_window.reminder_has_reminder = self.reminder_has_reminder_var.get()
+        self.main_window.reminder_has_reminder = self.reminder_has_reminder_var.get()
         self.main_window.save_config()
-        # Future: self.main_window.refresh_reminders()
+        self.main_window.refresh_reminders()
 
     def update_button_config(self):
         """Apply button config changes immediately."""
@@ -2526,6 +2635,7 @@ class SidebarWindow(tk.Tk):
             # Dual window mode - show reminder section
             self.reminder_placeholder.grid(row=1, column=0, sticky="nsew", padx=0, pady=(2, 0))
             self.grid_container.rowconfigure(1, weight=1)
+            self.refresh_reminders()
 
     def open_email(self, entry_id):
         """Opens the specific email item."""
@@ -2859,6 +2969,98 @@ class SidebarWindow(tk.Tk):
                     p.config(wraplength=width)
                 
             card.bind("<Configure>", update_wraps)
+
+
+    def refresh_reminders(self):
+        """Refreshes the Reminder/Flagged section (Bottom List)."""
+        # Ensure scrollable frame exists
+        if not hasattr(self, 'reminder_list') or not self.reminder_list:
+             # Create it inside reminder_placeholder
+             # Clear existing placeholders
+             for widget in self.reminder_placeholder.winfo_children():
+                 widget.destroy()
+                 
+             self.reminder_list = ScrollableFrame(self.reminder_placeholder, bg="#1e1e1e") # Darker bg
+             self.reminder_list.pack(fill="both", expand=True)
+        else:
+             # Clear content
+             for widget in self.reminder_list.scrollable_frame.winfo_children():
+                 widget.destroy()
+        
+        container = self.reminder_list.scrollable_frame
+        
+        # Helper for binding click
+        def bind_click(widget, entry_id):
+            if self.email_double_click:
+                widget.bind("<Double-Button-1>", lambda e, eid=entry_id: self.open_email(eid))
+            else:
+                widget.bind("<Button-1>", lambda e, eid=entry_id: self.open_email(eid))
+        
+        # 1. Meetings (Today & Tomorrow)
+        now = datetime.now()
+        start_str = now.strftime('%m/%d/%Y 00:00 AM')
+        end_str = (now + timedelta(days=1)).strftime('%m/%d/%Y 11:59 PM')
+        
+        meetings = self.outlook_client.get_calendar_items(start_str, end_str)
+        
+        if meetings:
+            tk.Label(container, text="CALENDAR", fg="#60CDFF", bg="#1e1e1e", font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=5, pady=(5, 2))
+            for m in meetings:
+                 mf = tk.Frame(container, bg="#252526", padx=5, pady=5)
+                 mf.pack(fill="x", padx=2, pady=1)
+                 
+                 # Time
+                 try:
+                     dt = m['start']
+                     time_str = dt.strftime("%I:%M %p")
+                 except:
+                     time_str = "??"
+                     
+                 tk.Label(mf, text=time_str, fg="#AAAAAA", bg="#252526", font=("Segoe UI", 9)).pack(side="left")
+                 subj = tk.Label(mf, text=m['subject'], fg="white", bg="#252526", font=("Segoe UI", 9, "bold"))
+                 subj.pack(side="left", padx=5)
+                 
+                 bind_click(mf, m['entry_id'])
+                 bind_click(subj, m['entry_id'])
+
+        # 2. Outlook Tasks
+        if self.reminder_show_flagged:
+             tasks = self.outlook_client.get_tasks(due_filters=self.reminder_due_filters)
+             
+             if tasks:
+                 tk.Label(container, text="TASKS", fg="#28a745", bg="#1e1e1e", font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=5, pady=(10, 2))
+                 for task in tasks:
+                     tf = tk.Frame(container, bg="#2d2d2d", highlightthickness=1, highlightbackground="#28a745", padx=5, pady=5)
+                     tf.pack(fill="x", padx=2, pady=2)
+                     
+                     subj = tk.Label(tf, text=task['subject'], fg="white", bg="#2d2d2d", font=("Segoe UI", 9), anchor="w", justify="left", wraplength=self.expanded_width-40)
+                     subj.pack(side="left", fill="x", expand=True, padx=5)
+                     
+                     bind_click(tf, task['entry_id'])
+                     bind_click(subj, task['entry_id'])
+
+        # 3. Flagged Emails
+        if self.reminder_show_flagged:
+             flags = self.outlook_client.get_inbox_items(
+                 count=30,
+                 unread_only=False,
+                 only_flagged=True,
+                 due_filters=self.reminder_due_filters
+             )
+             
+             if flags:
+                 tk.Label(container, text="FLAGGED EMAILS", fg="#FF8C00", bg="#1e1e1e", font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=5, pady=(10, 2))
+                 
+                 for email in flags:
+                     cf = tk.Frame(container, bg="#2d2d2d", highlightthickness=1, highlightbackground="#FF8C00", padx=5, pady=5)
+                     cf.pack(fill="x", padx=2, pady=2)
+                     
+                     subj = tk.Label(cf, text=email['subject'], fg="white", bg="#2d2d2d", font=("Segoe UI", 9), anchor="w", justify="left", wraplength=self.expanded_width-40)
+                     subj.pack(side="left", fill="x", expand=True, padx=5)
+                     
+                     bind_click(cf, email['entry_id'])
+                     bind_click(subj, email['entry_id'])
+
 
     def draw_pin_icon(self):
         self.btn_pin.delete("all")
