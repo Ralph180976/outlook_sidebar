@@ -718,6 +718,37 @@ class SettingsPanel(tk.Frame):
         # Configure larger font for dropdown lists (affects all comboboxes in this window ideally, but mainly for icons)
         self.option_add('*TCombobox*Listbox.font', ("Segoe UI", 16))
 
+
+        # Configure ttk.Style for comboboxes to fix dark theme visibility
+        style = ttk.Style()
+        style.theme_use('clam')  # Use clam theme for better dark mode support
+        
+        # Create dedicated style for Font Size combobox (not affecting other comboboxes)
+        style.configure('FontSize.TCombobox',
+            fieldbackground='#2d2d2d',  # Dark background for input field
+            background='#2d2d2d',        # Dark background for button
+            foreground='white',          # White text for selected value
+            arrowcolor='white',          # White dropdown arrow
+            bordercolor='#555555',       # Border color
+            lightcolor='#2d2d2d',
+            darkcolor='#2d2d2d',
+            selectbackground='#007ACC',  # Blue highlight
+            selectforeground='white'
+        )
+        
+        # Map foreground color for readonly state (critical for visibility!)
+        style.map('FontSize.TCombobox',
+            fieldbackground=[('readonly', '#2d2d2d')],
+            selectbackground=[('readonly', '#2d2d2d')],
+            foreground=[('readonly', 'white')]  # Ensures white text in readonly mode
+        )
+        
+        # Configure the listbox (dropdown) appearance for icon comboboxes
+        self.option_add('*TCombobox*Listbox.background', '#2d2d2d')
+        self.option_add('*TCombobox*Listbox.foreground', 'white')
+        self.option_add('*TCombobox*Listbox.selectBackground', '#007ACC')
+        self.option_add('*TCombobox*Listbox.selectForeground', 'white')
+
         # Red Cross Close
         btn_close = tk.Label(header, text="✕", fg="#FFFFFF", bg="#C42B1C", font=("Arial", 10), width=5, cursor="hand2")
         btn_close.pack(side="right", fill="y", padx=0)
@@ -907,10 +938,39 @@ class SettingsPanel(tk.Frame):
         self.font_fam_cb.bind("<<ComboboxSelected>>", self.update_font_settings)
         
         tk.Label(typo_frame, text="Size:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).pack(side="left")
-        self.font_size_cb = ttk.Combobox(typo_frame, values=[str(i) for i in range(8, 17)], width=5, state="readonly", font=("Segoe UI", 12))
-        self.font_size_cb.set(str(self.main_window.font_size))
+        
+        # Use StringVar to ensure value is always visible
+        self.font_size_var = tk.StringVar(value=str(self.main_window.font_size))
+        self.font_size_cb = ttk.Combobox(
+            typo_frame, 
+            textvariable=self.font_size_var,
+            values=[str(i) for i in range(8, 13)], 
+            width=12, 
+            state="readonly", 
+            font=("Segoe UI", 10),
+            style='FontSize.TCombobox'  # Use dedicated style
+        )
         self.font_size_cb.pack(side="left", padx=5)
         self.font_size_cb.bind("<<ComboboxSelected>>", self.update_font_settings)
+        
+        # Proper postcommand to fix dropdown width and font
+        def configure_font_size_dropdown():
+            try:
+                # Get the popdown window and its listbox
+                popdown = self.font_size_cb.tk.call('ttk::combobox::PopdownWindow', self.font_size_cb)
+                listbox = f'{popdown}.f.l'
+                
+                # Set dropdown width to match or exceed combobox width
+                cb_width = self.font_size_cb.winfo_width()
+                min_width = max(cb_width, 100)  # At least 100 pixels
+                self.font_size_cb.tk.call(listbox, 'configure', '-width', 20)  # 20 characters wide
+                
+                # Override font for THIS dropdown only (normal size, not the big icon font)
+                self.font_size_cb.tk.call(listbox, 'configure', '-font', ('Segoe UI', 10))
+            except:
+                pass  # Silently fail if dropdown isn't ready
+        
+        self.font_size_cb['postcommand'] = configure_font_size_dropdown
         
         # --- System Settings (Refresh Rate) ---
         self.refresh_options = {"15s": 15, "30s": 30, "1m": 60, "2m": 120, "5m": 300}
@@ -2146,8 +2206,9 @@ class SidebarWindow(tk.Tk):
             )
             lbl_sender.pack(side="left", fill="x", expand=True)
 
-            # Attachment indicator
-            if email.get('has_attachments', False):
+
+            # Attachment indicator (only show if setting is enabled)
+            if email.get('has_attachments', False) and self.show_has_attachment:
                 lbl_attachment = tk.Label(
                     header_frame, 
                     text="@", 
