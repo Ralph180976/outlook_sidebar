@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.0.7"
+VERSION = "v1.0.8"
 
 
 # --- Windows API Constants & Structures ---
@@ -934,15 +934,19 @@ class SettingsPanel(tk.Frame):
         window_frame = tk.Frame(self, bg=self.colors["bg_root"])
         window_frame.pack(fill="x", padx=(18, 30), pady=(10, 0))
         
-        # Track window mode (single or dual)
-        self.window_mode_var = tk.StringVar(value="single")  # Default to single
+        # Track window mode (initialize from main window)
+        self.window_mode_var = tk.StringVar(value=self.main_window.window_mode)
+        
+        # Determine initial button states
+        is_single = (self.main_window.window_mode == "single")
         
         # Single Window Button
         self.btn_single_window = tk.Button(
             window_frame, text="Single Window", 
             command=lambda: self.select_window_mode("single"),
-            bg=self.colors["accent"], fg="black",
-            font=("Segoe UI", 10, "bold"),
+            bg=self.colors["accent"] if is_single else self.colors["bg_card"],
+            fg="black" if is_single else "white",
+            font=("Segoe UI", 10, "bold") if is_single else ("Segoe UI", 10),
             bd=0, padx=20, pady=8,
             activebackground=self.colors["accent"],
             activeforeground="black"
@@ -953,8 +957,9 @@ class SettingsPanel(tk.Frame):
         self.btn_dual_window = tk.Button(
             window_frame, text="Dual Window", 
             command=lambda: self.select_window_mode("dual"),
-            bg=self.colors["bg_card"], fg="white",
-            font=("Segoe UI", 10),
+            bg=self.colors["accent"] if not is_single else self.colors["bg_card"],
+            fg="black" if not is_single else "white",
+            font=("Segoe UI", 10, "bold") if not is_single else ("Segoe UI", 10),
             bd=0, padx=20, pady=8,
             activebackground=self.colors["bg_card"],
             activeforeground="white"
@@ -981,39 +986,10 @@ class SettingsPanel(tk.Frame):
         )
         self.chk_show_read.grid(row=0, column=0, sticky="w", pady=(0, 5))
 
-        # === SECTION 5: Reminder Settings ===
-        create_section_header(self, "Reminder Settings")
-        
-        # --- Flagged Email Filters ---
-        flagged_settings_frame = tk.Frame(self, bg=self.colors["bg_root"])
-        flagged_settings_frame.pack(fill="x", padx=(18, 30), pady=(10, 0))
-
-        # Flagged Filter Row
-        self.only_flagged_var = tk.BooleanVar(value=self.main_window.only_flagged)
-        
-        # Define update_flag_options here so it can be used in command
-        def update_flag_options(event=None):
-            state = "normal" if self.only_flagged_var.get() else "disabled"
-            self.chk_include_read_flagged.config(state=state)
-            self.flag_date_cb.config(state=state)
-            self.update_email_filters()  # Apply changes
-
-        self.chk_only_flagged = tk.Checkbutton(
-            flagged_settings_frame, text="Only Flagged Emails", 
-            variable=self.only_flagged_var,
-            command=update_flag_options,
-            bg=self.colors["bg_root"], fg="white",
-            selectcolor=self.colors["bg_card"],
-            activebackground=self.colors["bg_root"],
-            activeforeground="white",
-            font=("Segoe UI", 10)
-        )
-        self.chk_only_flagged.grid(row=0, column=0, sticky="w")
-
-        self.include_read_flagged_var = tk.BooleanVar(value=self.main_window.include_read_flagged)
-        self.chk_include_read_flagged = tk.Checkbutton(
-            flagged_settings_frame, text="Include Read", 
-            variable=self.include_read_flagged_var,
+        self.show_has_attachment_var = tk.BooleanVar(value=self.main_window.show_has_attachment)
+        self.chk_has_attachment = tk.Checkbutton(
+            list_settings_frame, text="Show if has Attachment", 
+            variable=self.show_has_attachment_var,
             command=self.update_email_filters,
             bg=self.colors["bg_root"], fg="white",
             selectcolor=self.colors["bg_card"],
@@ -1021,22 +997,188 @@ class SettingsPanel(tk.Frame):
             activeforeground="white",
             font=("Segoe UI", 10)
         )
-        self.chk_include_read_flagged.grid(row=1, column=0, sticky="w", padx=(20, 0))
+        self.chk_has_attachment.grid(row=1, column=0, sticky="w", pady=(0, 5))
 
-        # Date Filter for Flagged
-        tk.Label(flagged_settings_frame, text="Due:", bg=self.colors["bg_root"], fg=self.colors["fg_dim"], font=("Segoe UI", 10)).grid(row=1, column=1, sticky="w", padx=(20, 5))
-        self.flag_date_cb = ttk.Combobox(
-            flagged_settings_frame, 
-            values=["Anytime", "Today", "Tomorrow", "This Week", "Next Week", "No Date"],
-            width=10, state="readonly", font=("Segoe UI", 10)
-        )
-        self.flag_date_cb.set(self.main_window.flag_date_filter)
-        self.flag_date_cb.grid(row=1, column=2, sticky="w")
-        self.flag_date_cb.bind("<<ComboboxSelected>>", self.update_email_filters)
-
-        # Disable sub-options if No Flagged Filter
+        # === SECTION 5: Reminder Settings ===
+        create_section_header(self, "Reminder Settings")
         
-        update_flag_options() # Initial state
+        reminder_frame = tk.Frame(self, bg=self.colors["bg_root"])
+        reminder_frame.pack(fill="x", padx=(18, 30), pady=(10, 0))
+        
+        # --- 1. Follow-up Flags ---
+        tk.Label(reminder_frame, text="Follow-up Flags:", bg=self.colors["bg_root"], fg=self.colors["fg_text"], 
+                font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="w", pady=(0, 5), columnspan=2)
+        
+        self.reminder_show_flagged_var = tk.BooleanVar(value=self.main_window.reminder_show_flagged)
+        chk_flagged = tk.Checkbutton(
+            reminder_frame, text="Show Flagged Items", 
+            variable=self.reminder_show_flagged_var,
+            command=self.update_reminder_filters,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 9)
+        )
+        chk_flagged.grid(row=1, column=0, sticky="w", padx=(10, 0))
+        
+        tk.Label(reminder_frame, text="Due:", bg=self.colors["bg_root"], fg=self.colors["fg_dim"], 
+                font=("Segoe UI", 9)).grid(row=1, column=1, sticky="w", padx=(20, 5))
+        self.reminder_due_cb = ttk.Combobox(
+            reminder_frame, 
+            values=["Anytime", "Today", "Tomorrow", "This Week", "Next Week", "Overdue", "No Date"],
+            width=10, state="readonly", font=("Segoe UI", 9)
+        )
+        self.reminder_due_cb.set(self.main_window.reminder_due_filter)
+        self.reminder_due_cb.grid(row=1, column=2, sticky="w")
+        self.reminder_due_cb.bind("<<ComboboxSelected>>", self.update_reminder_filters)
+        
+        # --- 2. Categories ---
+        tk.Label(reminder_frame, text="Categories:", bg=self.colors["bg_root"], fg=self.colors["fg_text"], 
+                font=("Segoe UI", 9, "bold")).grid(row=2, column=0, sticky="w", pady=(10, 5), columnspan=2)
+        
+        self.reminder_show_categorized_var = tk.BooleanVar(value=self.main_window.reminder_show_categorized)
+        chk_categorized = tk.Checkbutton(
+            reminder_frame, text="Show Categorized Items", 
+            variable=self.reminder_show_categorized_var,
+            command=self.update_reminder_filters,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 9)
+        )
+        chk_categorized.grid(row=3, column=0, sticky="w", padx=(10, 0), columnspan=3)
+        
+        # --- 3. Importance Levels ---
+        tk.Label(reminder_frame, text="Importance:", bg=self.colors["bg_root"], fg=self.colors["fg_text"], 
+                font=("Segoe UI", 9, "bold")).grid(row=4, column=0, sticky="w", pady=(10, 5), columnspan=2)
+        
+        self.reminder_high_importance_var = tk.BooleanVar(value=self.main_window.reminder_high_importance)
+        chk_high = tk.Checkbutton(
+            reminder_frame, text="High", 
+            variable=self.reminder_high_importance_var,
+            command=self.update_reminder_filters,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 9)
+        )
+        chk_high.grid(row=5, column=0, sticky="w", padx=(10, 0))
+        
+        self.reminder_normal_importance_var = tk.BooleanVar(value=self.main_window.reminder_normal_importance)
+        chk_normal = tk.Checkbutton(
+            reminder_frame, text="Normal", 
+            variable=self.reminder_normal_importance_var,
+            command=self.update_reminder_filters,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 9)
+        )
+        chk_normal.grid(row=5, column=1, sticky="w")
+        
+        self.reminder_low_importance_var = tk.BooleanVar(value=self.main_window.reminder_low_importance)
+        chk_low = tk.Checkbutton(
+            reminder_frame, text="Low", 
+            variable=self.reminder_low_importance_var,
+            command=self.update_reminder_filters,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 9)
+        )
+        chk_low.grid(row=5, column=2, sticky="w")
+        
+        # --- 4. Meeting Requests ---
+        tk.Label(reminder_frame, text="Meetings:", bg=self.colors["bg_root"], fg=self.colors["fg_text"], 
+                font=("Segoe UI", 9, "bold")).grid(row=6, column=0, sticky="w", pady=(10, 5), columnspan=2)
+        
+        self.reminder_pending_meetings_var = tk.BooleanVar(value=self.main_window.reminder_pending_meetings)
+        chk_pending = tk.Checkbutton(
+            reminder_frame, text="Pending", 
+            variable=self.reminder_pending_meetings_var,
+            command=self.update_reminder_filters,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 9)
+        )
+        chk_pending.grid(row=7, column=0, sticky="w", padx=(10, 0))
+        
+        self.reminder_accepted_meetings_var = tk.BooleanVar(value=self.main_window.reminder_accepted_meetings)
+        chk_accepted = tk.Checkbutton(
+            reminder_frame, text="Accepted", 
+            variable=self.reminder_accepted_meetings_var,
+            command=self.update_reminder_filters,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 9)
+        )
+        chk_accepted.grid(row=7, column=1, sticky="w")
+        
+        self.reminder_declined_meetings_var = tk.BooleanVar(value=self.main_window.reminder_declined_meetings)
+        chk_declined = tk.Checkbutton(
+            reminder_frame, text="Declined", 
+            variable=self.reminder_declined_meetings_var,
+            command=self.update_reminder_filters,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 9)
+        )
+        chk_declined.grid(row=7, column=2, sticky="w")
+        
+        # --- 5. Task Integration ---
+        tk.Label(reminder_frame, text="Tasks:", bg=self.colors["bg_root"], fg=self.colors["fg_text"], 
+                font=("Segoe UI", 9, "bold")).grid(row=8, column=0, sticky="w", pady=(10, 5), columnspan=2)
+        
+        self.reminder_tasks_var = tk.BooleanVar(value=self.main_window.reminder_tasks)
+        chk_tasks = tk.Checkbutton(
+            reminder_frame, text="Tasks", 
+            variable=self.reminder_tasks_var,
+            command=self.update_reminder_filters,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 9)
+        )
+        chk_tasks.grid(row=9, column=0, sticky="w", padx=(10, 0))
+        
+        self.reminder_todo_var = tk.BooleanVar(value=self.main_window.reminder_todo)
+        chk_todo = tk.Checkbutton(
+            reminder_frame, text="To-Do", 
+            variable=self.reminder_todo_var,
+            command=self.update_reminder_filters,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 9)
+        )
+        chk_todo.grid(row=9, column=1, sticky="w")
+        
+        self.reminder_has_reminder_var = tk.BooleanVar(value=self.main_window.reminder_has_reminder)
+        chk_has_reminder = tk.Checkbutton(
+            reminder_frame, text="Has Reminder", 
+            variable=self.reminder_has_reminder_var,
+            command=self.update_reminder_filters,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 9)
+        )
+        chk_has_reminder.grid(row=9, column=2, sticky="w")
+
 
         # --- Icon Brightness Setting REMOVED ---
         # User requested fixed 75% brightness, slider removed.
@@ -1086,11 +1228,29 @@ class SettingsPanel(tk.Frame):
     def update_email_filters(self, event=None):
         """Apply email filter changes immediately."""
         self.main_window.show_read = self.show_read_var.get()
+        self.main_window.show_has_attachment = self.show_has_attachment_var.get()
         self.main_window.only_flagged = self.only_flagged_var.get()
         self.main_window.include_read_flagged = self.include_read_flagged_var.get()
         self.main_window.flag_date_filter = self.flag_date_cb.get()
         self.main_window.save_config()
         self.callback()  # refresh_emails
+
+    def update_reminder_filters(self, event=None):
+        """Apply reminder filter changes immediately."""
+        self.main_window.reminder_show_flagged = self.reminder_show_flagged_var.get()
+        self.main_window.reminder_due_filter = self.reminder_due_cb.get()
+        self.main_window.reminder_show_categorized = self.reminder_show_categorized_var.get()
+        self.main_window.reminder_high_importance = self.reminder_high_importance_var.get()
+        self.main_window.reminder_normal_importance = self.reminder_normal_importance_var.get()
+        self.main_window.reminder_low_importance = self.reminder_low_importance_var.get()
+        self.main_window.reminder_pending_meetings = self.reminder_pending_meetings_var.get()
+        self.main_window.reminder_accepted_meetings = self.reminder_accepted_meetings_var.get()
+        self.main_window.reminder_declined_meetings = self.reminder_declined_meetings_var.get()
+        self.main_window.reminder_tasks = self.reminder_tasks_var.get()
+        self.main_window.reminder_todo = self.reminder_todo_var.get()
+        self.main_window.reminder_has_reminder = self.reminder_has_reminder_var.get()
+        self.main_window.save_config()
+        # Future: self.main_window.refresh_reminders()
 
     def update_button_config(self):
         """Apply button config changes immediately."""
@@ -1143,10 +1303,10 @@ class SettingsPanel(tk.Frame):
                 font=("Segoe UI", 10)
             )
         
-        # TODO: Apply window mode to main window layout
-        # self.main_window.window_mode = mode
-        # self.main_window.save_config()
-        # self.main_window.apply_window_layout()
+        # Apply window mode to main window layout
+        self.main_window.window_mode = mode
+        self.main_window.save_config()
+        self.main_window.apply_window_layout()
 
     def close_panel(self):
         """Close the settings panel."""
@@ -1167,6 +1327,7 @@ class SidebarWindow(tk.Tk):
         self.font_size = 9
         self.poll_interval = 30 # seconds
         self.show_read = False
+        self.show_has_attachment = False  # Filter for emails with attachments
         self.only_flagged = False
         self.include_read_flagged = True
         self.flag_date_filter = "Anytime"
@@ -1178,6 +1339,24 @@ class SidebarWindow(tk.Tk):
         self.settings_panel_open = False
         self.settings_panel = None
         self.settings_panel_width = 370
+        
+        # Window Mode State
+        self.window_mode = "single"  # "single" or "dual"
+        
+        # Reminder Filter State
+        self.reminder_show_flagged = True  # Default ON
+        self.reminder_due_filter = "Anytime"
+        self.reminder_show_categorized = False
+        self.reminder_categories = []  # List of selected categories
+        self.reminder_high_importance = False
+        self.reminder_normal_importance = False
+        self.reminder_low_importance = False
+        self.reminder_pending_meetings = False
+        self.reminder_accepted_meetings = True  # Default ON
+        self.reminder_declined_meetings = False
+        self.reminder_tasks = False
+        self.reminder_todo = False
+        self.reminder_has_reminder = False
         
         # Pulse Animation State
         self.pulsing = False
@@ -1349,16 +1528,16 @@ class SidebarWindow(tk.Tk):
 
         # Content Area - Using grid for precise height control
         # Create container for grid layout (to avoid mixing pack/grid on main_frame)
-        grid_container = tk.Frame(self.main_frame, bg="#000000")
-        grid_container.pack(expand=True, fill="both", padx=5, pady=5)
+        self.grid_container = tk.Frame(self.main_frame, bg="#000000")
+        self.grid_container.pack(expand=True, fill="both", padx=5, pady=5)
         
-        # Configure grid rows: row 0 = email (weight 1), row 1 = reminder (weight 1)
-        grid_container.rowconfigure(0, weight=1)  # Email row
-        grid_container.rowconfigure(1, weight=1)  # Reminder row
-        grid_container.columnconfigure(0, weight=1)
+        # Configure grid rows: row 0 = email (weight 1), row 1 = reminder (weight 0 initially for single mode)
+        self.grid_container.rowconfigure(0, weight=1)  # Email row
+        self.grid_container.rowconfigure(1, weight=0)  # Reminder row (hidden by default)
+        self.grid_container.columnconfigure(0, weight=1)
         
-        # Email container (row 0, 50% height)
-        self.content_container = tk.Frame(grid_container, bg="#222222")
+        # Email container (row 0, 100% height in single mode, 50% in dual mode)
+        self.content_container = tk.Frame(self.grid_container, bg="#222222")
         self.content_container.grid(row=0, column=0, sticky="nsew", padx=0, pady=(0, 2))
         
         # Email section header
@@ -1375,12 +1554,12 @@ class SidebarWindow(tk.Tk):
         self.scroll_frame = ScrollableFrame(self.content_container, bg="#222222")
         self.scroll_frame.pack(expand=True, fill="both")
         
-        # Reminder placeholder (row 1, 50% height)
-        reminder_placeholder = tk.Frame(grid_container, bg="#111111")
-        reminder_placeholder.grid(row=1, column=0, sticky="nsew", padx=0, pady=(2, 0))
+        # Reminder placeholder (row 1, 50% height when visible)
+        self.reminder_placeholder = tk.Frame(self.grid_container, bg="#111111")
+        # Don't grid it yet - will be shown/hidden based on window mode
         
         # Reminder section header
-        reminder_header = tk.Frame(reminder_placeholder, bg="#333333", height=20)
+        reminder_header = tk.Frame(self.reminder_placeholder, bg="#333333", height=20)
         reminder_header.pack(fill="x", side="top")
         reminder_header.pack_propagate(False)  # Maintain fixed height
         
@@ -1391,7 +1570,7 @@ class SidebarWindow(tk.Tk):
         ).pack(side="left", padx=10, pady=3)
         
         tk.Label(
-            reminder_placeholder, text="[Future Reminder Pane - 50% space]",
+            self.reminder_placeholder, text="[Future Reminder Pane - 50% space]",
             bg="#111111", fg="#666666", font=(self.font_family, 9, "italic")
         ).pack(expand=True)
 
@@ -1415,6 +1594,7 @@ class SidebarWindow(tk.Tk):
         
         # Initial State
         self.apply_state()
+        self.apply_window_layout()  # Apply window mode (single/dual)
 
     def quit_application(self):
         """Terminates the application."""
@@ -1795,9 +1975,25 @@ class SidebarWindow(tk.Tk):
                     {"label": "Reply", "icon": "↩", "action1": "Reply", "action2": "None", "folder": ""}
                 ])
                 self.show_read = data.get("show_read", False)
+                self.show_has_attachment = data.get("show_has_attachment", False)
                 self.only_flagged = data.get("only_flagged", False)
                 self.include_read_flagged = data.get("include_read_flagged", True)
                 self.flag_date_filter = data.get("flag_date_filter", "Anytime")
+                self.window_mode = data.get("window_mode", "single")
+                # Reminder filters
+                self.reminder_show_flagged = data.get("reminder_show_flagged", True)
+                self.reminder_due_filter = data.get("reminder_due_filter", "Anytime")
+                self.reminder_show_categorized = data.get("reminder_show_categorized", False)
+                self.reminder_categories = data.get("reminder_categories", [])
+                self.reminder_high_importance = data.get("reminder_high_importance", False)
+                self.reminder_normal_importance = data.get("reminder_normal_importance", False)
+                self.reminder_low_importance = data.get("reminder_low_importance", False)
+                self.reminder_pending_meetings = data.get("reminder_pending_meetings", False)
+                self.reminder_accepted_meetings = data.get("reminder_accepted_meetings", True)
+                self.reminder_declined_meetings = data.get("reminder_declined_meetings", False)
+                self.reminder_tasks = data.get("reminder_tasks", False)
+                self.reminder_todo = data.get("reminder_todo", False)
+                self.reminder_has_reminder = data.get("reminder_has_reminder", False)
         except FileNotFoundError:
             pass
 
@@ -1812,12 +2008,39 @@ class SidebarWindow(tk.Tk):
             "btn_count": self.btn_count,
             "btn_config": self.btn_config,
             "show_read": self.show_read,
+            "show_has_attachment": self.show_has_attachment,
             "only_flagged": self.only_flagged,
             "include_read_flagged": self.include_read_flagged,
-            "flag_date_filter": self.flag_date_filter
+            "flag_date_filter": self.flag_date_filter,
+            "window_mode": self.window_mode,
+            # Reminder filters
+            "reminder_show_flagged": self.reminder_show_flagged,
+            "reminder_due_filter": self.reminder_due_filter,
+            "reminder_show_categorized": self.reminder_show_categorized,
+            "reminder_categories": self.reminder_categories,
+            "reminder_high_importance": self.reminder_high_importance,
+            "reminder_normal_importance": self.reminder_normal_importance,
+            "reminder_low_importance": self.reminder_low_importance,
+            "reminder_pending_meetings": self.reminder_pending_meetings,
+            "reminder_accepted_meetings": self.reminder_accepted_meetings,
+            "reminder_declined_meetings": self.reminder_declined_meetings,
+            "reminder_tasks": self.reminder_tasks,
+            "reminder_todo": self.reminder_todo,
+            "reminder_has_reminder": self.reminder_has_reminder
         }
         with open("sidebar_config.json", "w") as f:
             json.dump(data, f)
+
+    def apply_window_layout(self):
+        """Apply the current window mode (single or dual) to the layout."""
+        if self.window_mode == "single":
+            # Single window mode - hide reminder section
+            self.reminder_placeholder.grid_forget()
+            self.grid_container.rowconfigure(1, weight=0)
+        else:  # dual
+            # Dual window mode - show reminder section
+            self.reminder_placeholder.grid(row=1, column=0, sticky="nsew", padx=0, pady=(2, 0))
+            self.grid_container.rowconfigure(1, weight=1)
 
     def refresh_emails(self):
         # Update UI fonts for header elements
