@@ -1035,11 +1035,21 @@ class SettingsPanel(tk.Frame):
         list_settings_frame = tk.Frame(self, bg=self.colors["bg_root"])
         list_settings_frame.pack(fill="x", padx=(18, 30), pady=(10, 0))
         
+        print("DEBUG: Creating email settings checkboxes")
         self.show_read_var = tk.BooleanVar(value=self.main_window.show_read)
+        print(f"DEBUG: show_read_var created with value: {self.show_read_var.get()}")
+        
+        # Add trace callback
+        def on_show_read_change(*args):
+            print("DEBUG: show_read_var changed!")
+            self.update_email_filters()
+        
+        self.show_read_var.trace_add("write", on_show_read_change)
+        print("DEBUG: Trace added to show_read_var")
+        
         self.chk_show_read = tk.Checkbutton(
             list_settings_frame, text="Include read email", 
             variable=self.show_read_var,
-            command=self.update_email_filters,
             bg=self.colors["bg_root"], fg="white",
             selectcolor=self.colors["bg_card"],
             activebackground=self.colors["bg_root"],
@@ -1047,12 +1057,22 @@ class SettingsPanel(tk.Frame):
             font=("Segoe UI", 10)
         )
         self.chk_show_read.grid(row=0, column=0, sticky="w", pady=(0, 5))
+        print("DEBUG: show_read checkbox created and gridded")
 
         self.show_has_attachment_var = tk.BooleanVar(value=self.main_window.show_has_attachment)
+        print(f"DEBUG: show_has_attachment_var created with value: {self.show_has_attachment_var.get()}")
+        
+        # Add trace callback
+        def on_show_attachment_change(*args):
+            print("DEBUG: show_has_attachment_var changed!")
+            self.update_email_filters()
+        
+        self.show_has_attachment_var.trace_add("write", on_show_attachment_change)
+        print("DEBUG: Trace added to show_has_attachment_var")
+        
         self.chk_has_attachment = tk.Checkbutton(
             list_settings_frame, text="Show if has Attachment", 
             variable=self.show_has_attachment_var,
-            command=self.update_email_filters,
             bg=self.colors["bg_root"], fg="white",
             selectcolor=self.colors["bg_card"],
             activebackground=self.colors["bg_root"],
@@ -1060,6 +1080,7 @@ class SettingsPanel(tk.Frame):
             font=("Segoe UI", 10)
         )
         self.chk_has_attachment.grid(row=1, column=0, sticky="w", pady=(0, 5))
+        print("DEBUG: show_has_attachment checkbox created and gridded")
 
         # === SECTION 5: Reminder Settings ===
         create_section_header(self, "Reminder Settings")
@@ -1289,13 +1310,14 @@ class SettingsPanel(tk.Frame):
 
     def update_email_filters(self, event=None):
         """Apply email filter changes immediately."""
+        print("DEBUG: update_email_filters called")
         self.main_window.show_read = self.show_read_var.get()
         self.main_window.show_has_attachment = self.show_has_attachment_var.get()
-        self.main_window.only_flagged = self.only_flagged_var.get()
-        self.main_window.include_read_flagged = self.include_read_flagged_var.get()
-        self.main_window.flag_date_filter = self.flag_date_cb.get()
+        print(f"DEBUG: show_read={self.main_window.show_read}, show_has_attachment={self.main_window.show_has_attachment}")
         self.main_window.save_config()
+        print(f"DEBUG: Calling callback: {self.callback}")
         self.callback()  # refresh_emails
+        print("DEBUG: Callback completed")
 
     def update_reminder_filters(self, event=None):
         """Apply reminder filter changes immediately."""
