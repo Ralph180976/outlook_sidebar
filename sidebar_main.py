@@ -448,6 +448,7 @@ class OutlookClient:
                         body = clean_body[:100] + "..." # Preview
                         
                         unread = getattr(item, "UnRead", False)
+                        has_attachments = getattr(item, "Attachments", None) and item.Attachments.Count > 0
                         
                         email_list.append({
                             "sender": sender,
@@ -457,7 +458,8 @@ class OutlookClient:
                             "entry_id": getattr(item, "EntryID", ""),
                             "received": getattr(item, "ReceivedTime", None),
                             "flag_status": getattr(item, "FlagStatus", 0),
-                            "due_date": getattr(item, "TaskDueDate", None)
+                            "due_date": getattr(item, "TaskDueDate", None),
+                            "has_attachments": has_attachments
                         })
                     except Exception as inner_e:
                         print(f"Error reading item: {inner_e}")
@@ -2143,6 +2145,17 @@ class SidebarWindow(tk.Tk):
                 anchor="w"
             )
             lbl_sender.pack(side="left", fill="x", expand=True)
+
+            # Attachment indicator
+            if email.get('has_attachments', False):
+                lbl_attachment = tk.Label(
+                    header_frame, 
+                    text="@", 
+                    fg="#60CDFF", 
+                    bg=bg_color, 
+                    font=(self.font_family, self.font_size + 1, "bold"),
+                )
+                lbl_attachment.pack(side="right", padx=(4, 2))
 
             if badge_text:
                 lbl_badge = tk.Label(
