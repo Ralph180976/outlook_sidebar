@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.0.6"
+VERSION = "v1.0.7"
 
 
 # --- Windows API Constants & Structures ---
@@ -930,32 +930,36 @@ class SettingsPanel(tk.Frame):
         # === SECTION 3: Window Selection ===
         create_section_header(self, "Window Selection")
         
-        # --- Window Split Settings ---
+        # --- Window Mode Selector ---
         window_frame = tk.Frame(self, bg=self.colors["bg_root"])
         window_frame.pack(fill="x", padx=(18, 30), pady=(10, 0))
         
-        # Email Window percentage (display only, calculated)
-        tk.Label(window_frame, text="Email Window:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).grid(row=0, column=0, sticky="w", pady=(0, 5))
-        self.lbl_email_pct = tk.Label(window_frame, text="100%", fg=self.colors["fg_text"], bg=self.colors["bg_root"], font=("Segoe UI", 10, "bold"))
-        self.lbl_email_pct.grid(row=0, column=1, sticky="w", padx=(10, 0), pady=(0, 5))
+        # Track window mode (single or dual)
+        self.window_mode_var = tk.StringVar(value="single")  # Default to single
         
-        # Reminder Window percentage (selectable)
-        tk.Label(window_frame, text="Reminder Window:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).grid(row=1, column=0, sticky="w")
-        self.reminder_pct_cb = ttk.Combobox(window_frame, values=["0%", "25%", "50%"], width=8, state="readonly", font=("Segoe UI", 10))
-        self.reminder_pct_cb.set("0%")  # Default to 0%
-        self.reminder_pct_cb.grid(row=1, column=1, sticky="w", padx=(10, 0))
+        # Single Window Button
+        self.btn_single_window = tk.Button(
+            window_frame, text="Single Window", 
+            command=lambda: self.select_window_mode("single"),
+            bg=self.colors["accent"], fg="black",
+            font=("Segoe UI", 10, "bold"),
+            bd=0, padx=20, pady=8,
+            activebackground=self.colors["accent"],
+            activeforeground="black"
+        )
+        self.btn_single_window.pack(side="left", padx=(0, 10), fill="x", expand=True)
         
-        # Update handler for reminder percentage
-        def update_window_split(event=None):
-            reminder_str = self.reminder_pct_cb.get()
-            reminder_pct = int(reminder_str.rstrip('%'))
-            email_pct = 100 - reminder_pct
-            self.lbl_email_pct.config(text=f"{email_pct}%")
-            # TODO: Apply split to main window layout
-            # self.main_window.reminder_pct = reminder_pct
-            # self.main_window.save_config()
-        
-        self.reminder_pct_cb.bind("<<ComboboxSelected>>", update_window_split)
+        # Dual Window Button
+        self.btn_dual_window = tk.Button(
+            window_frame, text="Dual Window", 
+            command=lambda: self.select_window_mode("dual"),
+            bg=self.colors["bg_card"], fg="white",
+            font=("Segoe UI", 10),
+            bd=0, padx=20, pady=8,
+            activebackground=self.colors["bg_card"],
+            activeforeground="white"
+        )
+        self.btn_dual_window.pack(side="left", fill="x", expand=True)
 
         # === SECTION 4: Email Settings ===
         create_section_header(self, "Email Settings")
@@ -966,7 +970,7 @@ class SettingsPanel(tk.Frame):
         
         self.show_read_var = tk.BooleanVar(value=self.main_window.show_read)
         self.chk_show_read = tk.Checkbutton(
-            list_settings_frame, text="Show Read Emails", 
+            list_settings_frame, text="Include read email", 
             variable=self.show_read_var,
             command=self.update_email_filters,
             bg=self.colors["bg_root"], fg="white",
@@ -1107,6 +1111,43 @@ class SettingsPanel(tk.Frame):
         self.main_window.save_config()
         self.callback()  # refresh_emails
 
+    def select_window_mode(self, mode):
+        """Handle window mode selection (single or dual)."""
+        self.window_mode_var.set(mode)
+        
+        # Update button styling to show active state
+        if mode == "single":
+            # Single is active
+            self.btn_single_window.config(
+                bg=self.colors["accent"], 
+                fg="black",
+                font=("Segoe UI", 10, "bold")
+            )
+            # Dual is inactive
+            self.btn_dual_window.config(
+                bg=self.colors["bg_card"], 
+                fg="white",
+                font=("Segoe UI", 10)
+            )
+        else:  # dual
+            # Dual is active
+            self.btn_dual_window.config(
+                bg=self.colors["accent"], 
+                fg="black",
+                font=("Segoe UI", 10, "bold")
+            )
+            # Single is inactive
+            self.btn_single_window.config(
+                bg=self.colors["bg_card"], 
+                fg="white",
+                font=("Segoe UI", 10)
+            )
+        
+        # TODO: Apply window mode to main window layout
+        # self.main_window.window_mode = mode
+        # self.main_window.save_config()
+        # self.main_window.apply_window_layout()
+
     def close_panel(self):
         """Close the settings panel."""
         self.main_window.toggle_settings_panel()
@@ -1125,7 +1166,7 @@ class SidebarWindow(tk.Tk):
         self.font_family = "Segoe UI"
         self.font_size = 9
         self.poll_interval = 30 # seconds
-        self.show_read = True
+        self.show_read = False
         self.only_flagged = False
         self.include_read_flagged = True
         self.flag_date_filter = "Anytime"
@@ -1306,9 +1347,19 @@ class SidebarWindow(tk.Tk):
         # No action yet, just tooltip
         ToolTip(self.btn_share, "Sharing not available yet")
 
-        # Content Area - Scrollable Frame for Emails
-        self.content_container = tk.Frame(self.main_frame, bg="#222222")
-        self.content_container.pack(expand=True, fill="both", padx=5, pady=5)
+        # Content Area - Using grid for precise height control
+        # Create container for grid layout (to avoid mixing pack/grid on main_frame)
+        grid_container = tk.Frame(self.main_frame, bg="#000000")
+        grid_container.pack(expand=True, fill="both", padx=5, pady=5)
+        
+        # Configure grid rows: row 0 = email (weight 1), row 1 = reminder (weight 1)
+        grid_container.rowconfigure(0, weight=1)  # Email row
+        grid_container.rowconfigure(1, weight=1)  # Reminder row
+        grid_container.columnconfigure(0, weight=1)
+        
+        # Email container (row 0, 50% height)
+        self.content_container = tk.Frame(grid_container, bg="#222222")
+        self.content_container.grid(row=0, column=0, sticky="nsew", padx=0, pady=(0, 2))
         
         # Email section header
         email_header = tk.Frame(self.content_container, bg="#333333", height=20)
@@ -1323,6 +1374,26 @@ class SidebarWindow(tk.Tk):
         
         self.scroll_frame = ScrollableFrame(self.content_container, bg="#222222")
         self.scroll_frame.pack(expand=True, fill="both")
+        
+        # Reminder placeholder (row 1, 50% height)
+        reminder_placeholder = tk.Frame(grid_container, bg="#111111")
+        reminder_placeholder.grid(row=1, column=0, sticky="nsew", padx=0, pady=(2, 0))
+        
+        # Reminder section header
+        reminder_header = tk.Frame(reminder_placeholder, bg="#333333", height=20)
+        reminder_header.pack(fill="x", side="top")
+        reminder_header.pack_propagate(False)  # Maintain fixed height
+        
+        tk.Label(
+            reminder_header, text="Flagged/Reminders", 
+            bg="#333333", fg="#AAAAAA",
+            font=(self.font_family, 9, "bold")
+        ).pack(side="left", padx=10, pady=3)
+        
+        tk.Label(
+            reminder_placeholder, text="[Future Reminder Pane - 50% space]",
+            bg="#111111", fg="#666666", font=(self.font_family, 9, "italic")
+        ).pack(expand=True)
 
         # Resize Grip (Overlay on the right edge)
         self.resize_grip = tk.Frame(self.main_frame, bg="#666666", cursor="sb_h_double_arrow", width=5)
@@ -1723,7 +1794,7 @@ class SidebarWindow(tk.Tk):
                     {"label": "Trash", "icon": "✕", "action1": "Mark Read", "action2": "Delete", "folder": ""}, 
                     {"label": "Reply", "icon": "↩", "action1": "Reply", "action2": "None", "folder": ""}
                 ])
-                self.show_read = data.get("show_read", True)
+                self.show_read = data.get("show_read", False)
                 self.only_flagged = data.get("only_flagged", False)
                 self.include_read_flagged = data.get("include_read_flagged", True)
                 self.flag_date_filter = data.get("flag_date_filter", "Anytime")
@@ -1760,10 +1831,7 @@ class SidebarWindow(tk.Tk):
 
         emails = self.outlook_client.get_inbox_items(
             count=30, 
-            unread_only=not self.show_read,
-            only_flagged=self.only_flagged,
-            include_read_flagged=self.include_read_flagged,
-            flag_date_filter=self.flag_date_filter
+            unread_only=not self.show_read
         )
         
         for email in emails:
@@ -2006,7 +2074,7 @@ class SidebarWindow(tk.Tk):
             # Pinned: Always Expanded, Always Reserved (Docked)
             self.hot_strip_canvas.place_forget()
             self.header.pack(fill="x", side="top")
-            self.content_container.pack(expand=True, fill="both", padx=5, pady=5)
+            # self.content_container.pack(expand=True, fill="both", padx=5, pady=5)  # Now managed by grid
             
             # Place grip on opposite side of dock
             if self.dock_side == "Left":
@@ -2026,7 +2094,7 @@ class SidebarWindow(tk.Tk):
             self.hot_strip_canvas.place_forget()
             self.header.pack(fill="x", side="top")
             # For overlay mode, we still show the content
-            self.content_container.pack(expand=True, fill="both", padx=5, pady=5)
+            # self.content_container.pack(expand=True, fill="both", padx=5, pady=5)  # Now managed by grid
             
             if self.dock_side == "Left":
                 self.resize_grip.place(relx=1.0, rely=0, anchor="ne", relheight=1.0)
@@ -2044,7 +2112,7 @@ class SidebarWindow(tk.Tk):
             
             # Hide internals to prevent squishing
             self.header.pack_forget()
-            self.content_container.pack_forget()
+            # self.content_container.pack_forget()  # Now managed by grid
             self.resize_grip.place_forget()
             
             # Show Hot Strip
