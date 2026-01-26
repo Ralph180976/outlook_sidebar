@@ -1310,6 +1310,17 @@ class SidebarWindow(tk.Tk):
         self.content_container = tk.Frame(self.main_frame, bg="#222222")
         self.content_container.pack(expand=True, fill="both", padx=5, pady=5)
         
+        # Email section header
+        email_header = tk.Frame(self.content_container, bg="#333333", height=20)
+        email_header.pack(fill="x", side="top")
+        email_header.pack_propagate(False)  # Maintain fixed height
+        
+        tk.Label(
+            email_header, text="Email", 
+            bg="#333333", fg="#AAAAAA",
+            font=(self.font_family, 9, "bold")
+        ).pack(side="left", padx=10, pady=3)
+        
         self.scroll_frame = ScrollableFrame(self.content_container, bg="#222222")
         self.scroll_frame.pack(expand=True, fill="both")
 
