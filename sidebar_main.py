@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.2.22"
+VERSION = "v1.2.24"
 
 
 # --- Windows API Constants & Structures ---
@@ -2590,7 +2590,7 @@ class SidebarWindow(tk.Tk):
         self.btn_pin = tk.Canvas(self.header, width=30, height=30, bg="#444444", highlightthickness=0)
         self.btn_pin.pack(side="right", padx=5, pady=5)
         self.btn_pin.bind("<Button-1>", lambda e: self.toggle_pin())
-        self.pin_tooltip = ToolTip(self.btn_pin, "Pin to Top")
+        self.pin_tooltip = ToolTip(self.btn_pin, "Pin Window Open")
         self.draw_pin_icon()
         
         # Custom Settings Button (Cog)
@@ -3843,7 +3843,7 @@ class SidebarWindow(tk.Tk):
         if self.is_pinned:
              self.pin_tooltip.text = "Unpin"
         else:
-             self.pin_tooltip.text = "Pin to Top"
+             self.pin_tooltip.text = "Pin Window Open"
              
         self.draw_pin_icon()
         self.save_config()
@@ -3866,7 +3866,8 @@ class SidebarWindow(tk.Tk):
         if self.is_pinned:
             # Pinned: Always Expanded, Always Reserved (Docked)
             self.hot_strip_canvas.place_forget()
-            self.header.pack(fill="x", side="top")
+            # Ensure header is at the top (before content)
+            self.header.pack(fill="x", side="top", before=self.paned_window)
             # self.content_container.pack(expand=True, fill="both", padx=5, pady=5)  # Now managed by grid
             
             # Place grip on opposite side of dock
@@ -3885,7 +3886,8 @@ class SidebarWindow(tk.Tk):
         elif self.is_expanded:
             # Expanded (Hover): Broad width, BUT acts as OVERLAY (No docking/reservation)
             self.hot_strip_canvas.place_forget()
-            self.header.pack(fill="x", side="top")
+            # Ensure header is at the top (before content)
+            self.header.pack(fill="x", side="top", before=self.paned_window)
             # For overlay mode, we still show the content
             # self.content_container.pack(expand=True, fill="both", padx=5, pady=5)  # Now managed by grid
             
