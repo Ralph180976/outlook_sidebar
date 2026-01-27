@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.2.4"
+VERSION = "v1.2.6"
 
 
 # --- Windows API Constants & Structures ---
@@ -776,6 +776,18 @@ class OutlookClient:
         except Exception as e:
             print(f"Error resolving path '{path_str}': {e}")
             return None
+
+    def mark_task_complete(self, entry_id, store_id=None):
+        """Marks a task as complete."""
+        try:
+            item = self.get_item_by_entryid(entry_id, store_id)
+            if item:
+                item.MarkComplete()
+                item.Save()
+                return True
+        except Exception as e:
+            print(f"Error marking task complete: {e}")
+            return False
         """
         Recursively searches for a folder by name. 
         Starts at default Inbox parent (likely the account root).
@@ -3696,6 +3708,35 @@ class SidebarWindow(tk.Tk):
                      
                      bind_click(tf, task['entry_id'])
                      bind_click(subj, task['entry_id'])
+
+                     # Task Buttons Frame
+                     t_actions = tk.Frame(tf, bg="#2d2d2d")
+                     t_actions.pack(side="right", padx=2)
+
+                     # Helper to create buttons
+                     def make_task_btn(parent, text, cmd, tip):
+                         btn = tk.Label(parent, text=text, fg="#AAAAAA", bg="#2d2d2d", font=("Segoe UI", 10), cursor="hand2", padx=5)
+                         btn.pack(side="left", padx=1)
+                         btn.bind("<Button-1>", lambda e: cmd())
+                         btn.bind("<Enter>", lambda e: btn.config(fg="white", bg="#444444"))
+                         btn.bind("<Leave>", lambda e: btn.config(fg="#AAAAAA", bg="#2d2d2d"))
+                         if tip: ToolTip(btn, tip)
+                         return btn
+
+                     # Open Button (Folder icon or similar)
+                     make_task_btn(t_actions, "📂", lambda eid=task['entry_id']: self.open_email(eid), "Open Task")
+
+                     # Complete Button (Checkmark)
+                     def do_complete(eid=task['entry_id'], w=tf):
+                         success = self.outlook_client.mark_task_complete(eid)
+                         if success:
+                             # Fade out or remove
+                             w.pack_forget()
+                             # message?
+                         else:
+                             messagebox.showerror("Error", "Failed to mark task complete.")
+                             
+                     make_task_btn(t_actions, "✓", do_complete, "Mark Complete")
 
         # 3. Flagged Emails
         if self.reminder_show_flagged:
