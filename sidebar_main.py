@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.2.18"
+VERSION = "v1.2.20"
 
 
 # --- Windows API Constants & Structures ---
@@ -2634,7 +2634,8 @@ class SidebarWindow(tk.Tk):
         
         # PanedWindow
         # sashwidth=4, sashrelief="raised" or "flat", bg="#333333" for visibility
-        self.paned_window = tk.PanedWindow(self.main_frame, orient="vertical", bg="#333333", sashwidth=4, sashrelief="flat")
+        # opaqueresize=False preventing constant redraw during drag (smoother)
+        self.paned_window = tk.PanedWindow(self.main_frame, orient="vertical", bg="#333333", sashwidth=4, sashrelief="flat", opaqueresize=False)
         self.paned_window.pack(expand=True, fill="both", padx=5, pady=5)
         
         # Pane 1: Email Container
