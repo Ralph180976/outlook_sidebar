@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.2.6"
+VERSION = "v1.2.8"
 
 
 # --- Windows API Constants & Structures ---
@@ -1041,16 +1041,20 @@ class AccountSelectionDialog(tk.Toplevel):
         canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
         
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        if len(self.accounts) > 5:
+            canvas.pack(side="left", fill="both", expand=True)
+            scrollbar.pack(side="right", fill="y")
+        else:
+            canvas.pack(side="left", fill="both", expand=True)
+            # No scrollbar packed
         
         # List
         h_frame = tk.Frame(scroll_frame, bg=self.colors["bg"])
         h_frame.pack(fill="x", pady=(5, 10), padx=10)
-        tk.Label(h_frame, text="Account", bg=self.colors["bg"], fg="#AAAAAA", width=25, anchor="w").pack(side="left")
-        tk.Label(h_frame, text="Email", bg=self.colors["bg"], fg="#AAAAAA", width=5).pack(side="left")
-        tk.Label(h_frame, text="Folders", bg=self.colors["bg"], fg="#AAAAAA", width=5).pack(side="left")
-        tk.Label(h_frame, text="Cal/Task", bg=self.colors["bg"], fg="#AAAAAA", width=8).pack(side="left")
+        tk.Label(h_frame, text="Account", bg=self.colors["bg"], fg="#AAAAAA", width=25, anchor="w", font=("Segoe UI", 10)).pack(side="left")
+        tk.Label(h_frame, text="Email", bg=self.colors["bg"], fg="#AAAAAA", width=6, font=("Segoe UI", 10)).pack(side="left")
+        tk.Label(h_frame, text="Folders", bg=self.colors["bg"], fg="#AAAAAA", width=6, font=("Segoe UI", 10)).pack(side="left")
+        tk.Label(h_frame, text="Cal/Task", bg=self.colors["bg"], fg="#AAAAAA", width=8, font=("Segoe UI", 10)).pack(side="left")
         
         tk.Frame(scroll_frame, bg="#333333", height=1).pack(fill="x", padx=10, pady=(0, 5))
 
@@ -1068,8 +1072,12 @@ class AccountSelectionDialog(tk.Toplevel):
             
             e_var = tk.IntVar(value=1 if vals.get("email") else 0)
             self.vars[acc]["email"] = e_var
+            # High contrast selectcolor (white check on dark bg, or check matches fg)
+            # Tkinter Checkbutton: selectcolor is the background of the box. 
+            # If we want a white check, we need specific settings or system theme.
+            # Setting selectcolor="#60CDFF" makes the box blue when checked.
             tk.Checkbutton(row, variable=e_var, bg=self.colors["bg"], activebackground=self.colors["bg"], 
-                           selectcolor="#333333").pack(side="left", padx=(10, 5))
+                           selectcolor=self.colors["accent"], borderwidth=0, highlightthickness=0).pack(side="left", padx=(10, 5))
             
             # Folder Button
             self.vars[acc]["email_folders"] = vals.get("email_folders", [])
@@ -1082,24 +1090,24 @@ class AccountSelectionDialog(tk.Toplevel):
                 # Better: Callback to parent to open picker.
                 self.open_folder_picker(a)
 
-            btn_f = tk.Label(row, text="📁", bg=self.colors["bg"], fg=self.colors["accent"], cursor="hand2")
-            btn_f.pack(side="left", padx=10)
+            btn_f = tk.Label(row, text="📁", bg=self.colors["bg"], fg=self.colors["accent"], cursor="hand2", font=("Segoe UI", 12))
+            btn_f.pack(side="left", padx=15)
             btn_f.bind("<Button-1>", lambda e, a=acc: self.open_folder_picker(a))
 
             c_var = tk.IntVar(value=1 if vals.get("calendar") else 0)
             self.vars[acc]["calendar"] = c_var
             tk.Checkbutton(row, variable=c_var, bg=self.colors["bg"], activebackground=self.colors["bg"], 
-                           selectcolor="#333333").pack(side="left", padx=10)
+                           selectcolor=self.colors["accent"], borderwidth=0, highlightthickness=0).pack(side="left", padx=10)
             
         # Footer
-        footer = tk.Frame(self, bg=self.colors["bg"], height=50)
-        footer.pack(fill="x", side="bottom", pady=10)
+        footer = tk.Frame(self, bg=self.colors["bg"], height=60)
+        footer.pack(fill="x", side="bottom", pady=15)
         
         tk.Button(footer, text="Save Changes", command=self.save_selection,
-            bg=self.colors["accent"], fg="black", bd=0, font=("Segoe UI", 9, "bold"), padx=20, pady=5).pack(side="right", padx=15)
+            bg=self.colors["accent"], fg="black", bd=0, font=("Segoe UI", 10, "bold"), padx=25, pady=8).pack(side="right", padx=15)
         
         tk.Button(footer, text="Cancel", command=self.destroy,
-            bg="#333333", fg="white", bd=0, font=("Segoe UI", 9), padx=15, pady=5).pack(side="right", padx=5)
+            bg="#333333", fg="white", bd=0, font=("Segoe UI", 10), padx=20, pady=8).pack(side="right", padx=5)
 
     def save_selection(self):
         final = {}
@@ -1404,8 +1412,8 @@ class SettingsPanel(tk.Frame):
 
         # Account Selection Button
         btn_accounts = tk.Button(main_content, text="Select Emails...", command=self.open_account_selection,
-                                 bg=self.colors["bg_card"], fg="white", bd=0, font=("Segoe UI", 9),
-                                 highlightthickness=1, highlightbackground="#444444")
+                                 bg=self.colors["bg_card"], fg="white", bd=0, font=("Segoe UI", 10),
+                                 highlightthickness=1, highlightbackground="#444444", pady=8)
         btn_accounts.pack(fill="x", padx=(18, 30), pady=(5, 5))
 
         # --- Email List Settings ---
