@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.2.1"
+VERSION = "v1.2.2"
 
 
 # --- Windows API Constants & Structures ---
@@ -334,322 +334,412 @@ class OutlookClient:
             self.namespace = None
             return False
 
-    def check_latest_time(self):
-        """Initializes or updates the last received time without returning bool."""
-        if not self.namespace: return
+    def get_accounts(self):
+        """Returns list of account names."""
+        accounts = []
+        if not self.connect(): return []
         try:
-            inbox = self.namespace.GetDefaultFolder(6)
-            items = inbox.Items
-            items.Sort("[ReceivedTime]", True)
-            item = items.GetFirst()
-            if item:
-                self.last_received_time = item.ReceivedTime
+            for store in self.namespace.Stores:
+                accounts.append(store.DisplayName)
+        except Exception as e:
+            print(f"Error fetching accounts: {e}")
+        return accounts
+
+    def _get_enabled_stores(self, account_names):
+        """Helper: Yields stores that match the provided names (or all if None)."""
+        if not self.namespace: return
+        
+        # If no specific accounts provided, try to assume all or default
+        # But for strictly obeying 'enabled_accounts', we expect a list.
+        # If None, we default to ALL stores (legacy behavior compatible)
+        
+        try:
+            for store in self.namespace.Stores:
+                if account_names is None or store.DisplayName in account_names:
+                    yield store
         except Exception:
-             # If we fail here, we might be disconnected, but this is just init
+            return
+
+    def check_latest_time(self, account_names=None):
+        """Updates the globally tracked last_received_time from enabled accounts."""
+        if not self.namespace: return
+        
+        latest = None
+        
+        try:
+            for store in self._get_enabled_stores(account_names):
+                try:
+                    inbox = store.GetDefaultFolder(6)
+                    items = inbox.Items
+                    items.Sort("[ReceivedTime]", True)
+                    item = items.GetFirst()
+                    if item:
+                        t = item.ReceivedTime
+                        if latest is None or t > latest:
+                            latest = t
+                except:
+                    continue
+                    
+            if latest:
+                self.last_received_time = latest
+                
+        except Exception:
              pass
 
-    def check_new_mail(self):
-        """Checks if there is email newer than the last check. Recovers connection if needed."""
-        # Retry loop (Try once, if fail, reconnect and try again)
+    def check_new_mail(self, account_names=None):
+        """Checks for new mail across enabled accounts."""
         for attempt in range(2):
             if not self.namespace:
-                if not self.connect():
-                    return False # Still cannot connect
+                if not self.connect(): return False
 
             try:
-                inbox = self.namespace.GetDefaultFolder(6)
-                items = inbox.Items
-                items.Sort("[ReceivedTime]", True)
-                item = items.GetFirst()
+                found_new = False
+                global_max = self.last_received_time
                 
-                if item:
-                    current_time = item.ReceivedTime
-                    # If we have a stored time and the new one is newer
-                    if self.last_received_time and current_time > self.last_received_time:
-                        self.last_received_time = current_time
-                        return True
+                for store in self._get_enabled_stores(account_names):
+                    try:
+                        inbox = store.GetDefaultFolder(6)
+                        items = inbox.Items
+                        items.Sort("[ReceivedTime]", True)
+                        item = items.GetFirst()
+                        
+                        if item:
+                            current_time = item.ReceivedTime
+                            # Compare against our global max
+                            if self.last_received_time and current_time > self.last_received_time:
+                                found_new = True
+                            
+                            # Update local tracker for this poll
+                            if global_max is None or current_time > global_max:
+                                global_max = current_time
+                    except:
+                        continue
+                
+                if global_max:
+                    self.last_received_time = global_max
                     
-                    # Update tracker regardless to avoid stale alerts
-                    self.last_received_time = current_time
-                return False # No new mail
+                return found_new
                 
             except Exception as e:
                 print(f"Polling error (Attempt {attempt+1}): {e}")
-                self.namespace = None # Force reconnect next loop
+                self.namespace = None 
         
         return False
 
-    def get_calendar_items(self, start_date, end_date):
-        """Fetches calendar items between start and end dates."""
+    def get_calendar_items(self, start_date, end_date, account_names=None):
+        """Fetches calendar items from all enabled accounts."""
         for attempt in range(2):
             if not self.namespace:
                  if not self.connect(): return []
             try:
-                # 9 = olFolderCalendar
-                cal = self.namespace.GetDefaultFolder(9)
-                items = cal.Items
-                items.Sort("[Start]")
-                items.IncludeRecurrences = True
+                all_results = []
                 
-                restrict = f"[Start] >= '{start_date}' AND [Start] <= '{end_date}'"
-                items = items.Restrict(restrict)
-                
-                results = []
-                for item in items:
+                for store in self._get_enabled_stores(account_names):
                     try:
-                        results.append({
-                            "subject": item.Subject,
-                            "start": item.Start,
-                            "location": getattr(item, "Location", ""),
-                            "entry_id": item.EntryID,
-                            "is_meeting": True
-                        })
+                        cal = store.GetDefaultFolder(9)
+                        items = cal.Items
+                        items.Sort("[Start]")
+                        items.IncludeRecurrences = True
+                        
+                        restrict = f"[Start] >= '{start_date}' AND [Start] <= '{end_date}'"
+                        items = items.Restrict(restrict)
+                        
+                        for item in items:
+                            try:
+                                all_results.append({
+                                    "subject": item.Subject,
+                                    "start": item.Start,
+                                    "location": getattr(item, "Location", ""),
+                                    "entry_id": item.EntryID,
+                                    "is_meeting": True,
+                                    "account": store.DisplayName # Optional: Track source
+                                })
+                            except:
+                                continue
                     except:
                         continue
-                return results
+                        
+                # Sort merged results by start time
+                # Python's default sort is stable
+                # We need to handle datetime objects
+                try:
+                    all_results.sort(key=lambda x: x["start"])
+                except:
+                    pass
+                    
+                return all_results
             except Exception as e:
                 print(f"Calendar error: {e}")
                 self.namespace = None
         return []
 
-    def get_tasks(self, due_filters=None):
-        """Fetches Outlook Tasks (Folder 13) that are not complete."""
+    def get_tasks(self, due_filters=None, account_names=None):
+        """Fetches Outlook Tasks from enabled accounts."""
         for attempt in range(2):
             if not self.namespace:
                  if not self.connect(): return []
             try:
-                tasks_folder = self.namespace.GetDefaultFolder(13) # 13 = olFolderTasks
-                items = tasks_folder.Items
+                all_results = []
                 
-                # Base Filter: Not Complete
-                restricts = ["[Complete] = False"]
-                
-                # Date Filter Logic (Use [DueDate] for Tasks)
-                if due_filters and len(due_filters) > 0:
-                    date_queries = []
-                    now = datetime.now()
-                    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-                    tomorrow = today + timedelta(days=1)
-                    db_tomorrow = today + timedelta(days=2)
-                    
-                    for filter_name in due_filters:
-                        if filter_name == "Overdue":
-                            date_queries.append(f"[DueDate] < '{today.strftime('%m/%d/%Y %I:%M %p')}'") 
-                        elif filter_name == "Today":
-                            date_queries.append(f"([DueDate] >= '{today.strftime('%m/%d/%Y %I:%M %p')}' AND [DueDate] < '{tomorrow.strftime('%m/%d/%Y %I:%M %p')}')")
-                        elif filter_name == "Tomorrow":
-                            date_queries.append(f"([DueDate] >= '{tomorrow.strftime('%m/%d/%Y %I:%M %p')}' AND [DueDate] < '{db_tomorrow.strftime('%m/%d/%Y %I:%M %p')}')")
-                        elif filter_name == "Next 7 Days":
-                            next_week = today + timedelta(days=8)
-                            date_queries.append(f"([DueDate] >= '{today.strftime('%m/%d/%Y %I:%M %p')}' AND [DueDate] < '{next_week.strftime('%m/%d/%Y %I:%M %p')}')")
-                        elif filter_name == "No Date":
-                            date_queries.append("([DueDate] IS NULL OR [DueDate] > '01/01/4500')")
-                    
-                    if date_queries:
-                        combined_date_query = " OR ".join(date_queries)
-                        restricts.append(f"({combined_date_query})")
-
-                if restricts:
-                    restrict_str = " AND ".join(restricts)
-                    items = items.Restrict(restrict_str)
-                
-                items.Sort("[DueDate]", False) # Ascending? False is Descending?
-                # Usually we want Ascending (Oldest/Overdue first). False = Descending?
-                # Check logic. param: Descending. False = Ascending. Correct.
-                
-                results = []
-                count = 0
-                for item in items:
-                    if count > 50: break
+                for store in self._get_enabled_stores(account_names):
                     try:
-                        results.append({
-                            "subject": item.Subject,
-                            "due": item.DueDate, # Date object
-                            "entry_id": item.EntryID,
-                            "is_task": True
-                        })
-                        count += 1
-                    except:
-                        continue
-                return results
+                        tasks_folder = store.GetDefaultFolder(13)
+                        items = tasks_folder.Items
+                        
+                        restricts = ["[Complete] = False"]
+                        
+                        # Date Filter Logic (Same as before)
+                        if due_filters and len(due_filters) > 0:
+                            date_queries = []
+                            now = datetime.now()
+                            today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                            tomorrow = today + timedelta(days=1)
+                            db_tomorrow = today + timedelta(days=2)
+                            
+                            for filter_name in due_filters:
+                                if filter_name == "Overdue":
+                                    date_queries.append(f"[DueDate] < '{today.strftime('%m/%d/%Y %I:%M %p')}'") 
+                                elif filter_name == "Today":
+                                    date_queries.append(f"([DueDate] >= '{today.strftime('%m/%d/%Y %I:%M %p')}' AND [DueDate] < '{tomorrow.strftime('%m/%d/%Y %I:%M %p')}')")
+                                elif filter_name == "Tomorrow":
+                                    date_queries.append(f"([DueDate] >= '{tomorrow.strftime('%m/%d/%Y %I:%M %p')}' AND [DueDate] < '{db_tomorrow.strftime('%m/%d/%Y %I:%M %p')}')")
+                                elif filter_name == "Next 7 Days":
+                                    next_week = today + timedelta(days=8)
+                                    date_queries.append(f"([DueDate] >= '{today.strftime('%m/%d/%Y %I:%M %p')}' AND [DueDate] < '{next_week.strftime('%m/%d/%Y %I:%M %p')}')")
+                                elif filter_name == "No Date":
+                                    date_queries.append("([DueDate] IS NULL OR [DueDate] > '01/01/4500')")
+                            
+                            if date_queries:
+                                combined_date_query = " OR ".join(date_queries)
+                                restricts.append(f"({combined_date_query})")
 
+                        if restricts:
+                            restrict_str = " AND ".join(restricts)
+                            items = items.Restrict(restrict_str)
+                        
+                        count = 0
+                        for item in items:
+                            if count > 30: break # Per account limit
+                            try:
+                                all_results.append({
+                                    "subject": item.Subject,
+                                    "due": item.DueDate,
+                                    "entry_id": item.EntryID,
+                                    "is_task": True,
+                                    "account": store.DisplayName
+                                })
+                                count += 1
+                            except:
+                                continue
+                    except:
+                        continue # Skip store if tasks failed
+                        
+                # Sort combined results
+                # Sort by Due Date (Ascending usually for tasks - nearest first)
+                # Handle None/NaT if any
+                all_results.sort(key=lambda x: x["due"].timestamp() if getattr(x["due"], 'timestamp', None) else 0)
+                
+                return all_results
             except Exception as e:
                 print(f"Tasks error: {e}")
                 self.namespace = None
         return []
 
-    def get_inbox_items(self, count=20, unread_only=False, only_flagged=False, due_filters=None):
-        # Retry loop
+    def get_inbox_items(self, count=20, unread_only=False, only_flagged=False, due_filters=None, account_names=None, account_config=None):
+        """Fetches items from configured folders for enabled accounts."""
         for attempt in range(2):
             if not self.namespace:
-                if not self.connect():
-                    return []
+                if not self.connect(): return []
 
             try:
-                inbox = self.namespace.GetDefaultFolder(6) # 6 = olFolderInbox
+                all_items = []
                 
-                # Build restriction string
-                restricts = []
-                
-                if only_flagged:
-                    # [FlagStatus] <> 0 correctly identifies flagged items
-                    restricts.append("[FlagStatus] <> 0")
-                    
-                    # Date Filter Logic (Multiple Selections)
-                    if due_filters and len(due_filters) > 0:
-                        date_queries = []
-                        now = datetime.now()
-                        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-                        tomorrow = today + timedelta(days=1)
-                        db_tomorrow = today + timedelta(days=2)
-                        
-                        for filter_name in due_filters:
-                            if filter_name == "Overdue":
-                                # Due < Today
-                                date_queries.append(f"[TaskDueDate] < '{today.strftime('%m/%d/%Y %I:%M %p')}'") 
-                            elif filter_name == "Today":
-                                date_queries.append(f"([TaskDueDate] >= '{today.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{tomorrow.strftime('%m/%d/%Y %I:%M %p')}')")
-                            elif filter_name == "Tomorrow":
-                                date_queries.append(f"([TaskDueDate] >= '{tomorrow.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{db_tomorrow.strftime('%m/%d/%Y %I:%M %p')}')")
-                            elif filter_name == "Next 7 Days":
-                                next_week = today + timedelta(days=8) # Inclusive of today? usually implies future
-                                date_queries.append(f"([TaskDueDate] >= '{today.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{next_week.strftime('%m/%d/%Y %I:%M %p')}')")
-                            elif filter_name == "No Date":
-                                date_queries.append("([TaskDueDate] IS NULL OR [TaskDueDate] > '01/01/4500')")
-                        
-                        if date_queries:
-                            # Join with OR
-                            combined_date_query = " OR ".join(date_queries)
-                            restricts.append(f"({combined_date_query})")
-                else:
-                    # Global filter: Only unread (if not showing flags)
-                    if unread_only:
-                        restricts.append("[UnRead] = True")
-                
-                # Create Table
-                # Apply restriction at table creation
-                restrict_str = " AND ".join(restricts) if restricts else ""
-                
-                try:
-                    table = inbox.GetTable(restrict_str) if restrict_str else inbox.GetTable()
-                except Exception:
-                    # If restriction fails, return empty list
-                    return []
-
-                # Remove default columns to prevent fetching unnecessary data
-                table.Columns.RemoveAll()
-                
-                # Add columns for required properties
-                # Note: Table columns must be exact property names or tags
-                desired_cols = [
-                    "EntryID", 
-                    "Subject", 
-                    "SenderName", 
-                    "ReceivedTime", 
-                    "UnRead", 
-                    "FlagStatus", 
-                    "TaskDueDate"
-                ]
-                
-                # Active columns map (Index -> Name)
-                # Actually we just need a list of names in order
-                active_cols = []
-                
-                for c in desired_cols:
-                    try: 
-                        table.Columns.Add(c)
-                        active_cols.append(c)
-                    except: pass
-                    
-                # Special Property Tags
-                # Attachments: urn:schemas:httpmail:hasattachment
-                attach_prop = "urn:schemas:httpmail:hasattachment"
-                try: 
-                    table.Columns.Add(attach_prop)
-                    active_cols.append("has_attachments_prop") # Alias for internal use
-                except: pass
-
-                # Body (Plain Text): http://schemas.microsoft.com/mapi/proptag/0x1000001E
-                body_prop = "http://schemas.microsoft.com/mapi/proptag/0x1000001E"
-                try: 
-                    table.Columns.Add(body_prop)
-                    active_cols.append("body_prop") # Alias for internal use
-                except: pass
-                
-                # Sort: Descending by ReceivedTime
-                # Only if ReceivedTime was successfully added? 
-                # Actually Sort uses the property name, not column index.
-                try:
-                    table.Sort("ReceivedTime", True) 
-                except:
-                    pass # Sort might fail if column missing?
-                
-                email_list = []
-                while not table.EndOfTable and len(email_list) < count:
-                    row = table.GetNextRow()
-                    if not row: break
-                    
+                for store in self._get_enabled_stores(account_names):
                     try:
-                        # Get all values as a tuple
-                        # This is safer than individual property access which can fail if column is missing
-                        vals = row.GetValues()
+                        # Determine folders to scan
+                        folders_to_scan = []
                         
-                        # Map values to dictionary
-                        item_data = {}
-                        if vals and len(vals) == len(active_cols):
-                            for i, col_name in enumerate(active_cols):
-                                item_data[col_name] = vals[i]
-                        else:
-                            # Fallback if GetValues fails or count mismatch (rare)
-                            continue
+                        # Check config for this account
+                        if account_config and store.DisplayName in account_config:
+                            conf = account_config[store.DisplayName]
+                            if "email_folders" in conf and conf["email_folders"]:
+                                for path in conf["email_folders"]:
+                                    f = self.get_folder_by_path(store, path)
+                                    if f: folders_to_scan.append(f)
+                        
+                        # Fallback to Inbox if no specific folders configured
+                        if not folders_to_scan:
+                            try:
+                                folders_to_scan.append(store.GetDefaultFolder(6))
+                            except: pass
                             
-                        # Safely retrieve column values from our map
-                        subject = item_data.get("Subject", "[No Subject]")
-                        sender = item_data.get("SenderName", "Unknown")
+                        for folder in folders_to_scan:
+                             items = self._fetch_items_from_inbox_folder(folder, count, unread_only, only_flagged, due_filters, store)
+                             all_items.extend(items)
+                    except:
+                        continue
                         
-                        # Body processing
-                        raw_body = item_data.get("body_prop", "")
-                        if not raw_body: raw_body = ""
-                        clean_body = re.sub(r'\s+', ' ', str(raw_body)).strip()
-                        body = clean_body[:100] + "..."
-                        
-                        unread = item_data.get("UnRead", False)
-                        
-                        # Attachments logic
-                        has_attachments = item_data.get("has_attachments_prop", False)
-                        
-                        email_list.append({
-                            "sender": sender,
-                            "subject": subject,
-                            "preview": body,
-                            "unread": unread,
-                            "entry_id": item_data.get("EntryID", ""),
-                            "received": item_data.get("ReceivedTime", None),
-                            "flag_status": item_data.get("FlagStatus", 0),
-                            "due_date": item_data.get("TaskDueDate", None),
-                            "has_attachments": has_attachments
-                        })
-                    except Exception as inner_e:
-                        print(f"Error reading row: {inner_e}")
-                        
-                return email_list
+                # Sort merged results by ReceivedTime (Descending)
+                all_items.sort(key=lambda x: x["received_dt"].timestamp() if x["received_dt"] else 0, reverse=True)
+                
+                return all_items[:count]
+                
             except Exception as e:
-                print(f"Fetch error (Attempt {attempt+1}): {e}")
-                self.namespace = None # Force reconnect
-        
+                print(f"Inbox error: {e}")
+                
         return []
 
-    def get_item_by_entryid(self, entry_id):
+    def _fetch_items_from_inbox_folder(self, folder, count, unread_only, only_flagged, due_filters, store):
+        """Helper to fetch items from a single inbox folder."""
+        restricts = []
+        
+        if only_flagged:
+            restricts.append("[FlagStatus] <> 0")
+            
+            if due_filters and len(due_filters) > 0:
+                date_queries = []
+                now = datetime.now()
+                today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                tomorrow = today + timedelta(days=1)
+                db_tomorrow = today + timedelta(days=2)
+                
+                for filter_name in due_filters:
+                    if filter_name == "Overdue":
+                        date_queries.append(f"[TaskDueDate] < '{today.strftime('%m/%d/%Y %I:%M %p')}'") 
+                    elif filter_name == "Today":
+                        date_queries.append(f"([TaskDueDate] >= '{today.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{tomorrow.strftime('%m/%d/%Y %I:%M %p')}')")
+                    elif filter_name == "Tomorrow":
+                        date_queries.append(f"([TaskDueDate] >= '{tomorrow.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{db_tomorrow.strftime('%m/%d/%Y %I:%M %p')}')")
+                    elif filter_name == "Next 7 Days":
+                        next_week = today + timedelta(days=8)
+                        date_queries.append(f"([TaskDueDate] >= '{today.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{next_week.strftime('%m/%d/%Y %I:%M %p')}')")
+                    elif filter_name == "No Date":
+                        date_queries.append("([TaskDueDate] IS NULL OR [TaskDueDate] > '01/01/4500')")
+                
+                if date_queries:
+                    combined_date_query = " OR ".join(date_queries)
+                    restricts.append(f"({combined_date_query})")
+        else:
+            if unread_only:
+                restricts.append("[UnRead] = True")
+        
+        restrict_str = " AND ".join(restricts) if restricts else ""
+        
+        try:
+            table = folder.GetTable(restrict_str) if restrict_str else folder.GetTable()
+        except:
+            return []
+
+        table.Columns.RemoveAll()
+        
+        desired_cols = [
+            "EntryID", "Subject", "SenderName", "ReceivedTime", 
+            "UnRead", "FlagStatus", "TaskDueDate"
+        ]
+        
+        active_cols = []
+        for c in desired_cols:
+            try: 
+                table.Columns.Add(c)
+                active_cols.append(c)
+            except: pass
+            
+        # Optional Props
+        attach_prop = "urn:schemas:httpmail:hasattachment"
+        try: 
+            table.Columns.Add(attach_prop)
+            active_cols.append("has_attachments_prop")
+        except: pass
+
+        body_prop = "http://schemas.microsoft.com/mapi/proptag/0x1000001E"
+        try: 
+            table.Columns.Add(body_prop)
+            active_cols.append("body_prop")
+        except: pass
+        
+        try:
+            table.Sort("ReceivedTime", True) 
+        except: pass
+        
+        results = []
+        while not table.EndOfTable and len(results) < count:
+            row = table.GetNextRow()
+            if not row: break
+            
+            try:
+                vals = row.GetValues()
+                item_data = {}
+                if vals and len(vals) == len(active_cols):
+                    for i, col_name in enumerate(active_cols):
+                        item_data[col_name] = vals[i]
+                
+                # Normalize Data
+                received_dt = item_data.get("ReceivedTime")
+                if received_dt:
+                    received_str = received_dt.strftime("%d/%m %H:%M")
+                    # Handle Timezone offset if needed (naive vs aware)
+                    # For now keep as is
+                else:
+                    received_str = ""
+                    
+                entry_id = item_data.get("EntryID")
+                
+                # Construct result object
+                res = {
+                    "subject": item_data.get("Subject", "(No Subject)"),
+                    "sender": item_data.get("SenderName", "Unknown"),
+                    "received": received_str,
+                    "received_dt": received_dt,
+                    "unread": item_data.get("UnRead", False),
+                    "has_attachment": item_data.get("has_attachments_prop", False),
+                    "flag_status": item_data.get("FlagStatus", 0),
+                    "due_date": item_data.get("TaskDueDate"),
+                    "body": item_data.get("body_prop", "")[:200] if item_data.get("body_prop") else "",
+                    "entry_id": entry_id,
+                    "store_id": store.StoreID, # New field
+                    "account": store.DisplayName
+                }
+                results.append(res)
+            except:
+                continue
+                
+        return results
+
+
+    def get_item_by_entryid(self, entry_id, store_id=None):
         """Retrieves a specific Outlook item by its EntryID."""
         if not self.namespace:
             self.connect()
         try:
+            if store_id:
+                return self.namespace.GetItemFromID(entry_id, store_id)
             return self.namespace.GetItemFromID(entry_id)
         except Exception as e:
             print(f"Error getting item {entry_id}: {e}")
             return None
 
-    def find_folder_by_name(self, folder_name):
+    def get_folder_by_path(self, store, path_str):
+        """Resolves a folder path (e.g., 'Inbox/ProjectX') to a MAPIFolder object."""
+        if not path_str: return None
+        
+        try:
+            parts = path_str.split("/")
+            # Start at root of the store
+            current = store.GetRootFolder()
+            
+            for part in parts:
+                found = False
+                for f in current.Folders:
+                    if f.Name == part:
+                        current = f
+                        found = True
+                        break
+                if not found:
+                    return None
+            return current
+        except Exception as e:
+            print(f"Error resolving path '{path_str}': {e}")
+            return None
         """
         Recursively searches for a folder by name. 
         Starts at default Inbox parent (likely the account root).
@@ -675,33 +765,40 @@ class OutlookClient:
             print(f"Error finding folder {folder_name}: {e}")
             return None
 
-    def get_folder_list(self):
-        """Returns a list of folder paths (e.g. 'Inbox', 'Inbox/ProjectA')"""
-        if not self.namespace: return []
-        
+
+            
+    def get_folder_list(self, account_name=None):
+        """Returns a list of folder paths. If account_name provided, scans that store."""
+        if not self.namespace: 
+            self.connect()
+            
         folders = []
         try:
-            root = self.namespace.GetDefaultFolder(6).Parent
+            root_folder = None
+            if account_name:
+                for store in self.namespace.Stores:
+                    if store.DisplayName == account_name:
+                        root_folder = store.GetRootFolder()
+                        break
+            else:
+                 # Default logic (first account)
+                 root_folder = self.namespace.GetDefaultFolder(6).Parent
+
+            if not root_folder: return []
             
             def recurse(folder, parent_path=""):
                 try:
                     name = folder.Name
                     path = f"{parent_path}/{name}" if parent_path else name
-                    
-                    # Add to list
                     folders.append(path)
                     
-                    # Limit recursion depth to avoid slowdowns on massive mailboxes
-                    # Only go 2 levels deep for now? Or just try all.
-                    # Let's do 1 level deep for safety in this version.
-                    if parent_path.count("/") < 2:
+                    # 3 levels deep max
+                    if parent_path.count("/") < 3:
                         for sub in folder.Folders:
                             recurse(sub, path)
-                except Exception:
-                    pass
+                except: pass
 
-            # Start recursion
-            for f in root.Folders:
+            for f in root_folder.Folders:
                 recurse(f)
                 
         except Exception as e:
@@ -761,7 +858,7 @@ class FolderPickerWindow(tk.Toplevel):
         )
         style.map("Treeview", background=[("selected", self.colors["accent"])])
 
-        self.tree = ttk.Treeview(tree_frame, show="tree", selectmode="browse")
+        self.tree = ttk.Treeview(tree_frame, show="tree", selectmode="extended")
         self.tree.pack(side="left", fill="both", expand=True)
         
         sb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
@@ -797,17 +894,197 @@ class FolderPickerWindow(tk.Toplevel):
                     pid = parent if parent else ""
                     
                     # Insert
-                    nodes[current] = self.tree.insert(pid, "end", iid=current, text=part, open=False)
+                    # Note: We use the path as IID.
+                    try:
+                        nodes[current] = self.tree.insert(pid, "end", iid=current, text=part, open=False)
+                    except: pass # already exists?
                 
                 parent = current
 
     def select_folder(self):
-        sel = self.tree.selection()
-        if sel:
-            # The IID is the full path in our logic
-            path = sel[0]
-            self.callback(path)
+        sel_items = self.tree.selection()
+        if sel_items:
+            # Return list of paths
+            paths = list(sel_items)
+            self.callback(paths)
             self.destroy()
+
+    def start_move(self, event):
+        self._x = event.x
+        self._y = event.y
+
+    def on_move(self, event):
+        deltax = event.x - self._x
+        deltay = event.y - self._y
+        x = self.winfo_x() + deltax
+        y = self.winfo_y() + deltay
+        self.geometry(f"+{x}+{y}")
+
+
+class AccountSelectionDialog(tk.Toplevel):
+    def __init__(self, parent, accounts, current_enabled, callback):
+        super().__init__(parent)
+        self.callback = callback
+        self.accounts = accounts # List of names
+        self.current_enabled = current_enabled or {}
+        
+        self.working_settings = {}
+        for acc in accounts:
+            if acc in self.current_enabled:
+                self.working_settings[acc] = self.current_enabled[acc].copy()
+            else:
+                self.working_settings[acc] = {"email": True, "calendar": True}
+
+        self.colors = {
+            "bg": "#202020", "fg": "#FFFFFF", "accent": "#60CDFF", 
+            "secondary": "#444444", "border": "#2b2b2b"
+        }
+        
+        self.title("Enabled Accounts")
+        self.overrideredirect(True)
+        self.wm_attributes("-topmost", True)
+        self.config(bg=self.colors["bg"])
+        self.configure(highlightbackground=self.colors["accent"], highlightthickness=1)
+        
+        w, h = 400, 350
+        x = parent.winfo_x() + 50
+        y = parent.winfo_y() + 50
+        self.geometry(f"{w}x{h}+{x}+{y}")
+        
+        # Header
+        header = tk.Frame(self, bg=self.colors["bg"], height=40)
+        header.pack(fill="x", side="top")
+        header.bind("<Button-1>", self.start_move)
+        header.bind("<B1-Motion>", self.on_move)
+        
+        lbl = tk.Label(header, text="Select Accounts", bg=self.colors["bg"], fg=self.colors["fg"], 
+                       font=("Segoe UI", 11, "bold"))
+        lbl.pack(side="left", padx=15, pady=10)
+        
+        btn_close = tk.Label(header, text="✕", bg=self.colors["bg"], fg="#CCCCCC", cursor="hand2")
+        btn_close.pack(side="right", padx=15)
+        btn_close.bind("<Button-1>", lambda e: self.destroy())
+
+        # Content
+        container = tk.Frame(self, bg=self.colors["bg"])
+        container.pack(fill="both", expand=True, padx=2, pady=2)
+        
+        canvas = tk.Canvas(container, bg=self.colors["bg"], highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        scroll_frame = tk.Frame(canvas, bg=self.colors["bg"])
+        
+        scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # List
+        h_frame = tk.Frame(scroll_frame, bg=self.colors["bg"])
+        h_frame.pack(fill="x", pady=(5, 10), padx=10)
+        tk.Label(h_frame, text="Account", bg=self.colors["bg"], fg="#AAAAAA", width=25, anchor="w").pack(side="left")
+        tk.Label(h_frame, text="Email", bg=self.colors["bg"], fg="#AAAAAA", width=5).pack(side="left")
+        tk.Label(h_frame, text="Folders", bg=self.colors["bg"], fg="#AAAAAA", width=5).pack(side="left")
+        tk.Label(h_frame, text="Cal/Task", bg=self.colors["bg"], fg="#AAAAAA", width=8).pack(side="left")
+        
+        tk.Frame(scroll_frame, bg="#333333", height=1).pack(fill="x", padx=10, pady=(0, 5))
+
+        self.vars = {}
+        for acc in self.accounts:
+            row = tk.Frame(scroll_frame, bg=self.colors["bg"])
+            row.pack(fill="x", padx=10, pady=2)
+            
+            disp = acc if len(acc) < 30 else acc[:27] + "..."
+            tk.Label(row, text=disp, bg=self.colors["bg"], fg="white", 
+                     width=25, anchor="w", font=("Segoe UI", 9)).pack(side="left")
+            
+            self.vars[acc] = {}
+            vals = self.working_settings[acc]
+            
+            e_var = tk.IntVar(value=1 if vals.get("email") else 0)
+            self.vars[acc]["email"] = e_var
+            tk.Checkbutton(row, variable=e_var, bg=self.colors["bg"], activebackground=self.colors["bg"], 
+                           selectcolor="#333333").pack(side="left", padx=(10, 5))
+            
+            # Folder Button
+            self.vars[acc]["email_folders"] = vals.get("email_folders", [])
+            
+            def open_folders(a=acc):
+                # Don't pass `self.main` here, we need the Outlook client or similar.
+                # Actually we can't easily get the Outlook client here unless we pass it.
+                # Assuming `self.parent` has access or we modify __init__.
+                # Hack: Use `parent.master.outlook_client` if available?
+                # Better: Callback to parent to open picker.
+                self.open_folder_picker(a)
+
+            btn_f = tk.Label(row, text="📁", bg=self.colors["bg"], fg=self.colors["accent"], cursor="hand2")
+            btn_f.pack(side="left", padx=10)
+            btn_f.bind("<Button-1>", lambda e, a=acc: self.open_folder_picker(a))
+
+            c_var = tk.IntVar(value=1 if vals.get("calendar") else 0)
+            self.vars[acc]["calendar"] = c_var
+            tk.Checkbutton(row, variable=c_var, bg=self.colors["bg"], activebackground=self.colors["bg"], 
+                           selectcolor="#333333").pack(side="left", padx=10)
+            
+        # Footer
+        footer = tk.Frame(self, bg=self.colors["bg"], height=50)
+        footer.pack(fill="x", side="bottom", pady=10)
+        
+        tk.Button(footer, text="Save Changes", command=self.save_selection,
+            bg=self.colors["accent"], fg="black", bd=0, font=("Segoe UI", 9, "bold"), padx=20, pady=5).pack(side="right", padx=15)
+        
+        tk.Button(footer, text="Cancel", command=self.destroy,
+            bg="#333333", fg="white", bd=0, font=("Segoe UI", 9), padx=15, pady=5).pack(side="right", padx=5)
+
+    def save_selection(self):
+        final = {}
+        for acc in self.accounts:
+            final[acc] = {
+                "email": bool(self.vars[acc]["email"].get()),
+                "calendar": bool(self.vars[acc]["calendar"].get()),
+                "email_folders": self.vars[acc]["email_folders"]
+            }
+        self.callback(final)
+        self.destroy()
+
+
+    def open_folder_picker(self, account_name):
+        try:
+             # Find SidebarWindow reliably
+             sidebar = None
+             # Check if master is already the sidebar (has outlook_client)
+             if hasattr(self.master, "outlook_client"):
+                 sidebar = self.master
+             # Check if master is SettingsPanel (has main_window)
+             elif hasattr(self.master, "main_window"):
+                 sidebar = self.master.main_window
+             elif hasattr(self.master, "master"):
+                 # Fallback
+                 sidebar = self.master.master
+                 
+             if not sidebar or not hasattr(sidebar, "outlook_client"):
+                 print("Error: Could not locate OutlookClient")
+                 messagebox.showerror("Error", "Could not connect to Outlook Sidebar.")
+                 return
+
+             folders = sidebar.outlook_client.get_folder_list(account_name)
+             
+             def on_pick(paths):
+                 self.vars[account_name]["email_folders"] = paths
+                 # print(f"Selected folders for {account_name}: {paths}")
+                 messagebox.showinfo("Folders Selected", f"Selected {len(paths)} folder(s) for {account_name}.")
+                 
+             if not folders:
+                 print(f"No folders found for {account_name}")
+                 # Try fallback to default?
+                 messagebox.showwarning("No Folders", f"Could not retrieve folder list for '{account_name}'.\n\nEnsure Outlook is running and this account is accessible.")
+                 return
+                 
+             FolderPickerWindow(self, folders, on_pick)
+        except Exception as e:
+            print(f"Error opening folder picker: {e}")
+            messagebox.showerror("Error", f"Failed to open folder picker:\n{e}")
 
     def start_move(self, event):
         self._x = event.x
@@ -1060,6 +1337,12 @@ class SettingsPanel(tk.Frame):
 
         # === SECTION 3: Email Settings ===
         create_section_header(main_content, "Email Settings")
+
+        # Account Selection Button
+        btn_accounts = tk.Button(main_content, text="Select Emails...", command=self.open_account_selection,
+                                 bg=self.colors["bg_card"], fg="white", bd=0, font=("Segoe UI", 9),
+                                 highlightthickness=1, highlightbackground="#444444")
+        btn_accounts.pack(fill="x", padx=(18, 30), pady=(5, 5))
 
         # --- Email List Settings ---
         list_settings_frame = tk.Frame(main_content, bg=self.colors["bg_root"])
@@ -2008,6 +2291,21 @@ class SettingsPanel(tk.Frame):
     def close_panel(self):
         """Close the settings panel."""
         self.main_window.toggle_settings_panel()
+        
+    def open_account_selection(self):
+        """Opens the account selection dialog."""
+        accounts = self.main_window.outlook_client.get_accounts()
+        if not accounts:
+            messagebox.showerror("Error", "Could not fetch Outlook accounts.")
+            return
+
+        def on_save(new_settings):
+            self.main_window.enabled_accounts = new_settings
+            self.main_window.save_config()
+            self.main_window.refresh_emails()
+            self.main_window.refresh_reminders()
+            
+        AccountSelectionDialog(self.winfo_toplevel(), accounts, self.main_window.enabled_accounts, on_save)
 
 class SidebarWindow(tk.Tk):
     def __init__(self):
@@ -2089,7 +2387,11 @@ class SidebarWindow(tk.Tk):
             {"label": "Reply", "icon": "↩", "action1": "Reply", "action2": "None", "folder": ""}
         ]
         self.buttons_on_hover = False
+        self.buttons_on_hover = False
         self.email_double_click = False
+        
+        # Account Settings
+        self.enabled_accounts = {} # {"Name": {"email": True, "calendar": True}}
         
         # Load Config
         self.load_config()
@@ -2401,11 +2703,12 @@ class SidebarWindow(tk.Tk):
         print(f"Executing Actions for {config.get('label')} on {email_data.get('subject')}")
         
         entry_id = email_data.get("entry_id")
+        store_id = email_data.get("store_id") # Support multi-account
         if not entry_id:
             print("No EntryID found.")
             return
 
-        item = self.outlook_client.get_item_by_entryid(entry_id)
+        item = self.outlook_client.get_item_by_entryid(entry_id, store_id)
         if not item:
             print("Could not retrieve Outlook item.")
             return
@@ -2479,12 +2782,14 @@ class SidebarWindow(tk.Tk):
         else:
             action_frame.pack(fill="x", pady=(5, 0))
 
-    def start_polling(self):
-        self.start_polling()
+
         
     def start_polling(self):
         """Poll Outlook every 30 seconds for new mail."""
-        if self.outlook_client.check_new_mail():
+        # Get enabled email accounts
+        accounts = [n for n, s in self.enabled_accounts.items() if s.get("email")] if self.enabled_accounts else None
+        
+        if self.outlook_client.check_new_mail(accounts):
             self.start_pulse()
             self.refresh_emails() # Auto-refresh list
             
@@ -2697,6 +3002,7 @@ class SidebarWindow(tk.Tk):
                 self.include_read_flagged = data.get("include_read_flagged", True)
                 self.flag_date_filter = data.get("flag_date_filter", "Anytime")
                 self.window_mode = data.get("window_mode", "single")
+                self.enabled_accounts = data.get("enabled_accounts", {})
                 # Reminder filters
                 self.reminder_show_flagged = data.get("reminder_show_flagged", True)
                 self.reminder_due_filter = data.get("reminder_due_filter", "Anytime")
@@ -2747,7 +3053,8 @@ class SidebarWindow(tk.Tk):
             "reminder_todo": self.reminder_todo,
             "reminder_has_reminder": self.reminder_has_reminder,
             "buttons_on_hover": self.buttons_on_hover,
-            "email_double_click": self.email_double_click
+            "email_double_click": self.email_double_click,
+            "enabled_accounts": self.enabled_accounts
         }
         with open("sidebar_config.json", "w") as f:
             json.dump(data, f)
@@ -2893,9 +3200,13 @@ class SidebarWindow(tk.Tk):
         for widget in self.scroll_frame.scrollable_frame.winfo_children():
             widget.destroy()
 
+        # Determine enabled accounts
+        accounts = [n for n, s in self.enabled_accounts.items() if s.get("email")] if self.enabled_accounts else None
+
         emails = self.outlook_client.get_inbox_items(
             count=30, 
-            unread_only=not self.show_read
+            unread_only=not self.show_read,
+            account_names=accounts
         )
         
         for email in emails:
@@ -3231,7 +3542,9 @@ class SidebarWindow(tk.Tk):
         start_str = now.strftime('%m/%d/%Y 00:00 AM')
         end_str = (now + timedelta(days=1)).strftime('%m/%d/%Y 11:59 PM')
         
-        meetings = self.outlook_client.get_calendar_items(start_str, end_str)
+        cal_accounts = [n for n, s in self.enabled_accounts.items() if s.get("calendar")] if self.enabled_accounts else None
+
+        meetings = self.outlook_client.get_calendar_items(start_str, end_str, cal_accounts)
         
         if meetings:
             tk.Label(container, text="CALENDAR", fg="#60CDFF", bg="#1e1e1e", font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=5, pady=(5, 2))
@@ -3265,7 +3578,7 @@ class SidebarWindow(tk.Tk):
 
         # 2. Outlook Tasks
         if self.reminder_show_flagged:
-             tasks = self.outlook_client.get_tasks(due_filters=self.reminder_due_filters)
+             tasks = self.outlook_client.get_tasks(due_filters=self.reminder_due_filters, account_names=cal_accounts)
              
              if tasks:
                  tk.Label(container, text="TASKS", fg="#28a745", bg="#1e1e1e", font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=5, pady=(10, 2))
@@ -3281,11 +3594,13 @@ class SidebarWindow(tk.Tk):
 
         # 3. Flagged Emails
         if self.reminder_show_flagged:
+             email_accounts = [n for n, s in self.enabled_accounts.items() if s.get("email")] if self.enabled_accounts else None
              flags = self.outlook_client.get_inbox_items(
                  count=30,
                  unread_only=False,
                  only_flagged=True,
-                 due_filters=self.reminder_due_filters
+                 due_filters=self.reminder_due_filters,
+                 account_names=email_accounts
              )
              
              if flags:
