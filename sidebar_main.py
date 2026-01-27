@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.2.2"
+VERSION = "v1.2.4"
 
 
 # --- Windows API Constants & Structures ---
@@ -146,6 +146,9 @@ class ScrollableFrame(tk.Frame):
                 scrollregion=self.canvas.bbox("all")
             )
         )
+        
+        # Speed up scrolling (Windows default is slow)
+        self.canvas.configure(yscrollincrement=5)
 
         self.window_id = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
 
@@ -312,6 +315,37 @@ class ToolTip:
             self.tip_window = None
 
 class OutlookClient:
+    # Color Enum Logic (1-25)
+    # Approximate Hex values for Dark Mode
+    OL_CAT_COLORS = {
+        0: "#555555", # None
+        1: "#DA5758", # Red
+        2: "#E68D49", # Orange
+        3: "#EAC389", # Peach
+        4: "#F0E16C", # Yellow
+        5: "#81C672", # Green
+        6: "#61CED1", # Teal
+        7: "#97CD9B", # Olive
+        8: "#6E93E6", # Blue
+        9: "#A580DA", # Purple
+        10: "#CE7091", # Maroon
+        11: "#8BB2C2", # Steel
+        12: "#6A8591", # Dark Steel
+        13: "#ACACAC", # Gray
+        14: "#6E6E6E", # Dark Gray
+        15: "#333333", # Black
+        16: "#BE4250", # Dark Red
+        17: "#CA7532", # Dark Orange
+        18: "#BD934A", # Dark Peach
+        19: "#BDB84B", # Dark Yellow
+        20: "#5E9348", # Dark Green
+        21: "#3E9EA2", # Dark Teal
+        22: "#689E59", # Dark Olive
+        23: "#4566B0", # Dark Blue
+        24: "#7750A8", # Dark Purple
+        25: "#A14868",  # Dark Maroon
+    }
+
     def __init__(self):
         self.outlook = None
         self.namespace = None
@@ -634,7 +668,7 @@ class OutlookClient:
         
         desired_cols = [
             "EntryID", "Subject", "SenderName", "ReceivedTime", 
-            "UnRead", "FlagStatus", "TaskDueDate"
+            "UnRead", "FlagStatus", "TaskDueDate", "Importance", "Categories"
         ]
         
         active_cols = []
@@ -694,6 +728,8 @@ class OutlookClient:
                     "has_attachment": item_data.get("has_attachments_prop", False),
                     "flag_status": item_data.get("FlagStatus", 0),
                     "due_date": item_data.get("TaskDueDate"),
+                    "importance": item_data.get("Importance", 1), # Default 1 (Normal)
+                    "categories": item_data.get("Categories", ""),
                     "body": item_data.get("body_prop", "")[:200] if item_data.get("body_prop") else "",
                     "entry_id": entry_id,
                     "store_id": store.StoreID, # New field
@@ -805,6 +841,22 @@ class OutlookClient:
             print(f"Error fetching folder list: {e}")
             
         return sorted(folders)
+
+    def get_category_map(self):
+        """Returns a dict of {CategoryName: HexColor}."""
+        if not self.namespace: return {}
+        
+        mapping = {}
+        try:
+            if self.namespace.Categories.Count > 0:
+                for cat in self.namespace.Categories:
+                    c_enum = cat.Color
+                    hex_code = self.OL_CAT_COLORS.get(c_enum, "#555555")
+                    mapping[cat.Name] = hex_code
+        except Exception as e:
+             print(f"Error fetching categories: {e}")
+        return mapping
+
 
 class FolderPickerWindow(tk.Toplevel):
     def __init__(self, parent, folders, callback):
@@ -2331,7 +2383,7 @@ class SidebarWindow(tk.Tk):
         # Email Content Settings
         self.email_show_sender = True
         self.email_show_subject = True
-        self.email_show_body = True
+        self.email_show_body = False
         self.email_body_lines = 2
         
         self.hover_delay = 500 # ms
@@ -2344,32 +2396,32 @@ class SidebarWindow(tk.Tk):
         self.settings_panel_width = 370
         
         # Window Mode State
-        self.window_mode = "single"  # "single" or "dual"
+        self.window_mode = "dual"  # "single" (just emails) or "dual" (emails + reminder list)
         
         # Reminder Filter State
-        self.reminder_show_flagged = False  # Default OFF
-        self.reminder_due_filters = []  # List of selected due date filters
-        self.reminder_show_categorized = False
+        self.reminder_show_flagged = True  # Default ON
+        self.reminder_due_filters = ["No Date"]  # List of selected due date filters
+        self.reminder_show_categorized = True
         self.reminder_categories = []  # List of selected categories
         
         # Importance
-        self.reminder_show_importance = False # Master toggle
+        self.reminder_show_importance = True # Master toggle
         self.reminder_high_importance = False
         self.reminder_normal_importance = False
         self.reminder_low_importance = False
         
         # Meetings
-        self.reminder_show_meetings = False # Master toggle
-        self.reminder_pending_meetings = False
-        self.reminder_accepted_meetings = False # Default OFF
+        self.reminder_show_meetings = True # Master toggle
+        self.reminder_pending_meetings = True
+        self.reminder_accepted_meetings = True # Default ON
         self.reminder_declined_meetings = False
         self.reminder_meeting_dates = [] # List of selected meeting date filters
         
         # Tasks
-        self.reminder_show_tasks = False # Master toggle
-        self.reminder_tasks = False
-        self.reminder_todo = False
-        self.reminder_has_reminder = False
+        self.reminder_show_tasks = True # Master toggle
+        self.reminder_tasks = True
+        self.reminder_todo = True
+        self.reminder_has_reminder = True
         
         # Pulse Animation State
         self.pulsing = False
@@ -2387,8 +2439,8 @@ class SidebarWindow(tk.Tk):
             {"label": "Reply", "icon": "↩", "action1": "Reply", "action2": "None", "folder": ""}
         ]
         self.buttons_on_hover = False
-        self.buttons_on_hover = False
-        self.email_double_click = False
+        self.buttons_on_hover = True
+        self.email_double_click = True
         
         # Account Settings
         self.enabled_accounts = {} # {"Name": {"email": True, "calendar": True}}
@@ -3209,6 +3261,9 @@ class SidebarWindow(tk.Tk):
             account_names=accounts
         )
         
+        # Fetch Category Colors
+        cat_map = self.outlook_client.get_category_map()
+        
         for email in emails:
             lbl_sender = None
             lbl_subject = None
@@ -3312,6 +3367,56 @@ class SidebarWindow(tk.Tk):
                     font=(self.font_family, self.font_size + 1, "bold"),
                 )
                 lbl_attachment.pack(side="right", padx=(4, 2))
+
+            # Importance Indicator (High/Low)
+            importance_val = email.get('importance', 1) # 0=Low, 1=Normal, 2=High
+            if importance_val != 1:
+                imp_text = "!"
+                # High = Red-ish, Low = Grey
+                imp_fg = "#FF5555" if importance_val == 2 else "#AAAAAA" 
+                
+                lbl_importance = tk.Label(
+                    header_frame, 
+                    text=imp_text, 
+                    fg=imp_fg, 
+                    bg=bg_color, 
+                    font=(self.font_family, self.font_size + 1, "bold"),
+                )
+                lbl_importance.pack(side="right", padx=(0, 2))
+
+            # Categories Indicators
+            categories_str = email.get('categories', "")
+            if categories_str:
+                # Split and show badges
+                # Categories can be comma or semicolon separated
+                cats = re.split(r'[;,]', categories_str)
+                for cat in cats:
+                    cat = cat.strip()
+                    if not cat: continue
+                for cat in cats:
+                    cat = cat.strip()
+                    if not cat: continue
+                    
+                    # Lookup color
+                    badge_bg = cat_map.get(cat, "#444444")
+                    # Determine text color based on brightness? Usually white/offwhite is fine for these dark/saturated colors.
+                    # Dark Yellow/Peach might need black text, but stick to white/grey for now.
+                    if badge_bg in ["#FFF768", "#F0E16C", "#EAC389"]: # Light colors
+                        badge_fg = "#222222"
+                    else:
+                        badge_fg = "#FFFFFF"
+
+                    # Just the color block
+                    lbl_cat = tk.Frame(
+                        header_frame, 
+                        bg=badge_bg, 
+                        width=10,
+                        height=10
+                    )
+                    lbl_cat.pack(side="right", padx=1, pady=2)
+                    
+                    # Tooltip for the name
+                    ToolTip(lbl_cat, cat)
 
             if badge_text:
                 lbl_badge = tk.Label(
@@ -3946,45 +4051,51 @@ class SidebarWindow(tk.Tk):
                 with open(config_path, "r") as f:
                     config = json.load(f)
                     
+                self.window_mode = config.get("window_mode", "dual")
+
                 self.dock_side = config.get("dock_side", "Right")
                 self.font_family = config.get("font_family", "Segoe UI")
                 self.font_size = config.get("font_size", 9)
-                self.poll_interval = config.get("poll_interval", 30)
+                self.poll_interval = config.get("poll_interval", 15)
                 
+                # Email List Filters
+                self.show_read = config.get("show_read", False)
+                self.show_has_attachment = config.get("show_has_attachment", True)
+
                 if "buttons" in config:
                      self.btn_config = config["buttons"]
                      self.btn_count = len(self.btn_config)
                 
-                self.buttons_on_hover = config.get("buttons_on_hover", False)
-                self.email_double_click = config.get("email_double_click", False)
+                self.buttons_on_hover = config.get("buttons_on_hover", True)
+                self.email_double_click = config.get("email_double_click", True)
                      
                 # Reminder Settings
-                self.reminder_show_flagged = config.get("reminder_show_flagged", False)
-                self.reminder_due_filters = config.get("reminder_due_filters", [])
+                self.reminder_show_flagged = config.get("reminder_show_flagged", True)
+                self.reminder_due_filters = config.get("reminder_due_filters", ["No Date"])
                 
-                self.reminder_show_categorized = config.get("reminder_show_categorized", False)
+                self.reminder_show_categorized = config.get("reminder_show_categorized", True)
                 # self.reminder_categories = config.get("reminder_categories", [])
                 
-                self.reminder_show_importance = config.get("reminder_show_importance", False)
+                self.reminder_show_importance = config.get("reminder_show_importance", True)
                 self.reminder_high_importance = config.get("reminder_high_importance", False)
                 self.reminder_normal_importance = config.get("reminder_normal_importance", False)
                 self.reminder_low_importance = config.get("reminder_low_importance", False)
                 
-                self.reminder_show_meetings = config.get("reminder_show_meetings", False)
-                self.reminder_pending_meetings = config.get("reminder_pending_meetings", False)
-                self.reminder_accepted_meetings = config.get("reminder_accepted_meetings", False)
+                self.reminder_show_meetings = config.get("reminder_show_meetings", True)
+                self.reminder_pending_meetings = config.get("reminder_pending_meetings", True)
+                self.reminder_accepted_meetings = config.get("reminder_accepted_meetings", True)
                 self.reminder_declined_meetings = config.get("reminder_declined_meetings", False)
                 self.reminder_meeting_dates = config.get("reminder_meeting_dates", [])
                 
-                self.reminder_show_tasks = config.get("reminder_show_tasks", False)
-                self.reminder_tasks = config.get("reminder_tasks", False)
-                self.reminder_todo = config.get("reminder_todo", False)
-                self.reminder_has_reminder = config.get("reminder_has_reminder", False)
+                self.reminder_show_tasks = config.get("reminder_show_tasks", True)
+                self.reminder_tasks = config.get("reminder_tasks", True)
+                self.reminder_todo = config.get("reminder_todo", True)
+                self.reminder_has_reminder = config.get("reminder_has_reminder", True)
                 
                 # Email Content Settings
                 self.email_show_sender = config.get("email_show_sender", True)
                 self.email_show_subject = config.get("email_show_subject", True)
-                self.email_show_body = config.get("email_show_body", True)
+                self.email_show_body = config.get("email_show_body", False)
                 self.email_body_lines = config.get("email_body_lines", 2)
         except Exception as e:
             print(f"Error loading config: {e}")
