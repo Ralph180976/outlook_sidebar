@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.2.0"
+VERSION = "v1.2.1"
 
 
 # --- Windows API Constants & Structures ---
@@ -927,10 +927,10 @@ class SettingsPanel(tk.Frame):
         ToolTip(btn_info, "Icons made by IconKanan and Ardiansyah from www.flaticon.com", side="left")
         
         # Helper method to create section headers
-        def create_section_header(parent, title):
+        def create_section_header(parent, title, pady=(15, 5)):
             """Creates a section header with title and divider line."""
             section_frame = tk.Frame(parent, bg=self.colors["bg_root"])
-            section_frame.pack(fill="x", padx=2, pady=(15, 5))
+            section_frame.pack(fill="x", padx=2, pady=pady)
             
             # Title label
             tk.Label(section_frame, text=title, bg=self.colors["bg_root"], fg=self.colors["fg_text"], 
@@ -948,172 +948,50 @@ class SettingsPanel(tk.Frame):
         main_content.config(bg=self.colors["bg_root"])
 
         
-        # === SECTION 1: Button Selection ===
-        create_section_header(main_content, "Button Selection")
-        
-        # --- Button Configuration Table ---
-        container = tk.Frame(main_content, bg=self.colors["bg_root"], pady=12)
-        container.pack(fill="x", expand=False, padx=(2, 20))  # 2px left padding
-        
-        # Table Headers
-        headers = ["Icon", "Action", "Folders (for Move)"]
-        
-        for col, text in enumerate(headers):
-            tk.Label(
-                container, text=text, 
-                bg=self.colors["bg_root"], fg=self.colors["fg_dim"], 
-                font=("Segoe UI", 9)
-            ).grid(row=0, column=col, sticky="w", padx=8, pady=(0, 8))
-            
-        # Rows
-        self.rows_data = [] 
-        self.action_options = ["None", "Mark Read", "Delete", "Read & Delete", "Flag", "Open Email", "Reply", "Move To..."]
-        # Monochrome / Clean Unicode Icons AND Custom PNGs
-        unicode_icons = ["", "🗑", "✉", "⚑", "↩", "📂", "↗", "✓", "✕", "⚠"]
-        
-        # Scan for PNGs
-        png_icons = []
-        if os.path.exists("icons"):
-            for file in glob.glob("icons/*.png"):
-                png_icons.append(os.path.basename(file))
-        
-        self.icons = unicode_icons + png_icons
-        
-        # Auto-Icon Logic Map
-        self.ACTION_TO_ICON = {
-            "Reply": "Reply.png",
-            "Delete": "Delete.png",
-            "Mark Read": "Mark as Read.png",
-            "Read & Delete": "Read & Delete.png",
-            "Open Email": "open.png",
-            "Flag": "Flag.png",
-            "Move To...": "Move to Folder.png",
-            "None": ""
-        }
-        
-        current_config = self.main_window.btn_config
-        row_config = current_config + [{}] * (4 - len(current_config))
-        
-        for i in range(4):
-            c_data = row_config[i]
-            
-            # 1. Icon - Replaced with Spacer as per user request (Space reserved)
-            # cb_icon = ttk.Combobox(container, values=self.icons, width=3, state="readonly", font=("Segoe UI", 16))
-            # cb_icon.set(c_data.get("icon", self.icons[0]))
-            # cb_icon.grid(row=i+1, column=0, padx=8, pady=8, ipady=4)
-            
-            # 1. Icon Display (Dynamic Label)
-            lbl_icon = tk.Label(container, bg=self.colors["bg_root"], width=5) # Width roughly matches 30px
-            lbl_icon.grid(row=i+1, column=0, padx=8, pady=5)
-            
-            # Preserve the icon value for saving (start with current)
-            current_icon_val = c_data.get("icon", self.icons[0])
-            
-            # 2. Action (Previously Action 1)
-            cb_act1 = ttk.Combobox(container, values=self.action_options, width=15, state="readonly", font=("Segoe UI", 10))
-            cb_act1.set(c_data.get("action1", "None")) 
-            cb_act1.grid(row=i+1, column=1, padx=8, pady=5, ipady=1)
-            
-            # Helper to update icon display based on action
-            def update_icon_display(action_widget, icon_label, row_idx):
-                action = action_widget.get()
-                new_icon = self.ACTION_TO_ICON.get(action, "")
-                
-                # Update visual
-                if new_icon:
-                     # Check if PNG or Unicode
-                     if new_icon.lower().endswith(".png"):
-                         path = os.path.join("icons", new_icon)
-                         if os.path.exists(path):
-                             # Load using main_window's loader
-                             img = self.main_window.load_icon_white(path, size=(24, 24))
-                             if img:
-                                 # Keep reference to avoid GC
-                                 setattr(icon_label, "image", img) 
-                                 # IMPORTANT: Reset width to 0 (auto) when showing image, otherwise '5' means 5 pixels!
-                                 icon_label.config(image=img, text="", width=0)
-                             else:
-                                 icon_label.config(text="?", image="", width=5)
-                         else:
-                             icon_label.config(text="?", image="", width=5)
-                     else:
-                         # Unicode
-                         icon_label.config(text=new_icon, image="", fg="white", font=("Segoe UI", 16), width=5)
-                else:
-                    icon_label.config(text="", image="", width=5)
-                
-                # Update underlying data for saving
-                # We need to update the entry in self.rows_data list, 
-                # but we are currently building it. 
-                # Better approach: Modify the specific dictionary in rows_data via mutable access
-                # BUT rows_data isn't fully populated yet.
-                # So we bind a function that looks up the row data LATER.
-                if len(self.rows_data) > row_idx:
-                    self.rows_data[row_idx]["icon_val"] = new_icon
 
-            # Initial Update
-            # We use a deferred call or just run it now contextually, but we need the 'row_idx' 
-            # which is loop variable 'i'. Be careful with closures.
-            
-            # Auto-update Handler
-            def on_action_change(event, act_cb=cb_act1, icon_lbl=lbl_icon, idx=i):
-                 update_icon_display(act_cb, icon_lbl, idx)
-                 self.refresh_dropdown_options() # Enforce uniqueness
-                 self.update_button_config()  # Apply changes immediately
-            
-            cb_act1.bind("<<ComboboxSelected>>", on_action_change)
-            
-            # 3. Folder Picker UI (Entry + Button) - Shifted to Column 2
-            f_frame = tk.Frame(container, bg=self.colors["bg_root"])
-            f_frame.grid(row=i+1, column=2, padx=8, pady=5)
-            
-            e_folder = ttk.Entry(f_frame, width=15, font=("Segoe UI", 10))
-            e_folder.insert(0, c_data.get("folder", ""))
-            e_folder.pack(side="left", ipady=1)
-
-            # Picker Button
-            btn_pick = tk.Label(f_frame, text="...", bg=self.colors["bg_card"], fg="white", font=("Segoe UI", 8), width=3, cursor="hand2")
-            btn_pick.pack(side="left", padx=(5,0), fill="y")
-            
-            # Bind picker
-            def open_picker(event, entry=e_folder):
-                folders = self.main_window.outlook_client.get_folder_list()
-                FolderPickerWindow(self, folders if folders else ["Inbox"], 
-                                   lambda path: (entry.delete(0, tk.END), entry.insert(0, path)))
-
-            btn_pick.bind("<Button-1>", open_picker)
-
-            self.rows_data.append({
-                "icon_val": current_icon_val, # Store value directly
-                "act1": cb_act1,
-                "folder": e_folder
-            })
-            
-            # Trigger initial display update manually
-            update_icon_display(cb_act1, lbl_icon, i)
-            
-        # Initial Refresh of Options to filter out duplicates
-        self.refresh_dropdown_options()
             
         # --- Sidebar Placement Setting REMOVED (Auto-snap implemented) ---
         # placement_frame = tk.Frame(self, bg=self.colors["bg_root"])
         # ...
 
-        # --- Interaction Settings ---
-        interaction_frame = tk.Frame(main_content, bg=self.colors["bg_root"])
-        interaction_frame.pack(fill="x", padx=(18, 30), pady=(5, 10))
+        # === SECTION 1: Window Selection ===
+        create_section_header(main_content, "Window Selection", pady=(2, 5))
         
-        self.buttons_on_hover_var = tk.BooleanVar(value=self.main_window.buttons_on_hover)
-        tk.Checkbutton(interaction_frame, text="Show Buttons on Hover", variable=self.buttons_on_hover_var, 
-                       command=self.update_button_config, bg=self.colors["bg_root"], fg="white", 
-                       selectcolor=self.colors["bg_card"], activebackground=self.colors["bg_root"], 
-                       activeforeground="white", font=("Segoe UI", 9)).pack(side="left", padx=(0, 15))
-                       
-        self.email_double_click_var = tk.BooleanVar(value=self.main_window.email_double_click)
-        tk.Checkbutton(interaction_frame, text="Double Click to Open", variable=self.email_double_click_var, 
-                       command=self.update_button_config, bg=self.colors["bg_root"], fg="white", 
-                       selectcolor=self.colors["bg_card"], activebackground=self.colors["bg_root"], 
-                       activeforeground="white", font=("Segoe UI", 9)).pack(side="left")
+        # --- Window Mode Selector ---
+        window_frame = tk.Frame(main_content, bg=self.colors["bg_root"])
+        window_frame.pack(fill="x", padx=(18, 30), pady=(10, 0))
+        
+        # Track window mode (initialize from main window)
+        self.window_mode_var = tk.StringVar(value=self.main_window.window_mode)
+        
+        # Determine initial button states
+        is_single = (self.main_window.window_mode == "single")
+        
+        # Single Window Button
+        self.btn_single_window = tk.Button(
+            window_frame, text="Email Only", 
+            command=lambda: self.select_window_mode("single"),
+            bg=self.colors["accent"] if is_single else self.colors["bg_card"],
+            fg="black" if is_single else "white",
+            font=("Segoe UI", 10, "bold") if is_single else ("Segoe UI", 10),
+            bd=0, padx=20, pady=4,
+            activebackground=self.colors["accent"],
+            activeforeground="black"
+        )
+        self.btn_single_window.pack(side="left", padx=(0, 10), fill="x", expand=True)
+        
+        # Dual Window Button
+        self.btn_dual_window = tk.Button(
+            window_frame, text="Emails & Reminders", 
+            command=lambda: self.select_window_mode("dual"),
+            bg=self.colors["accent"] if not is_single else self.colors["bg_card"],
+            fg="black" if not is_single else "white",
+            font=("Segoe UI", 10, "bold") if not is_single else ("Segoe UI", 10),
+            bd=0, padx=20, pady=4,
+            activebackground=self.colors["bg_card"],
+            activeforeground="white"
+        )
+        self.btn_dual_window.pack(side="left", fill="x", expand=True)
 
         # === SECTION 2: General Settings ===
         create_section_header(main_content, "General Settings")
@@ -1180,46 +1058,7 @@ class SettingsPanel(tk.Frame):
         self.refresh_cb.pack(side="left", padx=5)
         self.refresh_cb.bind("<<ComboboxSelected>>", self.update_refresh_rate)
 
-        # === SECTION 3: Window Selection ===
-        create_section_header(main_content, "Window Selection")
-        
-        # --- Window Mode Selector ---
-        window_frame = tk.Frame(main_content, bg=self.colors["bg_root"])
-        window_frame.pack(fill="x", padx=(18, 30), pady=(10, 0))
-        
-        # Track window mode (initialize from main window)
-        self.window_mode_var = tk.StringVar(value=self.main_window.window_mode)
-        
-        # Determine initial button states
-        is_single = (self.main_window.window_mode == "single")
-        
-        # Single Window Button
-        self.btn_single_window = tk.Button(
-            window_frame, text="Email Only", 
-            command=lambda: self.select_window_mode("single"),
-            bg=self.colors["accent"] if is_single else self.colors["bg_card"],
-            fg="black" if is_single else "white",
-            font=("Segoe UI", 10, "bold") if is_single else ("Segoe UI", 10),
-            bd=0, padx=20, pady=4,
-            activebackground=self.colors["accent"],
-            activeforeground="black"
-        )
-        self.btn_single_window.pack(side="left", padx=(0, 10), fill="x", expand=True)
-        
-        # Dual Window Button
-        self.btn_dual_window = tk.Button(
-            window_frame, text="Emails & Reminders", 
-            command=lambda: self.select_window_mode("dual"),
-            bg=self.colors["accent"] if not is_single else self.colors["bg_card"],
-            fg="black" if not is_single else "white",
-            font=("Segoe UI", 10, "bold") if not is_single else ("Segoe UI", 10),
-            bd=0, padx=20, pady=4,
-            activebackground=self.colors["bg_card"],
-            activeforeground="white"
-        )
-        self.btn_dual_window.pack(side="left", fill="x", expand=True)
-
-        # === SECTION 4: Email Settings ===
+        # === SECTION 3: Email Settings ===
         create_section_header(main_content, "Email Settings")
 
         # --- Email List Settings ---
@@ -1328,7 +1167,154 @@ class SettingsPanel(tk.Frame):
                  pass
         self.cb_lines['postcommand'] = configure_lines_dropdown
 
-        # === SECTION 5: Reminder Settings ===
+        # --- Interaction Settings (Merged into Email Settings) ---
+        interaction_frame = tk.Frame(main_content, bg=self.colors["bg_root"])
+        interaction_frame.pack(fill="x", padx=(18, 30), pady=(5, 10))
+        
+        self.buttons_on_hover_var = tk.BooleanVar(value=self.main_window.buttons_on_hover)
+        tk.Checkbutton(interaction_frame, text="Show Buttons on Hover", variable=self.buttons_on_hover_var, 
+                       command=self.update_interaction_settings, bg=self.colors["bg_root"], fg="white", 
+                       selectcolor=self.colors["bg_card"], activebackground=self.colors["bg_root"], 
+                       activeforeground="white", font=("Segoe UI", 9)).pack(side="left")
+                       
+        self.email_double_click_var = tk.BooleanVar(value=self.main_window.email_double_click)
+        tk.Checkbutton(interaction_frame, text="Double Click to Open", variable=self.email_double_click_var, 
+                       command=self.update_interaction_settings, bg=self.colors["bg_root"], fg="white", 
+                       selectcolor=self.colors["bg_card"], activebackground=self.colors["bg_root"], 
+                       activeforeground="white", font=("Segoe UI", 9)).pack(side="left", padx=10)
+
+        # === Button Configuration Table (Restored Original) ===
+        # --- Button Configuration Table ---
+        container = tk.Frame(main_content, bg=self.colors["bg_root"], pady=12)
+        container.pack(fill="x", expand=False, padx=(2, 20))  # 2px left padding
+        
+        # Table Headers
+        headers = ["Icon", "Action", "Folders (for Move)"]
+        
+        for col, text in enumerate(headers):
+            tk.Label(
+                container, text=text, 
+                bg=self.colors["bg_root"], fg=self.colors["fg_dim"], 
+                font=("Segoe UI", 9)
+            ).grid(row=0, column=col, sticky="w", padx=8, pady=(0, 8))
+            
+        # Rows
+        self.rows_data = [] 
+        self.action_options = ["None", "Mark Read", "Delete", "Read & Delete", "Flag", "Open Email", "Reply", "Move To..."]
+        # Monochrome / Clean Unicode Icons AND Custom PNGs
+        unicode_icons = ["", "🗑️", "✉️", "⚑", "↩️", "📂", "↗", "✓", "✕", "⚠"]
+        
+        # Scan for PNGs
+        png_icons = []
+        if os.path.exists("icons"):
+            for file in glob.glob("icons/*.png"):
+                png_icons.append(os.path.basename(file))
+        
+        self.icons = unicode_icons + png_icons
+        
+        # Auto-Icon Logic Map
+        self.ACTION_TO_ICON = {
+            "Reply": "Reply.png",
+            "Delete": "Delete.png",
+            "Mark Read": "Mark as Read.png",
+            "Read & Delete": "Read & Delete.png",
+            "Open Email": "open.png",
+            "Flag": "Flag.png",
+            "Move To...": "Move to Folder.png",
+            "None": ""
+        }
+        
+        current_config = self.main_window.btn_config
+        row_config = current_config + [{}] * (4 - len(current_config))
+        
+        for i in range(4):
+            c_data = row_config[i]
+            
+            # 1. Icon Display (Dynamic Label)
+            lbl_icon = tk.Label(container, bg=self.colors["bg_root"], width=5) # Width roughly matches 30px
+            lbl_icon.grid(row=i+1, column=0, padx=8, pady=5)
+            
+            # Preserve the icon value for saving (start with current)
+            current_icon_val = c_data.get("icon", self.icons[0])
+            
+            # 2. Action (Previously Action 1)
+            cb_act1 = ttk.Combobox(container, values=self.action_options, width=15, state="readonly", font=("Segoe UI", 10))
+            cb_act1.set(c_data.get("action1", "None")) 
+            cb_act1.grid(row=i+1, column=1, padx=8, pady=5, ipady=1)
+            
+            # Helper to update icon display based on action
+            def update_icon_display(action_widget, icon_label, row_idx):
+                action = action_widget.get()
+                new_icon = self.ACTION_TO_ICON.get(action, "")
+                
+                # Update visual
+                if new_icon:
+                     # Check if PNG or Unicode
+                     if new_icon.lower().endswith(".png"):
+                         path = os.path.join("icons", new_icon)
+                         if os.path.exists(path):
+                             # Load using main_window's loader
+                             img = self.main_window.load_icon_white(path, size=(24, 24))
+                             if img:
+                                 # Keep reference to avoid GC
+                                 setattr(icon_label, "image", img) 
+                                 # IMPORTANT: Reset width to 0 (auto) when showing image, otherwise '5' means 5 pixels!
+                                 icon_label.config(image=img, text="", width=0)
+                             else:
+                                 icon_label.config(text="?", image="", width=5)
+                         else:
+                             icon_label.config(text="?", image="", width=5)
+                     else:
+                         # Unicode
+                         icon_label.config(text=new_icon, image="", fg="white", font=("Segoe UI", 16), width=5)
+                else:
+                    icon_label.config(text="", image="", width=5)
+                
+                if len(self.rows_data) > row_idx:
+                    self.rows_data[row_idx]["icon_val"] = new_icon
+
+            # Auto-update Handler
+            def on_action_change(event, act_cb=cb_act1, icon_lbl=lbl_icon, idx=i):
+                 update_icon_display(act_cb, icon_lbl, idx)
+                 self.refresh_dropdown_options() # Enforce uniqueness
+                 self.update_button_config()  # Apply changes immediately
+            
+            cb_act1.bind("<<ComboboxSelected>>", on_action_change)
+            
+            # 3. Folder Picker UI (Entry + Button) - Shifted to Column 2
+            f_frame = tk.Frame(container, bg=self.colors["bg_root"])
+            f_frame.grid(row=i+1, column=2, padx=8, pady=5)
+            
+            e_folder = ttk.Entry(f_frame, width=15, font=("Segoe UI", 10))
+            e_folder.insert(0, c_data.get("folder", ""))
+            e_folder.pack(side="left", ipady=1)
+            e_folder.bind("<FocusOut>", lambda e: self.update_button_config())
+
+            # Picker Button
+            btn_pick = tk.Label(f_frame, text="...", bg=self.colors["bg_card"], fg="white", font=("Segoe UI", 8), width=3, cursor="hand2")
+            btn_pick.pack(side="left", padx=(5,0), fill="y")
+            
+            # Bind picker
+            def open_picker(event, entry=e_folder):
+                folders = self.main_window.outlook_client.get_folder_list()
+                FolderPickerWindow(self, folders if folders else ["Inbox"], 
+                                   lambda path: (entry.delete(0, tk.END), entry.insert(0, path), self.update_button_config()))
+
+            btn_pick.bind("<Button-1>", open_picker)
+
+            self.rows_data.append({
+                "icon_val": current_icon_val, # Store value directly
+                "act1": cb_act1,
+                "folder": e_folder
+            })
+            
+            # Trigger initial display update manually
+            update_icon_display(cb_act1, lbl_icon, i)
+            
+        # Initial Refresh of Options
+        self.refresh_dropdown_options()
+
+        # === SECTION 4: Reminder Settings ===
         create_section_header(main_content, "Reminder Settings")
         
         reminder_frame = tk.Frame(main_content, bg=self.colors["bg_root"])
@@ -1350,23 +1336,30 @@ class SettingsPanel(tk.Frame):
         
         # Toggle button for showing/hiding options
         self.followup_options_visible = True  # Track visibility state
-        self.btn_toggle_followup = tk.Button(
-            reminder_frame, text="Hide Options",
-            command=self.toggle_followup_visibility,
-            bg=self.colors["bg_card"], fg="white",
+
+        # Unified Container for Hover Logic
+        self.followup_container = tk.Frame(reminder_frame, bg=self.colors["bg_root"])
+        self.followup_container.grid(row=0, column=1, sticky="nw", rowspan=2, padx=(5, 0))
+        self.followup_container.bind("<Leave>", lambda e: self.toggle_followup_visibility(force_hide=True))
+
+        # Toggle button (Arrow) inside container
+        self.btn_toggle_followup = tk.Label(
+            self.followup_container, text="▲",
+            bg=self.colors["bg_root"], fg="#AAAAAA",
             font=("Segoe UI", 8),
-            bd=0, padx=8, pady=2,
             cursor="hand2"
         )
-        self.btn_toggle_followup.grid(row=0, column=1, sticky="w", padx=(10, 0), pady=(0, 5))
+        self.btn_toggle_followup.pack(side="top", anchor="w", pady=(2, 0))
+        self.btn_toggle_followup.bind("<Button-1>", lambda e: self.toggle_followup_visibility())
         
         # Initially hide button if Follow-up Flags is unchecked
         if not self.main_window.reminder_show_flagged:
-            self.btn_toggle_followup.grid_remove()
+            self.followup_container.grid_remove() # Hide entire container
         
         # Container for due date checkboxes (conditionally shown)
-        self.followup_options_frame = tk.Frame(reminder_frame, bg=self.colors["bg_root"])
-        self.followup_options_frame.grid(row=1, column=0, sticky="w", padx=(20, 0), columnspan=3)
+        # MOVED inside unified container
+        self.followup_options_frame = tk.Frame(self.followup_container, bg=self.colors["bg_root"])
+        self.followup_options_frame.pack(side="top", anchor="w", padx=(0, 0))
         
         # Due date checkboxes
         self.due_options = ["Today", "Tomorrow", "This Week", "Next Week", "Overdue", "No Date"]
@@ -1386,8 +1379,9 @@ class SettingsPanel(tk.Frame):
                 activeforeground="white",
                 font=("Segoe UI", 9)
             )
-            chk.grid(row=idx // 3, column=idx % 3, sticky="w", padx=(0, 15), pady=2)
-        
+            # Use grid inside the packed frame
+            chk.grid(row=idx // 2, column=idx % 2, sticky="w", padx=(0, 10), pady=1) # 2 columns for compactness
+
         # "All" checkbox
         self.due_all_var = tk.BooleanVar(value=False)
         chk_all = tk.Checkbutton(
@@ -1400,11 +1394,14 @@ class SettingsPanel(tk.Frame):
             activeforeground="white",
             font=("Segoe UI", 9, "bold")
         )
-        chk_all.grid(row=2, column=0, sticky="w", pady=(5, 0))
-        
+        chk_all.grid(row=3, column=0, sticky="w", pady=(5, 0))
+
+        # IMPORTANT: adjust layout of main checkbox to align
+        chk_followup.grid(row=0, column=0, sticky="nw", pady=(0, 5)) 
+
         # Initially hide if not enabled
         if not self.main_window.reminder_show_flagged:
-            self.followup_options_frame.grid_remove()
+             self.followup_options_frame.pack_forget()
         
         # --- 2. Categories ---
         self.reminder_show_categorized_var = tk.BooleanVar(value=self.main_window.reminder_show_categorized)
@@ -1418,7 +1415,7 @@ class SettingsPanel(tk.Frame):
             activeforeground="white",
             font=("Segoe UI", 9, "bold")
         )
-        chk_categorized.grid(row=3, column=0, sticky="w", pady=(10, 5), columnspan=3)
+        chk_categorized.grid(row=3, column=0, sticky="w", pady=(0, 5), columnspan=3)
         
         # --- 3. Importance ---
         self.reminder_show_importance_var = tk.BooleanVar(value=self.main_window.reminder_show_importance)  # Initialize from config
@@ -1432,24 +1429,33 @@ class SettingsPanel(tk.Frame):
             activeforeground="white",
             font=("Segoe UI", 9, "bold")
         )
-        chk_importance.grid(row=4, column=0, sticky="w", pady=(10, 5))
+        chk_importance.grid(row=4, column=0, sticky="w", pady=(0, 5))
         
         # Toggle button for showing/hiding options
-        self.importance_options_visible = True
-        self.btn_toggle_importance = tk.Button(
-            reminder_frame, text="Hide Options",
-            command=self.toggle_importance_visibility,
-            bg=self.colors["bg_card"], fg="white",
+        self.importance_options_visible = False
+        
+        # Unified Container for Hover Logic
+        self.importance_container = tk.Frame(reminder_frame, bg=self.colors["bg_root"])
+        self.importance_container.grid(row=4, column=1, sticky="nw", rowspan=2, padx=(5, 0))
+        self.importance_container.bind("<Leave>", lambda e: self.toggle_importance_visibility(force_hide=True))
+
+        self.btn_toggle_importance = tk.Label(
+            self.importance_container, text="▲",
+            bg=self.colors["bg_root"], fg="#AAAAAA",
             font=("Segoe UI", 8),
-            bd=0, padx=8, pady=2,
             cursor="hand2"
         )
-        self.btn_toggle_importance.grid(row=4, column=1, sticky="w", padx=(10, 0), pady=(10, 5))
+        self.btn_toggle_importance.pack(side="top", anchor="w", pady=(2, 0))
+        self.btn_toggle_importance.bind("<Button-1>", lambda e: self.toggle_importance_visibility())
         self.btn_toggle_importance.grid_remove()  # Initially hidden
         
         # Container for importance checkboxes
-        self.importance_options_frame = tk.Frame(reminder_frame, bg=self.colors["bg_root"])
-        self.importance_options_frame.grid(row=5, column=0, sticky="w", padx=(20, 0), columnspan=3)
+        # MOVED inside unified container
+        self.importance_options_frame = tk.Frame(self.importance_container, bg=self.colors["bg_root"])
+        self.importance_options_frame.pack(side="top", anchor="w", padx=(0, 0))
+        
+        # Adjust master checkbox alignment
+        chk_importance.grid(row=4, column=0, sticky="nw", pady=(0, 5))
         
         self.reminder_high_importance_var = tk.BooleanVar(value=self.main_window.reminder_high_importance)
         chk_high = tk.Checkbutton(
@@ -1462,6 +1468,7 @@ class SettingsPanel(tk.Frame):
             activeforeground="white",
             font=("Segoe UI", 9)
         )
+        # Use grid inside packed frame
         chk_high.grid(row=0, column=0, sticky="w", padx=(0, 15), pady=2)
         
         self.reminder_normal_importance_var = tk.BooleanVar(value=self.main_window.reminder_normal_importance)
@@ -1505,27 +1512,36 @@ class SettingsPanel(tk.Frame):
             activeforeground="white",
             font=("Segoe UI", 9, "bold")
         )
-        chk_meetings.grid(row=6, column=0, sticky="w", pady=(10, 5))
+        chk_meetings.grid(row=6, column=0, sticky="w", pady=(0, 5))
         
-        # Toggle button
-        self.meetings_options_visible = True
-        self.btn_toggle_meetings = tk.Button(
-            reminder_frame, text="Hide Options",
-            command=self.toggle_meetings_visibility,
-            bg=self.colors["bg_card"], fg="white",
+        # Toggle button (Arrow)
+        self.meetings_options_visible = False
+        
+        # Unified Container
+        self.meetings_container = tk.Frame(reminder_frame, bg=self.colors["bg_root"])
+        self.meetings_container.grid(row=6, column=1, sticky="nw", rowspan=2, padx=(5, 0))
+        self.meetings_container.bind("<Leave>", lambda e: self.toggle_meetings_visibility(force_hide=True))
+
+        self.btn_toggle_meetings = tk.Label(
+            self.meetings_container, text="▲",
+            bg=self.colors["bg_root"], fg="#AAAAAA",
             font=("Segoe UI", 8),
-            bd=0, padx=8, pady=2,
             cursor="hand2"
         )
-        self.btn_toggle_meetings.grid(row=6, column=1, sticky="w", padx=(10, 0), pady=(10, 5))
+        self.btn_toggle_meetings.pack(side="top", anchor="w", pady=(2, 0))
+        self.btn_toggle_meetings.bind("<Button-1>", lambda e: self.toggle_meetings_visibility())
         self.btn_toggle_meetings.grid_remove()  # Initially hidden
         
         # Track if defaults have been applied
         self.meetings_defaults_applied = False
         
         # Container for meeting options
-        self.meetings_options_frame = tk.Frame(reminder_frame, bg=self.colors["bg_root"])
-        self.meetings_options_frame.grid(row=7, column=0, sticky="w", padx=(20, 0), columnspan=3)
+        # MOVED inside unified container
+        self.meetings_options_frame = tk.Frame(self.meetings_container, bg=self.colors["bg_root"])
+        self.meetings_options_frame.pack(side="top", anchor="w", padx=(0, 0))
+        
+        # Adjust master checkbox alignment
+        chk_meetings.grid(row=6, column=0, sticky="nw", pady=(0, 5))
         
         # Status checkboxes
         self.reminder_pending_meetings_var = tk.BooleanVar(value=self.main_window.reminder_pending_meetings)
@@ -1602,24 +1618,33 @@ class SettingsPanel(tk.Frame):
             activeforeground="white",
             font=("Segoe UI", 9, "bold")
         )
-        chk_tasks_master.grid(row=8, column=0, sticky="w", pady=(10, 5))
+        chk_tasks_master.grid(row=8, column=0, sticky="w", pady=(0, 5))
         
-        # Toggle button
-        self.tasks_options_visible = True
-        self.btn_toggle_tasks = tk.Button(
-            reminder_frame, text="Hide Options",
-            command=self.toggle_tasks_visibility,
-            bg=self.colors["bg_card"], fg="white",
+        # Toggle button (Arrow)
+        self.tasks_options_visible = False
+        
+        # Unified Container
+        self.tasks_container = tk.Frame(reminder_frame, bg=self.colors["bg_root"])
+        self.tasks_container.grid(row=8, column=1, sticky="nw", rowspan=2, padx=(5, 0))
+        self.tasks_container.bind("<Leave>", lambda e: self.toggle_tasks_visibility(force_hide=True))
+
+        self.btn_toggle_tasks = tk.Label(
+            self.tasks_container, text="▲",
+            bg=self.colors["bg_root"], fg="#AAAAAA",
             font=("Segoe UI", 8),
-            bd=0, padx=8, pady=2,
             cursor="hand2"
         )
-        self.btn_toggle_tasks.grid(row=8, column=1, sticky="w", padx=(10, 0), pady=(10, 5))
+        self.btn_toggle_tasks.pack(side="top", anchor="w", pady=(2, 0))
+        self.btn_toggle_tasks.bind("<Button-1>", lambda e: self.toggle_tasks_visibility())
         self.btn_toggle_tasks.grid_remove()  # Initially hidden
         
         # Container for task options
-        self.tasks_options_frame = tk.Frame(reminder_frame, bg=self.colors["bg_root"])
-        self.tasks_options_frame.grid(row=9, column=0, sticky="w", padx=(20, 0), columnspan=3)
+        # MOVED inside unified container
+        self.tasks_options_frame = tk.Frame(self.tasks_container, bg=self.colors["bg_root"])
+        self.tasks_options_frame.pack(side="top", anchor="w", padx=(0, 0))
+
+        # Adjust master checkbox alignment
+        chk_tasks_master.grid(row=8, column=0, sticky="nw", pady=(0, 5))
         
         self.reminder_tasks_var = tk.BooleanVar(value=self.main_window.reminder_tasks)
         chk_tasks = tk.Checkbutton(
@@ -1758,17 +1783,17 @@ class SettingsPanel(tk.Frame):
             self.btn_toggle_followup.grid_remove()  # Hide the toggle button
         self.update_reminder_filters()
 
-    def toggle_followup_visibility(self):
+    def toggle_followup_visibility(self, force_hide=False):
         """Toggle visibility of follow-up options and update button text."""
-        if self.followup_options_visible:
+        if self.followup_options_visible or force_hide:
             # Hide options
-            self.followup_options_frame.grid_remove()
-            self.btn_toggle_followup.config(text="Show Options")
+            self.followup_options_frame.pack_forget()
+            self.btn_toggle_followup.config(text="▼")
             self.followup_options_visible = False
         else:
             # Show options
-            self.followup_options_frame.grid()
-            self.btn_toggle_followup.config(text="Hide Options")
+            self.followup_options_frame.pack(side="top", anchor="w")
+            self.btn_toggle_followup.config(text="▲")
             self.followup_options_visible = True
 
     def toggle_all_due_options(self):
@@ -1793,15 +1818,15 @@ class SettingsPanel(tk.Frame):
             self.btn_toggle_importance.grid_remove()
         self.update_reminder_filters()
 
-    def toggle_importance_visibility(self):
+    def toggle_importance_visibility(self, force_hide=False):
         """Toggle visibility of importance options and update button text."""
-        if self.importance_options_visible:
-            self.importance_options_frame.grid_remove()
-            self.btn_toggle_importance.config(text="Show Options")
+        if self.importance_options_visible or force_hide:
+            self.importance_options_frame.pack_forget()
+            self.btn_toggle_importance.config(text="▼")
             self.importance_options_visible = False
         else:
-            self.importance_options_frame.grid()
-            self.btn_toggle_importance.config(text="Hide Options")
+            self.importance_options_frame.pack(side="top", anchor="w")
+            self.btn_toggle_importance.config(text="▲")
             self.importance_options_visible = True
 
     def toggle_meetings_options(self):
@@ -1825,15 +1850,15 @@ class SettingsPanel(tk.Frame):
             self.btn_toggle_meetings.grid_remove()
         self.update_reminder_filters()
 
-    def toggle_meetings_visibility(self):
+    def toggle_meetings_visibility(self, force_hide=False):
         """Toggle visibility of meetings options and update button text."""
-        if self.meetings_options_visible:
-            self.meetings_options_frame.grid_remove()
-            self.btn_toggle_meetings.config(text="Show Options")
+        if self.meetings_options_visible or force_hide:
+            self.meetings_options_frame.pack_forget()
+            self.btn_toggle_meetings.config(text="▼")
             self.meetings_options_visible = False
         else:
-            self.meetings_options_frame.grid()
-            self.btn_toggle_meetings.config(text="Hide Options")
+            self.meetings_options_frame.pack(side="top", anchor="w")
+            self.btn_toggle_meetings.config(text="▲")
             self.meetings_options_visible = True
 
     def toggle_tasks_options(self):
@@ -1846,15 +1871,15 @@ class SettingsPanel(tk.Frame):
             self.btn_toggle_tasks.grid_remove()
         self.update_reminder_filters()
 
-    def toggle_tasks_visibility(self):
+    def toggle_tasks_visibility(self, force_hide=False):
         """Toggle visibility of tasks options and update button text."""
-        if self.tasks_options_visible:
-            self.tasks_options_frame.grid_remove()
-            self.btn_toggle_tasks.config(text="Show Options")
+        if self.tasks_options_visible or force_hide:
+            self.tasks_options_frame.pack_forget()
+            self.btn_toggle_tasks.config(text="▼")
             self.tasks_options_visible = False
         else:
-            self.tasks_options_frame.grid()
-            self.btn_toggle_tasks.config(text="Hide Options")
+            self.tasks_options_frame.pack(side="top", anchor="w")
+            self.btn_toggle_tasks.config(text="▲")
             self.tasks_options_visible = True
 
 
@@ -1889,8 +1914,15 @@ class SettingsPanel(tk.Frame):
         self.main_window.save_config()
         self.main_window.refresh_reminders()
 
+    def update_interaction_settings(self):
+        """Allow checkbox command to update interaction settings only."""
+        self.main_window.buttons_on_hover = self.buttons_on_hover_var.get()
+        self.main_window.email_double_click = self.email_double_click_var.get()
+        self.main_window.save_config()
+        self.callback()
+    
     def update_button_config(self):
-        """Apply button config changes immediately."""
+        """Apply button config changes immediately (Original Logic)."""
         new_config = []
         count = 0
         for data in self.rows_data:
@@ -1906,12 +1938,35 @@ class SettingsPanel(tk.Frame):
         self.main_window.btn_count = count
         self.main_window.btn_config = new_config
         
-        # Save Interaction Settings
-        self.main_window.buttons_on_hover = self.buttons_on_hover_var.get()
-        self.main_window.email_double_click = self.email_double_click_var.get()
-        
-        self.main_window.save_config()
-        self.callback()  # refresh_emails
+        # Also update interaction settings
+        self.update_interaction_settings()
+
+    def update_button_action(self, idx, event=None):
+        """Deprecated: Kept for compatibility if old bindings trigger."""
+        self.update_button_config()
+
+    def update_button_folder(self, idx, event=None):
+         """Deprecated: Kept for compatibility if old bindings trigger."""
+         self.update_button_config()
+
+    def browse_folder(self, idx):
+        """Open folder picker for button at idx."""
+        # This requires folder list from Outlook Client
+        try:
+            folders = self.main_window.outlook_client.get_folder_list()
+            
+            # Open custom picker
+            # Using FolderPickerWindow if available (defined earlier in file if not imported)
+            # Assuming FolderPickerWindow is defined in this file (yes, verified earlier)
+            
+            def on_select(path):
+                self.btn_configs[idx]["folder_var"].set(path)
+                self.update_button_folder(idx)
+                
+            FolderPickerWindow(self.winfo_toplevel(), folders, on_select) # Attach to toplevel
+            
+        except Exception as e:
+            print(f"Error browsing folders: {e}")
 
     def select_window_mode(self, mode):
         """Handle window mode selection (single or dual)."""
@@ -2656,6 +2711,8 @@ class SidebarWindow(tk.Tk):
                 self.reminder_tasks = data.get("reminder_tasks", False)
                 self.reminder_todo = data.get("reminder_todo", False)
                 self.reminder_has_reminder = data.get("reminder_has_reminder", False)
+                self.buttons_on_hover = data.get("buttons_on_hover", False)
+                self.email_double_click = data.get("email_double_click", False)
         except FileNotFoundError:
             pass
 
@@ -2688,7 +2745,9 @@ class SidebarWindow(tk.Tk):
             "reminder_declined_meetings": self.reminder_declined_meetings,
             "reminder_tasks": self.reminder_tasks,
             "reminder_todo": self.reminder_todo,
-            "reminder_has_reminder": self.reminder_has_reminder
+            "reminder_has_reminder": self.reminder_has_reminder,
+            "buttons_on_hover": self.buttons_on_hover,
+            "email_double_click": self.email_double_click
         }
         with open("sidebar_config.json", "w") as f:
             json.dump(data, f)
