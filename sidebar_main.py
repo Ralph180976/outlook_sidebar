@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.2.20"
+VERSION = "v1.2.22"
 
 
 # --- Windows API Constants & Structures ---
@@ -1043,6 +1043,13 @@ class AccountSelectionDialog(tk.Toplevel):
         # Content
         container = tk.Frame(self, bg=self.colors["bg"])
         container.pack(fill="both", expand=True, padx=2, pady=2)
+
+        # Help Text
+        tk.Label(
+            container, 
+            text="Click on folder to select folders. Hold Shift/Ctrl to select multiple.",
+            bg=self.colors["bg"], fg="#888888", font=("Segoe UI", 9, "italic")
+        ).pack(pady=(0, 5))
         
         canvas = tk.Canvas(container, bg=self.colors["bg"], highlightthickness=0)
         scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
@@ -2546,6 +2553,7 @@ class SidebarWindow(tk.Tk):
         # Version Label
         self.lbl_version = tk.Label(self.footer, text=VERSION, bg="#444444", fg="#888888", font=("Segoe UI", 8))
         self.lbl_version.pack(side="left", padx=5, pady=5)
+        ToolTip(self.lbl_version, f"App Version: {VERSION}")
                  
         # 2. Calendar Button (Next to Outlook)
         if os.path.exists("icons/OutlookCalendar_48x48.png"):
@@ -2582,6 +2590,7 @@ class SidebarWindow(tk.Tk):
         self.btn_pin = tk.Canvas(self.header, width=30, height=30, bg="#444444", highlightthickness=0)
         self.btn_pin.pack(side="right", padx=5, pady=5)
         self.btn_pin.bind("<Button-1>", lambda e: self.toggle_pin())
+        self.pin_tooltip = ToolTip(self.btn_pin, "Pin to Top")
         self.draw_pin_icon()
         
         # Custom Settings Button (Cog)
@@ -3829,6 +3838,13 @@ class SidebarWindow(tk.Tk):
 
     def toggle_pin(self):
         self.is_pinned = not self.is_pinned
+        
+        # Update Tooltip
+        if self.is_pinned:
+             self.pin_tooltip.text = "Unpin"
+        else:
+             self.pin_tooltip.text = "Pin to Top"
+             
         self.draw_pin_icon()
         self.save_config()
         self.apply_state()
