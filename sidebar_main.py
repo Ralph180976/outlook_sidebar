@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.2.16"
+VERSION = "v1.2.18"
 
 
 # --- Windows API Constants & Structures ---
@@ -3158,12 +3158,16 @@ class SidebarWindow(tk.Tk):
         """Apply the current window mode (single or dual) to the layout."""
         if self.window_mode == "single":
             # Single window mode - hide reminder section
-            self.reminder_placeholder.grid_forget()
-            self.grid_container.rowconfigure(1, weight=0)
+            try:
+                self.paned_window.forget(self.pane_reminders)
+            except:
+                pass
         else:  # dual
             # Dual window mode - show reminder section
-            self.reminder_placeholder.grid(row=1, column=0, sticky="nsew", padx=0, pady=(2, 0))
-            self.grid_container.rowconfigure(1, weight=1)
+            # Check if likely already added
+            if self.pane_reminders not in self.paned_window.panes():
+                self.paned_window.add(self.pane_reminders, minsize=100)
+            
             self.refresh_reminders()
 
     def flash_widget_recursive(self, widget, flash_color="#FFFFFF", duration=200):
