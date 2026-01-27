@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.2.8"
+VERSION = "v1.2.10"
 
 
 # --- Windows API Constants & Structures ---
@@ -1073,11 +1073,10 @@ class AccountSelectionDialog(tk.Toplevel):
             e_var = tk.IntVar(value=1 if vals.get("email") else 0)
             self.vars[acc]["email"] = e_var
             # High contrast selectcolor (white check on dark bg, or check matches fg)
-            # Tkinter Checkbutton: selectcolor is the background of the box. 
-            # If we want a white check, we need specific settings or system theme.
-            # Setting selectcolor="#60CDFF" makes the box blue when checked.
+            # Enlarge Checkboxes by increasing font (even if no text)
             tk.Checkbutton(row, variable=e_var, bg=self.colors["bg"], activebackground=self.colors["bg"], 
-                           selectcolor=self.colors["accent"], borderwidth=0, highlightthickness=0).pack(side="left", padx=(10, 5))
+                           selectcolor=self.colors["accent"], borderwidth=0, highlightthickness=0,
+                           font=("Segoe UI", 16)).pack(side="left", padx=(10, 5))
             
             # Folder Button
             self.vars[acc]["email_folders"] = vals.get("email_folders", [])
@@ -1097,17 +1096,18 @@ class AccountSelectionDialog(tk.Toplevel):
             c_var = tk.IntVar(value=1 if vals.get("calendar") else 0)
             self.vars[acc]["calendar"] = c_var
             tk.Checkbutton(row, variable=c_var, bg=self.colors["bg"], activebackground=self.colors["bg"], 
-                           selectcolor=self.colors["accent"], borderwidth=0, highlightthickness=0).pack(side="left", padx=10)
+                           selectcolor=self.colors["accent"], borderwidth=0, highlightthickness=0,
+                           font=("Segoe UI", 16)).pack(side="left", padx=10)
             
         # Footer
-        footer = tk.Frame(self, bg=self.colors["bg"], height=60)
-        footer.pack(fill="x", side="bottom", pady=15)
+        footer = tk.Frame(self, bg=self.colors["bg"], height=100)
+        footer.pack(fill="x", side="bottom", pady=20)
         
         tk.Button(footer, text="Save Changes", command=self.save_selection,
-            bg=self.colors["accent"], fg="black", bd=0, font=("Segoe UI", 10, "bold"), padx=25, pady=8).pack(side="right", padx=15)
+            bg=self.colors["accent"], fg="black", bd=0, font=("Segoe UI", 12, "bold"), padx=30, pady=15).pack(side="right", padx=15)
         
         tk.Button(footer, text="Cancel", command=self.destroy,
-            bg="#333333", fg="white", bd=0, font=("Segoe UI", 10), padx=20, pady=8).pack(side="right", padx=5)
+            bg="#333333", fg="white", bd=0, font=("Segoe UI", 12), padx=25, pady=15).pack(side="right", padx=5)
 
     def save_selection(self):
         final = {}
