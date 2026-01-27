@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.2.12"
+VERSION = "v1.2.14"
 
 
 # --- Windows API Constants & Structures ---
@@ -788,6 +788,17 @@ class OutlookClient:
         except Exception as e:
             print(f"Error marking task complete: {e}")
             return False
+
+    def dismiss_calendar_item(self, entry_id):
+        """Dismisses (Deletes) a calendar item."""
+        try:
+            item = self.get_item_by_entryid(entry_id)
+            if item:
+                item.Delete()
+                return True
+        except Exception as e:
+            print(f"Error dismissing calendar item: {e}")
+            return False
         """
         Recursively searches for a folder by name. 
         Starts at default Inbox parent (likely the account root).
@@ -1104,10 +1115,10 @@ class AccountSelectionDialog(tk.Toplevel):
         footer.pack(fill="x", side="bottom", pady=20)
         
         tk.Button(footer, text="Save Changes", command=self.save_selection,
-            bg=self.colors["accent"], fg="black", bd=0, font=("Segoe UI", 12, "bold"), padx=30, pady=15).pack(side="right", padx=15)
+            bg=self.colors["accent"], fg="black", bd=0, font=("Segoe UI", 10, "bold"), padx=20, pady=10).pack(side="right", padx=15)
         
         tk.Button(footer, text="Cancel", command=self.destroy,
-            bg="#333333", fg="white", bd=0, font=("Segoe UI", 12), padx=25, pady=15).pack(side="right", padx=5)
+            bg="#333333", fg="white", bd=0, font=("Segoe UI", 10), padx=15, pady=10).pack(side="right", padx=5)
 
     def save_selection(self):
         final = {}
@@ -3700,6 +3711,35 @@ class SidebarWindow(tk.Tk):
                  
                  bind_click(mf, m['entry_id'])
                  bind_click(subj, m['entry_id'])
+
+                 # Calendar Buttons Frame
+                 c_actions = tk.Frame(mf, bg="#252526")
+                 c_actions.pack(side="right", padx=2)
+
+                 # Helper to create buttons (Inline reuse or call similar logic)
+                 def make_cal_btn(parent, text, cmd, tip):
+                     btn = tk.Label(parent, text=text, fg="#AAAAAA", bg="#252526", font=("Segoe UI", 10), cursor="hand2", padx=5)
+                     btn.pack(side="left", padx=1)
+                     btn.bind("<Button-1>", lambda e: cmd())
+                     btn.bind("<Enter>", lambda e: btn.config(fg="white", bg="#444444"))
+                     btn.bind("<Leave>", lambda e: btn.config(fg="#AAAAAA", bg="#252526"))
+                     if tip: ToolTip(btn, tip)
+                     return btn
+
+                 # Open Button
+                 make_cal_btn(c_actions, "📂", lambda eid=m['entry_id']: self.open_email(eid), "Open Meeting")
+
+                 # Dismiss Button (Checkmark)
+                 def do_dismiss_cal(eid=m['entry_id'], w=mf):
+                     # Confirm simple deletion/dismissal? User asked for "check box" logic.
+                     # We'll just delete it for now as "Complete".
+                     success = self.outlook_client.dismiss_calendar_item(eid)
+                     if success:
+                         w.pack_forget()
+                     else:
+                         messagebox.showerror("Error", "Failed to dismiss meeting.")
+                         
+                 make_cal_btn(c_actions, "✓", do_dismiss_cal, "Dismiss/Delete")
 
         # 2. Outlook Tasks
         if self.reminder_show_flagged:
