@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.1.0"
+VERSION = "v1.2.0"
 
 
 # --- Windows API Constants & Structures ---
@@ -883,7 +883,7 @@ class SettingsPanel(tk.Frame):
         title_underline.pack(fill="x", side="top")
 
         # Configure larger font for dropdown lists (affects all comboboxes in this window ideally, but mainly for icons)
-        self.option_add('*TCombobox*Listbox.font', ("Segoe UI", 16))
+        self.option_add('*TCombobox*Listbox.font', ("Segoe UI", 10))
 
 
         # Configure ttk.Style for comboboxes to fix dark theme visibility
@@ -1123,7 +1123,7 @@ class SettingsPanel(tk.Frame):
         typo_frame.pack(fill="x", padx=(20, 30), pady=(10, 0))
         
         tk.Label(typo_frame, text="Font Family:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).pack(side="left")
-        self.font_fam_cb = ttk.Combobox(typo_frame, values=["Segoe UI", "Arial", "Verdana", "Tahoma", "Courier New", "Georgia"], width=15, state="readonly", font=("Segoe UI", 12))
+        self.font_fam_cb = ttk.Combobox(typo_frame, values=["Segoe UI", "Arial", "Verdana", "Tahoma", "Courier New", "Georgia"], width=15, state="readonly", font=("Segoe UI", 10))
         self.font_fam_cb.set(self.main_window.font_family)
         self.font_fam_cb.pack(side="left", padx=(5, 20))
         self.font_fam_cb.bind("<<ComboboxSelected>>", self.update_font_settings)
@@ -1169,7 +1169,7 @@ class SettingsPanel(tk.Frame):
         sys_frame.pack(fill="x", padx=(18, 30), pady=(10, 0))
         
         tk.Label(sys_frame, text="Refresh Rate:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).pack(side="left")
-        self.refresh_cb = ttk.Combobox(sys_frame, values=list(self.refresh_options.keys()), width=10, state="readonly", font=("Segoe UI", 12))
+        self.refresh_cb = ttk.Combobox(sys_frame, values=list(self.refresh_options.keys()), width=10, state="readonly", font=("Segoe UI", 10))
         
         current_label = "30s"
         for label, val in self.refresh_options.items():
@@ -3342,37 +3342,35 @@ class SidebarWindow(tk.Tk):
         self.save_config()
 
     def set_geometry(self, width):
+        # Retrieve Monitor and Work Area info in one go
+        # If pinned, we trust the AppBar check. If not, we recalc.
+        
+        # Current logic:
+        # 1. Get Monitor Info based on current window position
+        monitor_info = self.get_monitor_metrics()
+        
+        mx, my, mw, mh = monitor_info['monitor']
+        wx, wy, ww, wh = monitor_info['work']
+        
         # Determine Reference Geometry
         if self.is_pinned and self.appbar.registered:
-            # Use the registered AppBar position (which respects taskbar)
-            # The system has already adjusted self.appbar.abd.rc
+            # Use the registered AppBar position (system adjusted)
             rect = self.appbar.abd.rc
             x = rect.left
             y = rect.top
             h = rect.bottom - rect.top
-            # We override width (e.g. for settings expansion)
-            # For Right dock, we need to adjust X to keep the right edge anchored
+            
             if self.dock_side == "Right":
-                 # Original Right was rect.right. New Left is rect.right - new_width
                  x = rect.right - width
         else:
             # Unpinned / Overlay Mode
-            # Use Work Area to respect Taskbar for Height/Y
-            wx, wy, ww, wh = self.get_work_area_info()
-            mx, my, mw, mh = self.get_current_monitor_info()
-
-            # Height/Y constrained to Work Area (polite to taskbar)
+            # Use Work Area for Height/Y to respect Taskbar
             y = wy
             h = wh
             
-            # X Calculation:
-            # We want to anchor to the Monitor Edge (Screen Edge) for the "Hot Strip" to work,
-            # BUT we don't want to necessarily cover a vertical taskbar if one exists?
-            # Actually, standard "Auto-Hide" sidebars often overlay everything.
-            # But the user specifically complained about covering the taskbar.
-            # Let's use Work Area for X too?
-            # If Taskbar is on Left, WorkLeft = 50. If we start at 50, we don't cover it.
-            # This seems safer and consistent with "polite" behavior.
+            # X Calculation: Anchor to Monitor Edge
+            # But ensure we don't start 'under' a vertical taskbar on the left?
+            # Using Work Area left (wx) is safest.
             
             if self.dock_side == "Left":
                 x = wx
@@ -3383,35 +3381,91 @@ class SidebarWindow(tk.Tk):
         self.update_idletasks()
         self.wm_attributes("-topmost", True)
 
-    def get_current_monitor_info(self):
-        """Retrieves the geometry of the monitor closest to the window center."""
+    def get_monitor_metrics(self):
+        """
+        Uses EnumDisplayMonitors to find the monitor closest to the window center.
+        Returns check-safe dictionary with 'monitor' and 'work' tuples (x,y,w,h).
+        """
         hwnd = self.winfo_id()
-        hwnd = ctypes.windll.user32.GetParent(hwnd) or hwnd
-        monitor = user32.MonitorFromWindow(hwnd, 2) # MONITOR_DEFAULTTONEAREST
-        
-        mi = MONITORINFO()
-        mi.cbSize = ctypes.sizeof(MONITORINFO)
-        if user32.GetMonitorInfoW(monitor, ctypes.byref(mi)):
-            return (mi.rcMonitor.left, mi.rcMonitor.top, 
-                    mi.rcMonitor.right - mi.rcMonitor.left, 
-                    mi.rcMonitor.bottom - mi.rcMonitor.top)
+        try:
+            hwnd = ctypes.windll.user32.GetParent(hwnd) or hwnd
+        except: pass
             
-        # Fallback to defaults
-        return (0, 0, self.winfo_screenwidth(), self.winfo_screenheight())
+        # Get Window Rect center
+        try:
+             wr = wintypes.RECT()
+             user32.GetWindowRect(hwnd, ctypes.byref(wr))
+             cx = (wr.left + wr.right) // 2
+             cy = (wr.top + wr.bottom) // 2
+        except:
+             # Fallback to screen center if window not visible
+             cx = self.winfo_screenwidth() // 2
+             cy = self.winfo_screenheight() // 2
+             
+        monitors = []
+
+        def callback(hMonitor, hdcMonitor, lprcMonitor, dwData):
+            mi = MONITORINFO()
+            mi.cbSize = ctypes.sizeof(MONITORINFO)
+            if user32.GetMonitorInfoW(hMonitor, ctypes.byref(mi)):
+                r = mi.rcMonitor
+                w = mi.rcWork
+                monitors.append({
+                    'm_rect': (r.left, r.top, r.right, r.bottom),
+                    'w_rect': (w.left, w.top, w.right, w.bottom)
+                })
+            return True
+
+        MONITORENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.ULONG, wintypes.HDC, ctypes.POINTER(wintypes.RECT), wintypes.LPARAM)
+        user32.EnumDisplayMonitors(None, None, MONITORENUMPROC(callback), 0)
+        
+        best_mon = None
+        min_dist = float('inf')
+        
+        for m in monitors:
+            # Check if center is inside
+            ml, mt, mr, mb = m['m_rect']
+            if ml <= cx <= mr and mt <= cy <= mb:
+                best_mon = m
+                break
+            
+            # Distance to center
+            # Simple Manhattan distance from monitor center to window center
+            mcx = (ml + mr) // 2
+            mcy = (mt + mb) // 2
+            dist = abs(cx - mcx) + abs(cy - mcy)
+            if dist < min_dist:
+                min_dist = dist
+                best_mon = m
+                
+        if not best_mon and monitors:
+             best_mon = monitors[0] # Fallback to primary
+             
+        if best_mon:
+             ml, mt, mr, mb = best_mon['m_rect']
+             wl, wt, wr, wb = best_mon['w_rect']
+             return {
+                 'monitor': (ml, mt, mr - ml, mb - mt),
+                 'work': (wl, wt, wr - wl, wb - wt)
+             }
+             
+        # Ultimate fallback
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        return {
+            'monitor': (0, 0, sw, sh),
+            'work': (0, 0, sw, sh)
+        }
+
+    # Replaces get_current_monitor_info and get_work_area_info
+    # Kept for compatibility if called elsewhere, but redirected
+    def get_current_monitor_info(self):
+        m = self.get_monitor_metrics()['monitor']
+        return m
         
     def get_work_area_info(self):
-        """Retrieves the work area of the monitor closest to the window center."""
-        hwnd = self.winfo_id()
-        hwnd = ctypes.windll.user32.GetParent(hwnd) or hwnd
-        monitor = user32.MonitorFromWindow(hwnd, 2)
-        
-        mi = MONITORINFO()
-        mi.cbSize = ctypes.sizeof(MONITORINFO)
-        if user32.GetMonitorInfoW(monitor, ctypes.byref(mi)):
-            return (mi.rcWork.left, mi.rcWork.top, 
-                    mi.rcWork.right - mi.rcWork.left, 
-                    mi.rcWork.bottom - mi.rcWork.top)
-        return (0, 0, self.winfo_screenwidth(), self.winfo_screenheight())
+        m = self.get_monitor_metrics()['work']
+        return m
 
     def start_window_drag(self, event):
         self._win_drag_x = event.x

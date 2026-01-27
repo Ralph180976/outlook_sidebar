@@ -1,0 +1,37 @@
+import win32com.client
+
+def test_dasl_restrict():
+    try:
+        outlook = win32com.client.Dispatch("Outlook.Application")
+        namespace = outlook.GetNamespace("MAPI")
+        inbox = namespace.GetDefaultFolder(6)
+        items = inbox.Items
+        
+        print(f"Total items: {items.Count}")
+        
+        # PR_FLAG_STATUS = 0x10900003
+        # olFlagMarked = 2
+        # DASL query for FlagStatus = 2
+        dasl_query = '@SQL="http://schemas.microsoft.com/mapi/proptag/0x10900003" = 2'
+        
+        try:
+            flagged = items.Restrict(dasl_query)
+            print(f"Restrict DASL query count: {flagged.Count}")
+            if flagged.Count > 0:
+                print(f"First flagged item: {flagged.GetFirst().Subject}")
+        except Exception as e:
+            print(f"Restrict DASL query failed: {e}")
+
+        # Try a simpler DASL for Unread
+        try:
+            unread_dasl = '@SQL="urn:schemas:httpmail:read" = 0'
+            unread = items.Restrict(unread_dasl)
+            print(f"Restrict Unread DASL count: {unread.Count}")
+        except Exception as e:
+            print(f"Restrict Unread DASL failed: {e}")
+
+    except Exception as e:
+        print(f"Error: {e}")
+
+if __name__ == "__main__":
+    test_dasl_restrict()
