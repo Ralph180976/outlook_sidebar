@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.2.10"
+VERSION = "v1.2.12"
 
 
 # --- Windows API Constants & Structures ---
@@ -1010,7 +1010,7 @@ class AccountSelectionDialog(tk.Toplevel):
         self.config(bg=self.colors["bg"])
         self.configure(highlightbackground=self.colors["accent"], highlightthickness=1)
         
-        w, h = 400, 350
+        w, h = 450, 550
         x = parent.winfo_x() + 50
         y = parent.winfo_y() + 50
         self.geometry(f"{w}x{h}+{x}+{y}")
