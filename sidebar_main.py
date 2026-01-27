@@ -487,7 +487,6 @@ class OutlookClient:
 
             try:
                 inbox = self.namespace.GetDefaultFolder(6) # 6 = olFolderInbox
-                items = inbox.Items
                 
                 # Build restriction string
                 restricts = []
@@ -527,47 +526,116 @@ class OutlookClient:
                     if unread_only:
                         restricts.append("[UnRead] = True")
                 
-                if restricts:
-                    restrict_str = " AND ".join(restricts)
-                    items = items.Restrict(restrict_str)
+                # Create Table
+                # Apply restriction at table creation
+                restrict_str = " AND ".join(restricts) if restricts else ""
                 
-                items.Sort("[ReceivedTime]", True) # Descending
+                try:
+                    table = inbox.GetTable(restrict_str) if restrict_str else inbox.GetTable()
+                except Exception:
+                    # If restriction fails, return empty list
+                    return []
+
+                # Remove default columns to prevent fetching unnecessary data
+                table.Columns.RemoveAll()
+                
+                # Add columns for required properties
+                # Note: Table columns must be exact property names or tags
+                desired_cols = [
+                    "EntryID", 
+                    "Subject", 
+                    "SenderName", 
+                    "ReceivedTime", 
+                    "UnRead", 
+                    "FlagStatus", 
+                    "TaskDueDate"
+                ]
+                
+                # Active columns map (Index -> Name)
+                # Actually we just need a list of names in order
+                active_cols = []
+                
+                for c in desired_cols:
+                    try: 
+                        table.Columns.Add(c)
+                        active_cols.append(c)
+                    except: pass
+                    
+                # Special Property Tags
+                # Attachments: urn:schemas:httpmail:hasattachment
+                attach_prop = "urn:schemas:httpmail:hasattachment"
+                try: 
+                    table.Columns.Add(attach_prop)
+                    active_cols.append("has_attachments_prop") # Alias for internal use
+                except: pass
+
+                # Body (Plain Text): http://schemas.microsoft.com/mapi/proptag/0x1000001E
+                body_prop = "http://schemas.microsoft.com/mapi/proptag/0x1000001E"
+                try: 
+                    table.Columns.Add(body_prop)
+                    active_cols.append("body_prop") # Alias for internal use
+                except: pass
+                
+                # Sort: Descending by ReceivedTime
+                # Only if ReceivedTime was successfully added? 
+                # Actually Sort uses the property name, not column index.
+                try:
+                    table.Sort("ReceivedTime", True) 
+                except:
+                    pass # Sort might fail if column missing?
                 
                 email_list = []
-                for i, item in enumerate(items):
-                    if i >= count:
-                        break
+                while not table.EndOfTable and len(email_list) < count:
+                    row = table.GetNextRow()
+                    if not row: break
+                    
                     try:
-                        subject = getattr(item, "Subject", "[No Subject]")
-                        sender = getattr(item, "SenderName", "Unknown")
-                        raw_body = getattr(item, "Body", "")
+                        # Get all values as a tuple
+                        # This is safer than individual property access which can fail if column is missing
+                        vals = row.GetValues()
                         
-                        # Clean up body: remove newlines and extra spaces
-                        clean_body = re.sub(r'\s+', ' ', raw_body).strip()
-                        body = clean_body[:100] + "..." # Preview
+                        # Map values to dictionary
+                        item_data = {}
+                        if vals and len(vals) == len(active_cols):
+                            for i, col_name in enumerate(active_cols):
+                                item_data[col_name] = vals[i]
+                        else:
+                            # Fallback if GetValues fails or count mismatch (rare)
+                            continue
+                            
+                        # Safely retrieve column values from our map
+                        subject = item_data.get("Subject", "[No Subject]")
+                        sender = item_data.get("SenderName", "Unknown")
                         
-                        unread = getattr(item, "UnRead", False)
-                        has_attachments = getattr(item, "Attachments", None) and item.Attachments.Count > 0
+                        # Body processing
+                        raw_body = item_data.get("body_prop", "")
+                        if not raw_body: raw_body = ""
+                        clean_body = re.sub(r'\s+', ' ', str(raw_body)).strip()
+                        body = clean_body[:100] + "..."
+                        
+                        unread = item_data.get("UnRead", False)
+                        
+                        # Attachments logic
+                        has_attachments = item_data.get("has_attachments_prop", False)
                         
                         email_list.append({
                             "sender": sender,
                             "subject": subject,
                             "preview": body,
                             "unread": unread,
-                            "entry_id": getattr(item, "EntryID", ""),
-                            "received": getattr(item, "ReceivedTime", None),
-                            "flag_status": getattr(item, "FlagStatus", 0),
-                            "due_date": getattr(item, "TaskDueDate", None),
+                            "entry_id": item_data.get("EntryID", ""),
+                            "received": item_data.get("ReceivedTime", None),
+                            "flag_status": item_data.get("FlagStatus", 0),
+                            "due_date": item_data.get("TaskDueDate", None),
                             "has_attachments": has_attachments
                         })
                     except Exception as inner_e:
-                        print(f"Error reading item: {inner_e}")
+                        print(f"Error reading row: {inner_e}")
                         
                 return email_list
             except Exception as e:
                 print(f"Fetch error (Attempt {attempt+1}): {e}")
                 self.namespace = None # Force reconnect
-        
         
         return []
 
@@ -2637,21 +2705,124 @@ class SidebarWindow(tk.Tk):
             self.grid_container.rowconfigure(1, weight=1)
             self.refresh_reminders()
 
-    def open_email(self, entry_id):
-        """Opens the specific email item."""
+    def flash_widget_recursive(self, widget, flash_color="#FFFFFF", duration=200):
+        """Flashes a widget and ALL its children recursively."""
         try:
-             # Ensure connection
+            # print(f"DEBUG: Flashing {widget}")
+            restore_map = {}
+            
+            def collect_and_flash(w):
+                try:
+                    if w.winfo_class() in ("Frame", "Label", "Canvas", "Text", "Button"):
+                        orig = w.cget("bg")
+                        restore_map[w] = orig
+                        w.config(bg=flash_color)
+                except Exception as e:
+                    # print(f"DEBUG: Flash config failed for {w}: {e}")
+                    pass
+                
+                # Recurse
+                for child in w.winfo_children():
+                    collect_and_flash(child)
+            
+            collect_and_flash(widget)
+            
+            # Revert
+            self.after(duration, lambda: self._revert_flash(restore_map))
+            
+        except Exception as e:
+            print(f"Flash Error: {e}")
+
+    def _revert_flash(self, restore_map):
+        for w, orig in restore_map.items():
+            try:
+                w.config(bg=orig)
+            except:
+                pass
+
+    def open_email(self, entry_id, source_widget=None):
+        """Opens the specific email item with visual feedback."""
+        if source_widget:
+            self.flash_widget_recursive(source_widget)
+                
+        try:
              if not self.outlook_client.namespace:
                  self.outlook_client.connect()
              
              if self.outlook_client.namespace:
-                 # Use GetItemFromID for direct access
                  item = self.outlook_client.namespace.GetItemFromID(entry_id)
                  item.Display()
+                 
+                 try:
+                     inspector = item.GetInspector
+                     # Force Normal window state first, then Maximize?
+                     # inspector.WindowState = 1 # olNormalWindow
+                     # inspector.WindowState = 2 # olMaximized
+                     inspector.Activate()
+                     
+                     caption = inspector.Caption
+                     self.after(50, lambda: self._wait_and_focus(caption, attempt=1))
+                 except Exception as e:
+                     print(f"Focus preparation error: {e}")
              else:
                  print("Error: Not connected to Outlook")
         except Exception as e:
              print(f"Error opening email: {e}")
+
+    def _wait_and_focus(self, title_fragment, attempt=1):
+        """Polls for window and forces focus using AttachThreadInput."""
+        if attempt > 15:
+            # print(f"DEBUG: Could not find window with title '{title_fragment}'")
+            return
+
+        found_hwnd = None
+        
+        def callback(hwnd, ctx):
+            if not win32gui.IsWindowVisible(hwnd): return
+            txt = win32gui.GetWindowText(hwnd)
+            if title_fragment in txt:
+                ctx.append(hwnd)
+
+        wins = []
+        try: win32gui.EnumWindows(callback, wins)
+        except: pass
+             
+        if wins:
+            target_hwnd = wins[0]
+            # print(f"DEBUG: Found window {hex(target_hwnd)} for '{title_fragment}'")
+            
+            try:
+                # 1. Force Restore if Minimized
+                if user32.IsIconic(target_hwnd):
+                    user32.ShowWindow(target_hwnd, 9) # SW_RESTORE
+                else:
+                    user32.ShowWindow(target_hwnd, 5) # SW_SHOW
+                
+                # 2. AttachThreadInput Magic
+                # Get the thread ID of the target window (Outlook)
+                target_tid = user32.GetWindowThreadProcessId(target_hwnd, None)
+                # Get our current thread ID
+                current_tid = kernel32.GetCurrentThreadId()
+                
+                if target_tid != current_tid:
+                    # Attach input processing
+                    user32.AttachThreadInput(current_tid, target_tid, True)
+                    
+                    # Bring to foreground (now allowed)
+                    win32gui.SetForegroundWindow(target_hwnd)
+                    win32gui.SetWindowPos(target_hwnd, win32con.HWND_TOPMOST, 0,0,0,0, 0x0003) # NOSIZE|NOMOVE
+                    win32gui.SetWindowPos(target_hwnd, win32con.HWND_NOTOPMOST, 0,0,0,0, 0x0003)
+                    
+                    # Detach
+                    user32.AttachThreadInput(current_tid, target_tid, False)
+                else:
+                    # Same thread (unlikely for COM out-of-proc, but possible)
+                    win32gui.SetForegroundWindow(target_hwnd)
+
+            except Exception as e:
+                print(f"Focus Magic Error: {e}")
+        else:
+            self.after(100, lambda: self._wait_and_focus(title_fragment, attempt+1))
 
     def refresh_emails(self):
         # Update UI fonts for header elements
@@ -2939,8 +3110,8 @@ class SidebarWindow(tk.Tk):
                 btn.bind("<Button-1>", lambda e, c=conf, em=email: self.handle_custom_action(c, em))
             
             # Click Logic (Open Email)
-            def on_card_click(e, eid=email['entry_id']):
-                self.open_email(eid)
+            def on_card_click(e, eid=email['entry_id'], w=card):
+                self.open_email(eid, source_widget=w)
             
             if self.email_double_click:
                  # Require Double Click
@@ -2992,9 +3163,9 @@ class SidebarWindow(tk.Tk):
         # Helper for binding click
         def bind_click(widget, entry_id):
             if self.email_double_click:
-                widget.bind("<Double-Button-1>", lambda e, eid=entry_id: self.open_email(eid))
+                widget.bind("<Double-Button-1>", lambda e, eid=entry_id, w=widget: self.open_email(eid, source_widget=w))
             else:
-                widget.bind("<Button-1>", lambda e, eid=entry_id: self.open_email(eid))
+                widget.bind("<Button-1>", lambda e, eid=entry_id, w=widget: self.open_email(eid, source_widget=w))
         
         # 1. Meetings (Today & Tomorrow)
         now = datetime.now()
@@ -3010,9 +3181,19 @@ class SidebarWindow(tk.Tk):
                  mf.pack(fill="x", padx=2, pady=1)
                  
                  # Time
+                 # Time
                  try:
                      dt = m['start']
-                     time_str = dt.strftime("%I:%M %p")
+                     is_today = dt.date() == now.date()
+                     if is_today:
+                         time_str = dt.strftime("%I:%M %p")
+                     else:
+                         # Show "Tom 10:00 AM" or "Mon 10:00 AM"
+                         is_tomorrow = dt.date() == (now.date() + timedelta(days=1))
+                         if is_tomorrow:
+                             time_str = "Tom " + dt.strftime("%I:%M %p")
+                         else:
+                             time_str = dt.strftime("%a %I:%M %p")
                  except:
                      time_str = "??"
                      
@@ -3161,24 +3342,50 @@ class SidebarWindow(tk.Tk):
         self.save_config()
 
     def set_geometry(self, width):
-        # Always dock to preferred side, full height of CURRENT screen
-        mx, my, mw, mh = self.get_current_monitor_info()
-        
-        if self.dock_side == "Left":
-            x = mx
+        # Determine Reference Geometry
+        if self.is_pinned and self.appbar.registered:
+            # Use the registered AppBar position (which respects taskbar)
+            # The system has already adjusted self.appbar.abd.rc
+            rect = self.appbar.abd.rc
+            x = rect.left
+            y = rect.top
+            h = rect.bottom - rect.top
+            # We override width (e.g. for settings expansion)
+            # For Right dock, we need to adjust X to keep the right edge anchored
+            if self.dock_side == "Right":
+                 # Original Right was rect.right. New Left is rect.right - new_width
+                 x = rect.right - width
         else:
-            x = mx + mw - width
+            # Unpinned / Overlay Mode
+            # Use Work Area to respect Taskbar for Height/Y
+            wx, wy, ww, wh = self.get_work_area_info()
+            mx, my, mw, mh = self.get_current_monitor_info()
+
+            # Height/Y constrained to Work Area (polite to taskbar)
+            y = wy
+            h = wh
             
-        self.geometry(f"{width}x{mh}+{x}+{my}")
-        # Ensure window updates its position immediately
+            # X Calculation:
+            # We want to anchor to the Monitor Edge (Screen Edge) for the "Hot Strip" to work,
+            # BUT we don't want to necessarily cover a vertical taskbar if one exists?
+            # Actually, standard "Auto-Hide" sidebars often overlay everything.
+            # But the user specifically complained about covering the taskbar.
+            # Let's use Work Area for X too?
+            # If Taskbar is on Left, WorkLeft = 50. If we start at 50, we don't cover it.
+            # This seems safer and consistent with "polite" behavior.
+            
+            if self.dock_side == "Left":
+                x = wx
+            else:
+                x = wx + ww - width
+
+        self.geometry(f"{width}x{h}+{x}+{y}")
         self.update_idletasks()
-        # Force top most again just in case
         self.wm_attributes("-topmost", True)
 
     def get_current_monitor_info(self):
         """Retrieves the geometry of the monitor closest to the window center."""
         hwnd = self.winfo_id()
-        # Ensure we have the actual top-level window handle
         hwnd = ctypes.windll.user32.GetParent(hwnd) or hwnd
         monitor = user32.MonitorFromWindow(hwnd, 2) # MONITOR_DEFAULTTONEAREST
         
@@ -3190,6 +3397,20 @@ class SidebarWindow(tk.Tk):
                     mi.rcMonitor.bottom - mi.rcMonitor.top)
             
         # Fallback to defaults
+        return (0, 0, self.winfo_screenwidth(), self.winfo_screenheight())
+        
+    def get_work_area_info(self):
+        """Retrieves the work area of the monitor closest to the window center."""
+        hwnd = self.winfo_id()
+        hwnd = ctypes.windll.user32.GetParent(hwnd) or hwnd
+        monitor = user32.MonitorFromWindow(hwnd, 2)
+        
+        mi = MONITORINFO()
+        mi.cbSize = ctypes.sizeof(MONITORINFO)
+        if user32.GetMonitorInfoW(monitor, ctypes.byref(mi)):
+            return (mi.rcWork.left, mi.rcWork.top, 
+                    mi.rcWork.right - mi.rcWork.left, 
+                    mi.rcWork.bottom - mi.rcWork.top)
         return (0, 0, self.winfo_screenwidth(), self.winfo_screenheight())
 
     def start_window_drag(self, event):
