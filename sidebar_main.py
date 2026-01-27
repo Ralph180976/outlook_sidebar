@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.2.14"
+VERSION = "v1.2.16"
 
 
 # --- Windows API Constants & Structures ---
@@ -2428,6 +2428,7 @@ class SidebarWindow(tk.Tk):
         
         # Window Mode State
         self.window_mode = "dual"  # "single" (just emails) or "dual" (emails + reminder list)
+        self.split_sash_pos = 0 # 0 means auto/default
         
         # Reminder Filter State
         self.reminder_show_flagged = True  # Default ON
@@ -2628,24 +2629,37 @@ class SidebarWindow(tk.Tk):
         # No action yet, just tooltip
         ToolTip(self.btn_share, "Sharing not available yet")
 
-        # Content Area - Using grid for precise height control
-        # Create container for grid layout (to avoid mixing pack/grid on main_frame)
-        self.grid_container = tk.Frame(self.main_frame, bg="#000000")
-        self.grid_container.pack(expand=True, fill="both", padx=5, pady=5)
+        # Content Area - Using PanedWindow for draggable resizing
+        # Replaces grid_container
         
-        # Configure grid rows: row 0 = email (weight 1), row 1 = reminder (weight 0 initially for single mode)
-        self.grid_container.rowconfigure(0, weight=1)  # Email row
-        self.grid_container.rowconfigure(1, weight=0)  # Reminder row (hidden by default)
-        self.grid_container.columnconfigure(0, weight=1)
+        # PanedWindow
+        # sashwidth=4, sashrelief="raised" or "flat", bg="#333333" for visibility
+        self.paned_window = tk.PanedWindow(self.main_frame, orient="vertical", bg="#333333", sashwidth=4, sashrelief="flat")
+        self.paned_window.pack(expand=True, fill="both", padx=5, pady=5)
         
-        # Email container (row 0, 100% height in single mode, 50% in dual mode)
-        self.content_container = tk.Frame(self.grid_container, bg="#222222")
-        self.content_container.grid(row=0, column=0, sticky="nsew", padx=0, pady=(0, 2))
+        # Pane 1: Email Container
+        self.pane_emails = tk.Frame(self.paned_window, bg="#222222")
+        self.paned_window.add(self.pane_emails, minsize=100)
         
-        # Email section header
-        email_header = tk.Frame(self.content_container, bg="#333333", height=20)
+        # Pane 2: Reminder Container
+        self.pane_reminders = tk.Frame(self.paned_window, bg="#222222")
+        self.paned_window.add(self.pane_reminders, minsize=100)
+        
+        # Note: We need to set the sash position AFTER the window is rendered/updated.
+        # We'll do this in refresh_emails or a delayed call.
+        
+        # Email section header (Created once, kept in pane_emails)
+        email_header = tk.Frame(self.pane_emails, bg="#333333", height=20)
         email_header.pack(fill="x", side="top")
         email_header.pack_propagate(False)  # Maintain fixed height
+        
+        # Email List Container (Scrollable) - Will be filled in refresh_emails
+        self.email_list_frame = tk.Frame(self.pane_emails, bg="#222222")
+        self.email_list_frame.pack(fill="both", expand=True)
+
+        # Reminder section header (Created once, kept in pane_reminders)
+        # Note: refresh_reminders currently builds its own header? Let's check.
+        # It seems refresh_emails builds the reminder container. We will adapt.
         
         tk.Label(
             email_header, text="Email", 
@@ -2653,28 +2667,26 @@ class SidebarWindow(tk.Tk):
             font=(self.font_family, 9, "bold")
         ).pack(side="left", padx=10, pady=3)
         
-        self.scroll_frame = ScrollableFrame(self.content_container, bg="#222222")
+        self.scroll_frame = ScrollableFrame(self.email_list_frame, bg="#222222")
         self.scroll_frame.pack(expand=True, fill="both")
         
-        # Reminder placeholder (row 1, 50% height when visible)
-        self.reminder_placeholder = tk.Frame(self.grid_container, bg="#111111")
-        # Don't grid it yet - will be shown/hidden based on window mode
+        # Reminder List Setup (Initial empty state, populated in refresh_reminders)
+        # Note: We already added pane_reminders to PanedWindow
         
-        # Reminder section header
-        reminder_header = tk.Frame(self.reminder_placeholder, bg="#333333", height=20)
-        reminder_header.pack(fill="x", side="top")
-        reminder_header.pack_propagate(False)  # Maintain fixed height
+        # Header inside pane_reminders (for consistency with email pane)
+        r_header = tk.Frame(self.pane_reminders, bg="#333333", height=20)
+        r_header.pack(fill="x", side="top")
+        r_header.pack_propagate(False)
         
-        tk.Label(
-            reminder_header, text="Flagged/Reminders", 
-            bg="#333333", fg="#AAAAAA",
-            font=(self.font_family, 9, "bold")
+        tk.Label(r_header, text="Flagged/Reminders", 
+                 bg="#333333", fg="#AAAAAA", font=(self.font_family, 9, "bold")
         ).pack(side="left", padx=10, pady=3)
+
+        self.reminder_list = ScrollableFrame(self.pane_reminders, bg="#1e1e1e")
+        self.reminder_list.pack(fill="both", expand=True)
         
-        tk.Label(
-            self.reminder_placeholder, text="[Future Reminder Pane - 50% space]",
-            bg="#111111", fg="#666666", font=(self.font_family, 9, "italic")
-        ).pack(expand=True)
+        # Reminder placeholder removed
+        pass
 
         # Resize Grip (Overlay on the right edge)
         self.resize_grip = tk.Frame(self.main_frame, bg="#666666", cursor="sb_h_double_arrow", width=5)
@@ -3651,18 +3663,10 @@ class SidebarWindow(tk.Tk):
     def refresh_reminders(self):
         """Refreshes the Reminder/Flagged section (Bottom List)."""
         # Ensure scrollable frame exists
-        if not hasattr(self, 'reminder_list') or not self.reminder_list:
-             # Create it inside reminder_placeholder
-             # Clear existing placeholders
-             for widget in self.reminder_placeholder.winfo_children():
-                 widget.destroy()
-                 
-             self.reminder_list = ScrollableFrame(self.reminder_placeholder, bg="#1e1e1e") # Darker bg
-             self.reminder_list.pack(fill="both", expand=True)
-        else:
-             # Clear content
-             for widget in self.reminder_list.scrollable_frame.winfo_children():
-                 widget.destroy()
+        # Clear content
+        if self.reminder_list:
+            for widget in self.reminder_list.scrollable_frame.winfo_children():
+                widget.destroy()
         
         container = self.reminder_list.scrollable_frame
         
@@ -4141,6 +4145,7 @@ class SidebarWindow(tk.Tk):
                     config = json.load(f)
                     
                 self.window_mode = config.get("window_mode", "dual")
+                self.split_sash_pos = config.get("split_sash_pos", 0)
 
                 self.dock_side = config.get("dock_side", "Right")
                 self.font_family = config.get("font_family", "Segoe UI")
@@ -4195,6 +4200,8 @@ class SidebarWindow(tk.Tk):
         
         config = {
             "dock_side": self.dock_side,
+            "window_mode": self.window_mode,
+            "split_sash_pos": self.split_sash_pos,
             "font_family": self.font_family,
             "font_size": self.font_size,
             "poll_interval": self.poll_interval,
