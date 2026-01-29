@@ -13,7 +13,7 @@ import re
 import math # Added for animation
 import glob
 from tkinter import messagebox
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw
 from datetime import datetime, timedelta
 
 # --- Store Compatibility Imports ---
@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.2.25"
+VERSION = "v1.2.32"
 
 
 # --- Windows API Constants & Structures ---
@@ -885,59 +885,61 @@ class OutlookClient:
         return mapping
 
 
-class FolderPickerWindow(tk.Toplevel):
-    def __init__(self, parent, folders, callback):
+
+class FolderPickerFrame(tk.Frame):
+    def __init__(self, parent, folders, callback, on_cancel, selected_paths=None):
         super().__init__(parent)
         self.callback = callback
+        self.on_cancel = on_cancel
         self.folders = folders
+        self.selected_paths = set(selected_paths) if selected_paths else set()
         
         # Win11 Colors
         self.colors = {
             "bg": "#202020",
             "fg": "#FFFFFF",
             "accent": "#60CDFF", 
-            "select_bg": "#444444"
+            "select_bg": "#444444",
+            "dim": "#AAAAAA"
         }
         
-        self.overrideredirect(True)
-        self.wm_attributes("-topmost", True)
         self.config(bg=self.colors["bg"])
-        self.configure(highlightbackground=self.colors["accent"], highlightthickness=1)
         
-        # Geometry
-        w, h = 300, 400
-        x = parent.winfo_x() + 50
-        y = parent.winfo_y() + 50
-        self.geometry(f"{w}x{h}+{x}+{y}")
+        # Title Bar / Header
+        header = tk.Frame(self, bg=self.colors["bg"])
+        header.pack(fill="x", side="top", pady=(10, 5))
 
-        # Title Bar
-        header = tk.Frame(self, bg=self.colors["bg"], height=30)
-        header.pack(fill="x", side="top")
-        header.bind("<Button-1>", self.start_move)
-        header.bind("<B1-Motion>", self.on_move)
-
-        lbl = tk.Label(header, text="Select Folder", bg=self.colors["bg"], fg=self.colors["fg"], font=("Segoe UI", 10, "bold"))
-        lbl.pack(side="left", padx=10, pady=5)
+        lbl = tk.Label(header, text="Select Folder", bg=self.colors["bg"], fg=self.colors["fg"], font=("Segoe UI", 11, "bold"))
+        lbl.pack(side="left", padx=15)
         
-        # Close Button
-        if os.path.exists("icons/close-window.png"):
+        # Close Button (Back/Cancel)
+        if os.path.exists("icon2/close-window.png"):
              try:
-                pil_img = Image.open("icons/close-window.png").convert("RGBA")
-                pil_img = pil_img.resize((16, 16), Image.Resampling.LANCZOS) # Smaller for header
-                self.close_icon = ImageTk.PhotoImage(pil_img) # Keep ref
+                pil_img = Image.open("icon2/close-window.png").convert("RGBA")
+                pil_img = pil_img.resize((20, 20), Image.Resampling.LANCZOS)
+                self.close_icon = ImageTk.PhotoImage(pil_img)
                 btn_close = tk.Label(header, image=self.close_icon, bg=self.colors["bg"], cursor="hand2")
-             except Exception as e:
-                print(f"Error loading Close icon: {e}")
+             except:
                 btn_close = tk.Label(header, text="✕", bg=self.colors["bg"], fg="#CCCCCC", cursor="hand2")
         else:
              btn_close = tk.Label(header, text="✕", bg=self.colors["bg"], fg="#CCCCCC", cursor="hand2")
 
-        btn_close.pack(side="right", padx=10)
-        btn_close.bind("<Button-1>", lambda e: self.destroy())
+        btn_close.pack(side="right", padx=15)
+        btn_close.bind("<Button-1>", lambda e: self.on_cancel())
 
-        # TreeView
+        # Help Text (Under Header)
+        tk.Label(self, text="Select folders to sync. Hold Shift/Ctrl for multiple.", 
+                 bg=self.colors["bg"], fg=self.colors["dim"], font=("Segoe UI", 8)).pack(side="top", anchor="w", padx=15, pady=(0, 10))
+
+        
+        # Select Button (Packed at bottom FIRST so it stays visible)
+        btn_sel = tk.Button(self, text="Save Selection", command=self.select_folder,
+            bg=self.colors["accent"], fg="black", bd=0, font=("Segoe UI", 9, "bold"), pady=5)
+        btn_sel.pack(side="bottom", fill="x", padx=10, pady=10)
+
+        # TreeView (Packed LAST to fill remaining space)
         tree_frame = tk.Frame(self, bg=self.colors["bg"])
-        tree_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        tree_frame.pack(side="top", fill="both", expand=True, padx=10, pady=5)
         
         style = ttk.Style()
         style.theme_use("clam")
@@ -957,48 +959,83 @@ class FolderPickerWindow(tk.Toplevel):
         self.tree.configure(yscrollcommand=sb.set)
         
         self.populate_tree()
-        
-        # Select Button
-        btn_sel = tk.Button(self, text="Select", command=self.select_folder,
-            bg=self.colors["accent"], fg="black", bd=0, font=("Segoe UI", 9, "bold"), pady=5)
-        btn_sel.pack(fill="x", padx=10, pady=10)
 
     def populate_tree(self):
-        # Build hierarchy from paths e.g. "Inbox/Sub"
-        # Since we just have paths, we can just list them flat or try to build structure.
-        # User asked for mirror of Outlook. Start simple: Tree nodes.
-        
-        # Logic to build tree from slash-paths
         nodes = {}
-        
         for path in self.folders:
             parts = path.split("/")
             parent = ""
             current = ""
-            
             for i, part in enumerate(parts):
                 current = f"{parent}/{part}" if parent else part
-                
-                # Check if node exists
                 if current not in nodes:
-                    # Parent ID is clean parent path logic
                     pid = parent if parent else ""
-                    
-                    # Insert
-                    # Note: We use the path as IID.
                     try:
                         nodes[current] = self.tree.insert(pid, "end", iid=current, text=part, open=False)
-                    except: pass # already exists?
-                
+                    except: pass
                 parent = current
+
+        # Apply Selection
+        if self.selected_paths:
+            to_select = []
+            for path in self.selected_paths:
+                if self.tree.exists(path):
+                    to_select.append(path)
+                    # Open parents
+                    # Simple walk up since we use path strings as iids
+                    parts = path.split("/")
+                    curr = ""
+                    for p in parts[:-1]:
+                        curr = f"{curr}/{p}" if curr else p
+                        if self.tree.exists(curr):
+                            self.tree.item(curr, open=True)
+            
+            if to_select:
+                try:
+                    self.tree.selection_set(to_select)
+                    self.tree.see(to_select[0])
+                except: pass
 
     def select_folder(self):
         sel_items = self.tree.selection()
         if sel_items:
-            # Return list of paths
             paths = list(sel_items)
             self.callback(paths)
+        # Always close/return on button press (even if nothing selected? logic implies save)
+        self.on_cancel()
+
+
+class FolderPickerWindow(tk.Toplevel):
+    def __init__(self, parent, folders, callback, selected_paths=None):
+        super().__init__(parent)
+        self.callback = callback
+        self.title("Select Folders")
+        self.overrideredirect(True) 
+        
+        # Colors (Match settings panel / dark theme)
+        self.config(bg="#202020", highlightbackground="#60CDFF", highlightthickness=1)
+        
+        w, h = 350, 450
+        # Center relative to parent if possible
+        try:
+            x = parent.winfo_x() + 60
+            y = parent.winfo_y() + 60
+        except:
+            x, y = 100, 100
+        self.geometry(f"{w}x{h}+{x}+{y}")
+        
+        def on_cancel():
             self.destroy()
+            
+        def on_done(val):
+            callback(val)
+            self.destroy()
+
+        self.picker = FolderPickerFrame(self, folders, on_done, on_cancel, selected_paths)
+        self.picker.pack(fill="both", expand=True, padx=2, pady=2)
+        
+        self.bind("<Button-1>", self.start_move)
+        self.bind("<B1-Motion>", self.on_move)
 
     def start_move(self, event):
         self._x = event.x
@@ -1034,12 +1071,35 @@ class AccountSelectionUI(tk.Frame):
         self.setup_ui()
         
     def setup_ui(self):
+        # --- Header with Close Button ---
+        header = tk.Frame(self, bg=self.colors["bg"])
+        header.pack(fill="x", pady=(10, 5))
+        
+        lbl_title = tk.Label(header, text="Select Accounts", bg=self.colors["bg"], fg="white", font=("Segoe UI", 11, "bold"))
+        lbl_title.pack(side="left", padx=15)
+        
+        # Close Button
+        if os.path.exists("icon2/close-window.png"):
+             try:
+                pil_img = Image.open("icon2/close-window.png").convert("RGBA")
+                pil_img = pil_img.resize((20, 20), Image.Resampling.LANCZOS)
+                self.close_icon = ImageTk.PhotoImage(pil_img)
+                btn_close = tk.Label(header, image=self.close_icon, bg=self.colors["bg"], cursor="hand2")
+             except:
+                btn_close = tk.Label(header, text="✕", bg=self.colors["bg"], fg="#CCCCCC", cursor="hand2")
+        else:
+             btn_close = tk.Label(header, text="✕", bg=self.colors["bg"], fg="#CCCCCC", cursor="hand2")
+
+        btn_close.pack(side="right", padx=15)
+        # Assuming parent is the overlay frame calling .place()
+        btn_close.bind("<Button-1>", lambda e: self.master.place_forget())
+
         # Help Text
         tk.Label(
             self, 
             text="Select folders to sync. Hold Shift/Ctrl for multiple.",
             bg=self.colors["bg"], fg="#888888", font=("Segoe UI", 9, "italic")
-        ).pack(fill="x", padx=10, pady=(5, 5))
+        ).pack(fill="x", padx=15, pady=(0, 10))
         
         # Scrollable Area
         canvas = tk.Canvas(self, bg=self.colors["bg"], highlightthickness=0)
@@ -1103,9 +1163,9 @@ class AccountSelectionUI(tk.Frame):
     def on_folder_click(self, account):
         def on_selected(paths):
             self.vars[account]["email_folders"] = paths
-            messagebox.showinfo("Folders", f"Selected {len(paths)} folders for {account}")
             
-        self.folder_selector(account, on_selected)
+        current_paths = self.vars[account]["email_folders"]
+        self.folder_selector(account, on_selected, current_paths)
 
     def get_settings(self):
         final = {}
@@ -1172,7 +1232,7 @@ class AccountSelectionDialog(tk.Toplevel):
         self.callback(final)
         self.destroy()
 
-    def launch_folder_selection(self, account_name, on_selected):
+    def launch_folder_selection(self, account_name, on_selected, selected_paths=None):
         # Adapted from previous open_folder_picker
         try:
              # Find SidebarWindow reliably
@@ -1194,48 +1254,11 @@ class AccountSelectionDialog(tk.Toplevel):
                  messagebox.showwarning("No Folders", f"Could not retrieve folder list for '{account_name}'.")
                  return
                  
-             FolderPickerWindow(self, folders, on_selected)
+             FolderPickerWindow(self, folders, on_selected, selected_paths)
         except Exception as e:
             print(f"Error opening folder picker: {e}")
             messagebox.showerror("Error", f"Failed to open folder picker:\n{e}")
 
-
-    def open_folder_picker(self, account_name):
-        try:
-             # Find SidebarWindow reliably
-             sidebar = None
-             # Check if master is already the sidebar (has outlook_client)
-             if hasattr(self.master, "outlook_client"):
-                 sidebar = self.master
-             # Check if master is SettingsPanel (has main_window)
-             elif hasattr(self.master, "main_window"):
-                 sidebar = self.master.main_window
-             elif hasattr(self.master, "master"):
-                 # Fallback
-                 sidebar = self.master.master
-                 
-             if not sidebar or not hasattr(sidebar, "outlook_client"):
-                 print("Error: Could not locate OutlookClient")
-                 messagebox.showerror("Error", "Could not connect to Outlook Sidebar.")
-                 return
-
-             folders = sidebar.outlook_client.get_folder_list(account_name)
-             
-             def on_pick(paths):
-                 self.vars[account_name]["email_folders"] = paths
-                 # print(f"Selected folders for {account_name}: {paths}")
-                 messagebox.showinfo("Folders Selected", f"Selected {len(paths)} folder(s) for {account_name}.")
-                 
-             if not folders:
-                 print(f"No folders found for {account_name}")
-                 # Try fallback to default?
-                 messagebox.showwarning("No Folders", f"Could not retrieve folder list for '{account_name}'.\n\nEnsure Outlook is running and this account is accessible.")
-                 return
-                 
-             FolderPickerWindow(self, folders, on_pick)
-        except Exception as e:
-            print(f"Error opening folder picker: {e}")
-            messagebox.showerror("Error", f"Failed to open folder picker:\n{e}")
 
     def start_move(self, event):
         self._x = event.x
@@ -1804,16 +1827,18 @@ class SettingsPanel(tk.Frame):
         chk_followup.grid(row=0, column=0, sticky="w", pady=(0, 5))
         
         # Toggle button for showing/hiding options
-        self.followup_options_visible = True  # Track visibility state
+        self.followup_options_visible = False  # Start CLOSED
+
 
         # Unified Container for Hover Logic
         self.followup_container = tk.Frame(reminder_frame, bg=self.colors["bg_root"])
         self.followup_container.grid(row=0, column=1, sticky="nw", rowspan=2, padx=(5, 0))
-        self.followup_container.bind("<Leave>", lambda e: self.toggle_followup_visibility(force_hide=True))
+        # Removed Hover Leave binding to keep open until clicked
+
 
         # Toggle button (Arrow) inside container
         self.btn_toggle_followup = tk.Label(
-            self.followup_container, text="▲",
+            self.followup_container, text="▼",
             bg=self.colors["bg_root"], fg="#AAAAAA",
             font=("Segoe UI", 8),
             cursor="hand2"
@@ -1828,7 +1853,8 @@ class SettingsPanel(tk.Frame):
         # Container for due date checkboxes (conditionally shown)
         # MOVED inside unified container
         self.followup_options_frame = tk.Frame(self.followup_container, bg=self.colors["bg_root"])
-        self.followup_options_frame.pack(side="top", anchor="w", padx=(0, 0))
+        # self.followup_options_frame.pack(side="top", anchor="w", padx=(0, 0)) # Start Hidden
+
         
         # Due date checkboxes
         self.due_options = ["Today", "Tomorrow", "This Week", "Next Week", "Overdue", "No Date"]
@@ -1904,12 +1930,13 @@ class SettingsPanel(tk.Frame):
         self.importance_options_visible = False
         
         # Unified Container for Hover Logic
+        # Unified Container for Hover Logic
         self.importance_container = tk.Frame(reminder_frame, bg=self.colors["bg_root"])
         self.importance_container.grid(row=4, column=1, sticky="nw", rowspan=2, padx=(5, 0))
-        self.importance_container.bind("<Leave>", lambda e: self.toggle_importance_visibility(force_hide=True))
+        # Removed leave binding
 
         self.btn_toggle_importance = tk.Label(
-            self.importance_container, text="▲",
+            self.importance_container, text="▼",
             bg=self.colors["bg_root"], fg="#AAAAAA",
             font=("Segoe UI", 8),
             cursor="hand2"
@@ -1921,7 +1948,8 @@ class SettingsPanel(tk.Frame):
         # Container for importance checkboxes
         # MOVED inside unified container
         self.importance_options_frame = tk.Frame(self.importance_container, bg=self.colors["bg_root"])
-        self.importance_options_frame.pack(side="top", anchor="w", padx=(0, 0))
+        # self.importance_options_frame.pack(side="top", anchor="w", padx=(0, 0)) # Start Hidden
+
         
         # Adjust master checkbox alignment
         chk_importance.grid(row=4, column=0, sticky="nw", pady=(0, 5))
@@ -1992,7 +2020,7 @@ class SettingsPanel(tk.Frame):
         self.meetings_container.bind("<Leave>", lambda e: self.toggle_meetings_visibility(force_hide=True))
 
         self.btn_toggle_meetings = tk.Label(
-            self.meetings_container, text="▲",
+            self.meetings_container, text="▼",
             bg=self.colors["bg_root"], fg="#AAAAAA",
             font=("Segoe UI", 8),
             cursor="hand2"
@@ -2007,7 +2035,8 @@ class SettingsPanel(tk.Frame):
         # Container for meeting options
         # MOVED inside unified container
         self.meetings_options_frame = tk.Frame(self.meetings_container, bg=self.colors["bg_root"])
-        self.meetings_options_frame.pack(side="top", anchor="w", padx=(0, 0))
+        # self.meetings_options_frame.pack(side="top", anchor="w", padx=(0, 0)) # Start Hidden
+
         
         # Adjust master checkbox alignment
         chk_meetings.grid(row=6, column=0, sticky="nw", pady=(0, 5))
@@ -2095,10 +2124,10 @@ class SettingsPanel(tk.Frame):
         # Unified Container
         self.tasks_container = tk.Frame(reminder_frame, bg=self.colors["bg_root"])
         self.tasks_container.grid(row=8, column=1, sticky="nw", rowspan=2, padx=(5, 0))
-        self.tasks_container.bind("<Leave>", lambda e: self.toggle_tasks_visibility(force_hide=True))
+        # Removed leave binding
 
         self.btn_toggle_tasks = tk.Label(
-            self.tasks_container, text="▲",
+            self.tasks_container, text="▼",
             bg=self.colors["bg_root"], fg="#AAAAAA",
             font=("Segoe UI", 8),
             cursor="hand2"
@@ -2110,7 +2139,8 @@ class SettingsPanel(tk.Frame):
         # Container for task options
         # MOVED inside unified container
         self.tasks_options_frame = tk.Frame(self.tasks_container, bg=self.colors["bg_root"])
-        self.tasks_options_frame.pack(side="top", anchor="w", padx=(0, 0))
+        # self.tasks_options_frame.pack(side="top", anchor="w", padx=(0, 0)) # Start Hidden
+
 
         # Adjust master checkbox alignment
         chk_tasks_master.grid(row=8, column=0, sticky="nw", pady=(0, 5))
@@ -2253,6 +2283,19 @@ class SettingsPanel(tk.Frame):
             self.btn_toggle_followup.grid_remove()  # Hide the toggle button
         self.update_reminder_filters()
 
+    def close_all_sections(self, except_section=None):
+        """Accordion Logic: Close all reminder sections except the one being opened."""
+        sections = [
+            ("followup", self.followup_options_visible, self.toggle_followup_visibility),
+            ("importance", self.importance_options_visible, self.toggle_importance_visibility),
+            ("meetings", self.meetings_options_visible, self.toggle_meetings_visibility),
+            ("tasks", self.tasks_options_visible, self.toggle_tasks_visibility)
+        ]
+        
+        for name, is_visible, toggle_func in sections:
+            if is_visible and name != except_section:
+                toggle_func(force_hide=True)
+
     def toggle_followup_visibility(self, force_hide=False):
         """Toggle visibility of follow-up options and update button text."""
         if self.followup_options_visible or force_hide:
@@ -2261,6 +2304,8 @@ class SettingsPanel(tk.Frame):
             self.btn_toggle_followup.config(text="▼")
             self.followup_options_visible = False
         else:
+            # Accordion: Close others
+            self.close_all_sections("followup")
             # Show options
             self.followup_options_frame.pack(side="top", anchor="w")
             self.btn_toggle_followup.config(text="▲")
@@ -2295,6 +2340,7 @@ class SettingsPanel(tk.Frame):
             self.btn_toggle_importance.config(text="▼")
             self.importance_options_visible = False
         else:
+            self.close_all_sections("importance")
             self.importance_options_frame.pack(side="top", anchor="w")
             self.btn_toggle_importance.config(text="▲")
             self.importance_options_visible = True
@@ -2327,6 +2373,7 @@ class SettingsPanel(tk.Frame):
             self.btn_toggle_meetings.config(text="▼")
             self.meetings_options_visible = False
         else:
+            self.close_all_sections("meetings")
             self.meetings_options_frame.pack(side="top", anchor="w")
             self.btn_toggle_meetings.config(text="▲")
             self.meetings_options_visible = True
@@ -2348,6 +2395,7 @@ class SettingsPanel(tk.Frame):
             self.btn_toggle_tasks.config(text="▼")
             self.tasks_options_visible = False
         else:
+            self.close_all_sections("tasks")
             self.tasks_options_frame.pack(side="top", anchor="w")
             self.btn_toggle_tasks.config(text="▲")
             self.tasks_options_visible = True
@@ -2419,21 +2467,58 @@ class SettingsPanel(tk.Frame):
          """Deprecated: Kept for compatibility if old bindings trigger."""
          self.update_button_config()
 
+    def open_folder_picker(self, account_name):
+        """Opens the inline folder picker for account settings."""
+        try:
+             if not self.main_window or not hasattr(self.main_window, "outlook_client"):
+                 print("Error: Could not locate OutlookClient")
+                 return
+
+             folders = self.main_window.outlook_client.get_folder_list(account_name)
+             
+             def on_return():
+                 if hasattr(self, "folder_picker"):
+                     self.folder_picker.destroy()
+                 self.scroll_frame.pack(fill="both", expand=True, padx=2, pady=2)
+
+             def on_pick(paths):
+                 self.vars[account_name]["email_folders"] = paths
+                 
+             if not folders:
+                 messagebox.showwarning("No Folders", f"Could not retrieve folder list for '{account_name}'.")
+                 return
+                 
+             self.scroll_frame.pack_forget()
+             self.folder_picker = FolderPickerFrame(self, folders, on_pick, on_return)
+             self.folder_picker.pack(fill="both", expand=True)
+        except Exception as e:
+            print(f"Error opening folder picker: {e}")
+
     def browse_folder(self, idx):
         """Open folder picker for button at idx."""
-        # This requires folder list from Outlook Client
         try:
             folders = self.main_window.outlook_client.get_folder_list()
             
-            # Open custom picker
-            # Using FolderPickerWindow if available (defined earlier in file if not imported)
-            # Assuming FolderPickerWindow is defined in this file (yes, verified earlier)
+            def on_select(paths):
+                # User selected one or more folders. We need just one? Or path string?
+                # Button config expects single path usually, or list.
+                # Just take the first one or join them?
+                # Legacy behavior: "path". 
+                if paths:
+                    self.btn_configs[idx]["folder_var"].set(paths[0])
+                    self.update_button_folder(idx)
             
-            def on_select(path):
-                self.btn_configs[idx]["folder_var"].set(path)
-                self.update_button_folder(idx)
+            # Since we are browsing for a setting, we can use a Toplevel wrapper for the Frame
+            top = tk.Toplevel(self)
+            top.title("Select Folder")
+            top.geometry("350x450")
+            top.config(bg="#202020")
+            
+            def on_cancel():
+                top.destroy()
                 
-            FolderPickerWindow(self.winfo_toplevel(), folders, on_select) # Attach to toplevel
+            picker = FolderPickerFrame(top, folders, on_select, on_cancel)
+            picker.pack(fill="both", expand=True)
             
         except Exception as e:
             print(f"Error browsing folders: {e}")
@@ -2628,11 +2713,9 @@ class SidebarWindow(tk.Tk):
         # 1. Outlook Button (Rightmost)
         # 1. Outlook Button (Rightmost)
         if os.path.exists("icon2/email.png"):
-             # Email: 32x32 (Left as is)
+             # Email: 32x32 (Color: White)
              try:
-                pil_img = Image.open("icon2/email.png").convert("RGBA")
-                pil_img = pil_img.resize((32, 32), Image.Resampling.LANCZOS)
-                img = ImageTk.PhotoImage(pil_img)
+                img = self.load_icon_colored("icon2/email.png", size=(32, 32), color="#FFFFFF")
                 self.image_cache["outlook_footer"] = img
                 self.btn_outlook = tk.Label(self.footer, image=img, bg="#444444", cursor="hand2")
                 self.btn_outlook.pack(side="right", padx=(5, 10), pady=5)
@@ -2673,11 +2756,9 @@ class SidebarWindow(tk.Tk):
         # 2. Calendar Button (Next to Outlook)
         # 2. Calendar Button (Next to Outlook)
         if os.path.exists("icon2/calendar.png"):
-             # Calendar: Reduced to 28x28
+             # Calendar: Reduced to 28x28 (Color: White)
              try:
-                pil_img = Image.open("icon2/calendar.png").convert("RGBA")
-                pil_img = pil_img.resize((28, 28), Image.Resampling.LANCZOS)
-                img = ImageTk.PhotoImage(pil_img)
+                img = self.load_icon_colored("icon2/calendar.png", size=(28, 28), color="#FFFFFF")
                 self.image_cache["calendar_footer"] = img
                 self.btn_calendar = tk.Label(self.footer, image=img, bg="#444444", cursor="hand2")
                 self.btn_calendar.pack(side="right", padx=5, pady=5)
@@ -2739,11 +2820,9 @@ class SidebarWindow(tk.Tk):
         
         # Custom Settings Button (Cog)
         if os.path.exists("icon2/spanner.png"):
-            # Settings: 22x22, Raw Color (Match Calendar)
+            # Settings: 22x22 (Color: White)
             try:
-                pil_img = Image.open("icon2/spanner.png").convert("RGBA")
-                pil_img = pil_img.resize((22, 22), Image.Resampling.LANCZOS)
-                img = ImageTk.PhotoImage(pil_img)
+                img = self.load_icon_colored("icon2/spanner.png", size=(22, 22), color="#FFFFFF")
                 self.image_cache["settings_header"] = img
                 self.btn_settings = tk.Label(self.header, image=img, bg="#444444", cursor="hand2")
             except Exception as e:
@@ -2756,11 +2835,9 @@ class SidebarWindow(tk.Tk):
 
         # Refresh Button
         if os.path.exists("icon2/refresh.png"):
-            # Refresh: 22x22, Raw Color (Match Calendar)
+            # Refresh: 22x22 (Color: White)
             try:
-                pil_img = Image.open("icon2/refresh.png").convert("RGBA")
-                pil_img = pil_img.resize((22, 22), Image.Resampling.LANCZOS)
-                img = ImageTk.PhotoImage(pil_img)
+                img = self.load_icon_colored("icon2/refresh.png", size=(22, 22), color="#FFFFFF")
                 self.image_cache["sync_header"] = img
                 self.btn_refresh = tk.Label(self.header, image=img, bg="#444444", cursor="hand2")
             except Exception as e:
@@ -2776,11 +2853,9 @@ class SidebarWindow(tk.Tk):
 
         # Share Button
         if os.path.exists("icon2/share.png"):
-            # Share: 20x20, Raw Color (Match Calendar)
+            # Share: 20x20 (Color: White)
             try:
-                pil_img = Image.open("icon2/share.png").convert("RGBA")
-                pil_img = pil_img.resize((20, 20), Image.Resampling.LANCZOS)
-                img = ImageTk.PhotoImage(pil_img)
+                img = self.load_icon_colored("icon2/share.png", size=(20, 20), color="#FFFFFF")
                 self.image_cache["share_header"] = img
                 self.btn_share = tk.Label(self.header, image=img, bg="#444444", cursor="hand2")
             except Exception as e:
@@ -2843,39 +2918,35 @@ class SidebarWindow(tk.Tk):
         # Let's verify by loading. 
         # Actually I will just load and rotate dynamically.
         
-        if os.path.exists("icon2/arrow 24.png"):
-            # Load Base
-            pil_arrow = Image.open("icon2/arrow 24.png").convert("RGBA")
-            pil_arrow = pil_arrow.resize((17, 17), Image.Resampling.LANCZOS) # Increased size (12->17)
+        # Dropdown / Drawer Button (Arrow)
+        # Dynamic Generation for "Infilled White" arrow as requested
+        try:
+             # Size 20x20
+             # DOWN Arrow (Closed)
+             img_down = Image.new("RGBA", (20, 20), (0,0,0,0))
+             draw_d = ImageDraw.Draw(img_down)
+             # Triangle pointing down: Top-Left, Top-Right, Bottom-Center
+             # Coordinates for 20x20: (4, 7), (16, 7), (10, 15)
+             draw_d.polygon([(4, 7), (16, 7), (10, 15)], fill="white")
+             self.icon_arrow_down = ImageTk.PhotoImage(img_down)
+             
+             # UP Arrow (Open)
+             img_up = Image.new("RGBA", (20, 20), (0,0,0,0))
+             draw_u = ImageDraw.Draw(img_up)
+             # Triangle pointing up: Bottom-Left, Bottom-Right, Top-Center
+             # Coordinates: (4, 15), (16, 15), (10, 7)
+             draw_u.polygon([(4, 15), (16, 15), (10, 7)], fill="white")
+             self.icon_arrow_up = ImageTk.PhotoImage(img_up)
+             
+             self.btn_account_toggle = tk.Label(email_header, image=self.icon_arrow_down, bg="#333333", cursor="hand2")
+        except Exception as e:
+             print(f"Error generating arrow icons: {e}")
+             self.btn_account_toggle = tk.Label(email_header, text="▼", bg="#333333", fg="white", cursor="hand2")
+             
+        self.btn_account_toggle.pack(side="right", padx=5)
+        self.btn_account_toggle.bind("<Button-1>", lambda e: self.toggle_account_selection())
             
-            # Colorize (White/Light) to stand out against #333333 header
-            colored_arrow_white = Image.new("RGBA", pil_arrow.size, "#FFFFFF")
-            
-            # Composite White
-            white_arrow = Image.new("RGBA", pil_arrow.size, (0, 0, 0, 0))
-            white_arrow.paste(colored_arrow_white, (0, 0), mask=pil_arrow.split()[-1])
-            
-            # Create RED version for "Open" (Close action) state
-            colored_arrow_red = Image.new("RGBA", pil_arrow.size, "#FF4444")
-            red_arrow = Image.new("RGBA", pil_arrow.size, (0, 0, 0, 0))
-            red_arrow.paste(colored_arrow_red, (0, 0), mask=pil_arrow.split()[-1])
-            
-            # Create Rotated Versions
-            # Closed State (Default): Pointing DOWN (White). 
-            self.icon_arrow_down = ImageTk.PhotoImage(white_arrow.rotate(180)) 
-            
-            # Open State: Pointing UP (Red).
-            self.icon_arrow_up = ImageTk.PhotoImage(red_arrow)
-            
-            # Wait, if 180 is "facing up" (Open), then 0 is Down (Closed).
-            # "when open the arrow can rotate so it's facing up".
-            # So Open = UP. Closed = DOWN.
-            
-            self.btn_account_toggle = tk.Label(email_header, image=self.icon_arrow_down, bg="#333333", cursor="hand2")
-            self.btn_account_toggle.pack(side="right", padx=5)
-            self.btn_account_toggle.bind("<Button-1>", lambda e: self.toggle_account_selection())
-            
-            ToolTip(self.btn_account_toggle, "Configure Accounts")
+
         
         # ------------------
 
@@ -3555,13 +3626,18 @@ class SidebarWindow(tk.Tk):
             # We want to cover 'pane_emails' but maybe start below the header?
             # 'email_header' is 20px high.
             
-            target_frame = self.pane_emails
+            target_frame = self.main_frame
             
             self.account_overlay = tk.Frame(target_frame, bg="#202020")
             
-            # Geometry: Cover everything below the header (20px)
-            # Use 'place' for absolute positioning within the frame
-            self.account_overlay.place(x=0, y=20, relwidth=1.0, relheight=1.0, height=-20)
+            # Geometry: Cover entire main frame (including footer)
+            # Adjust y if needed to avoid covering custom title bar if it's inside main_frame
+            # Assuming main_frame is the body. The Header is likely outside or at top.
+            # We'll start at y=0 relative to main_frame.
+            # Geometry: Cover main frame, but start BELOW the email header
+            # Main Header (40) + Pad (5) + Email Header (26) + 1 = 72
+            # This shows "Mail Mate" AND "Email - X" bars.
+            self.account_overlay.place(x=0, y=72, relwidth=1.0, relheight=1.0, height=-72)
             
             # Add UI
             # We don't need the footer with buttons, so just use AccountSelectionUI
@@ -3578,14 +3654,29 @@ class SidebarWindow(tk.Tk):
             # Raise to top
             self.account_overlay.lift()
 
-    def launch_folder_selection_from_overlay(self, account_name, on_selected):
+    def launch_folder_selection_from_overlay(self, account_name, on_selected, selected_paths=None):
          """Callback for folder picker spawned from overlay."""
          folders = self.outlook_client.get_folder_list(account_name)
          if not folders:
              messagebox.showwarning("No Folders", f"Could not retrieve folder list for '{account_name}'.")
              return
-         # Use Toplevel for picker, parented to Sidebar
-         FolderPickerWindow(self, folders, on_selected)
+         
+         def on_return():
+             if hasattr(self, "overlay_picker"):
+                 self.overlay_picker.destroy()
+             if hasattr(self, "account_ui_helper"):
+                 self.account_ui_helper.pack(fill="both", expand=True)
+
+         def on_pick(paths):
+             on_selected(paths)
+             
+         # Switch View
+         if hasattr(self, "account_ui_helper"):
+             self.account_ui_helper.pack_forget()
+             
+         container = self.account_overlay
+         self.overlay_picker = FolderPickerFrame(container, folders, on_pick, on_return, selected_paths)
+         self.overlay_picker.pack(fill="both", expand=True)
 
     def refresh_emails(self):
         # Update UI fonts for header elements
@@ -3603,7 +3694,8 @@ class SidebarWindow(tk.Tk):
         emails, unread_count = self.outlook_client.get_inbox_items(
             count=30, 
             unread_only=not self.show_read,
-            account_names=accounts
+            account_names=accounts,
+            account_config=self.enabled_accounts
         )
         
         # Update Header Count
@@ -3927,6 +4019,11 @@ class SidebarWindow(tk.Tk):
             
             # Robust Hide Logic using winfo_containing
             def robust_hide(e, c=card, lp=lbl_preview, fb=frame_buttons):
+                # Cancel pending show
+                if hasattr(c, "_show_timer") and c._show_timer:
+                    c.after_cancel(c._show_timer)
+                    c._show_timer = None
+                
                 try:
                     x, y = c.winfo_pointerxy()
                     widget = c.winfo_containing(x, y)
@@ -3936,8 +4033,11 @@ class SidebarWindow(tk.Tk):
                 except:
                     pass # Safety
             
-            def safe_show(e, lp=lbl_preview, fb=frame_buttons):
-                 show_hover_elements(e, lp, fb)
+            def safe_show(e, c=card, lp=lbl_preview, fb=frame_buttons):
+                 # Delay show to prevent flashing (Debounce)
+                 if hasattr(c, "_show_timer") and c._show_timer:
+                     c.after_cancel(c._show_timer)
+                 c._show_timer = c.after(250, lambda: show_hover_elements(e, lp, fb))
 
             # Apply Bindings
             if (self.show_hover_content and not self.email_show_body) or self.buttons_on_hover:
@@ -4513,6 +4613,7 @@ class SidebarWindow(tk.Tk):
                     
                 self.window_mode = config.get("window_mode", "dual")
                 self.split_sash_pos = config.get("split_sash_pos", 0)
+                self.enabled_accounts = config.get("enabled_accounts", {})
 
                 self.dock_side = config.get("dock_side", "Right")
                 self.font_family = config.get("font_family", "Segoe UI")
@@ -4569,6 +4670,7 @@ class SidebarWindow(tk.Tk):
         config = {
             "dock_side": self.dock_side,
             "window_mode": self.window_mode,
+            "enabled_accounts": self.enabled_accounts,
             "split_sash_pos": self.split_sash_pos,
             "font_family": self.font_family,
             "font_size": self.font_size,
