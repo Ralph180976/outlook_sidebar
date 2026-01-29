@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.2.24"
+VERSION = "v1.2.25"
 
 
 # --- Windows API Constants & Structures ---
@@ -583,10 +583,11 @@ class OutlookClient:
         """Fetches items from configured folders for enabled accounts."""
         for attempt in range(2):
             if not self.namespace:
-                if not self.connect(): return []
+                if not self.connect(): return [], 0
 
             try:
                 all_items = []
+                total_unread_count = 0
                 
                 for store in self._get_enabled_stores(account_names):
                     try:
@@ -608,6 +609,9 @@ class OutlookClient:
                             except: pass
                             
                         for folder in folders_to_scan:
+                             try:
+                                 total_unread_count += folder.UnReadItemCount
+                             except: pass
                              items = self._fetch_items_from_inbox_folder(folder, count, unread_only, only_flagged, due_filters, store)
                              all_items.extend(items)
                     except:
@@ -616,12 +620,12 @@ class OutlookClient:
                 # Sort merged results by ReceivedTime (Descending)
                 all_items.sort(key=lambda x: x["received_dt"].timestamp() if x["received_dt"] else 0, reverse=True)
                 
-                return all_items[:count]
+                return all_items[:count], total_unread_count
                 
             except Exception as e:
                 print(f"Inbox error: {e}")
                 
-        return []
+        return [], 0
 
     def _fetch_items_from_inbox_folder(self, folder, count, unread_only, only_flagged, due_filters, store):
         """Helper to fetch items from a single inbox folder."""
@@ -730,7 +734,7 @@ class OutlookClient:
                     "due_date": item_data.get("TaskDueDate"),
                     "importance": item_data.get("Importance", 1), # Default 1 (Normal)
                     "categories": item_data.get("Categories", ""),
-                    "body": item_data.get("body_prop", "")[:200] if item_data.get("body_prop") else "",
+                    "body": item_data.get("body_prop", "")[:3000] if item_data.get("body_prop") else "",
                     "entry_id": entry_id,
                     "store_id": store.StoreID, # New field
                     "account": store.DisplayName
@@ -915,7 +919,19 @@ class FolderPickerWindow(tk.Toplevel):
         lbl = tk.Label(header, text="Select Folder", bg=self.colors["bg"], fg=self.colors["fg"], font=("Segoe UI", 10, "bold"))
         lbl.pack(side="left", padx=10, pady=5)
         
-        btn_close = tk.Label(header, text="✕", bg=self.colors["bg"], fg="#CCCCCC", cursor="hand2")
+        # Close Button
+        if os.path.exists("icons/close-window.png"):
+             try:
+                pil_img = Image.open("icons/close-window.png").convert("RGBA")
+                pil_img = pil_img.resize((16, 16), Image.Resampling.LANCZOS) # Smaller for header
+                self.close_icon = ImageTk.PhotoImage(pil_img) # Keep ref
+                btn_close = tk.Label(header, image=self.close_icon, bg=self.colors["bg"], cursor="hand2")
+             except Exception as e:
+                print(f"Error loading Close icon: {e}")
+                btn_close = tk.Label(header, text="✕", bg=self.colors["bg"], fg="#CCCCCC", cursor="hand2")
+        else:
+             btn_close = tk.Label(header, text="✕", bg=self.colors["bg"], fg="#CCCCCC", cursor="hand2")
+
         btn_close.pack(side="right", padx=10)
         btn_close.bind("<Button-1>", lambda e: self.destroy())
 
@@ -996,12 +1012,16 @@ class FolderPickerWindow(tk.Toplevel):
         self.geometry(f"+{x}+{y}")
 
 
-class AccountSelectionDialog(tk.Toplevel):
-    def __init__(self, parent, accounts, current_enabled, callback):
-        super().__init__(parent)
-        self.callback = callback
-        self.accounts = accounts # List of names
+class AccountSelectionUI(tk.Frame):
+    def __init__(self, parent, accounts, current_enabled, folder_selector, bg_color="#202020"):
+        super().__init__(parent, bg=bg_color)
+        self.accounts = accounts
         self.current_enabled = current_enabled or {}
+        self.folder_selector = folder_selector # Function(account, on_selected_callback)
+        self.colors = {
+            "bg": bg_color, "fg": "#FFFFFF", "accent": "#60CDFF", 
+            "secondary": "#444444", "border": "#2b2b2b"
+        }
         
         self.working_settings = {}
         for acc in accounts:
@@ -1009,10 +1029,100 @@ class AccountSelectionDialog(tk.Toplevel):
                 self.working_settings[acc] = self.current_enabled[acc].copy()
             else:
                 self.working_settings[acc] = {"email": True, "calendar": True}
+                
+        self.vars = {}
+        self.setup_ui()
+        
+    def setup_ui(self):
+        # Help Text
+        tk.Label(
+            self, 
+            text="Select folders to sync. Hold Shift/Ctrl for multiple.",
+            bg=self.colors["bg"], fg="#888888", font=("Segoe UI", 9, "italic")
+        ).pack(fill="x", padx=10, pady=(5, 5))
+        
+        # Scrollable Area
+        canvas = tk.Canvas(self, bg=self.colors["bg"], highlightthickness=0)
+        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        scroll_frame = tk.Frame(canvas, bg=self.colors["bg"])
+        
+        scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        win_id = canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        
+        def on_canvas_configure(event):
+            canvas.itemconfig(win_id, width=event.width)
+        canvas.bind("<Configure>", on_canvas_configure)
+        
+        canvas.configure(yscrollcommand=self.scrollbar.set)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
+        
+        # Headers
+        h_frame = tk.Frame(scroll_frame, bg=self.colors["bg"])
+        h_frame.pack(fill="x", pady=(5, 10), padx=5)
+        tk.Label(h_frame, text="Account", bg=self.colors["bg"], fg="#AAAAAA", width=20, anchor="w", font=("Segoe UI", 9)).pack(side="left")
+        tk.Label(h_frame, text="Mail", bg=self.colors["bg"], fg="#AAAAAA", width=4, font=("Segoe UI", 9)).pack(side="left")
+        tk.Label(h_frame, text="Fldr", bg=self.colors["bg"], fg="#AAAAAA", width=4, font=("Segoe UI", 9)).pack(side="left")
+        tk.Label(h_frame, text="Cal", bg=self.colors["bg"], fg="#AAAAAA", width=4, font=("Segoe UI", 9)).pack(side="left")
 
+        tk.Frame(scroll_frame, bg="#333333", height=1).pack(fill="x", padx=5, pady=(0, 5))
+
+        for acc in self.accounts:
+            row = tk.Frame(scroll_frame, bg=self.colors["bg"])
+            row.pack(fill="x", padx=5, pady=2)
+            
+            disp = acc if len(acc) < 25 else acc[:22] + "..."
+            tk.Label(row, text=disp, bg=self.colors["bg"], fg="white", 
+                     width=20, anchor="w", font=("Segoe UI", 9)).pack(side="left")
+            
+            self.vars[acc] = {}
+            vals = self.working_settings[acc]
+            
+            # Email Check
+            e_var = tk.IntVar(value=1 if vals.get("email") else 0)
+            self.vars[acc]["email"] = e_var
+            # "Pale Gray" checkbox #CCCCCC. Font size hack for size.
+            tk.Checkbutton(row, variable=e_var, bg=self.colors["bg"], activebackground=self.colors["bg"], 
+                           selectcolor="#CCCCCC", activeforeground="white", borderwidth=0, highlightthickness=0,
+                           font=("Segoe UI", 14)).pack(side="left", padx=(5, 5))
+            
+            # Folder Button
+            self.vars[acc]["email_folders"] = vals.get("email_folders", [])
+            btn_f = tk.Label(row, text="📁", bg=self.colors["bg"], fg=self.colors["accent"], cursor="hand2", font=("Segoe UI", 10))
+            btn_f.pack(side="left", padx=10)
+            btn_f.bind("<Button-1>", lambda e, a=acc: self.on_folder_click(a))
+
+            # Calendar Check
+            c_var = tk.IntVar(value=1 if vals.get("calendar") else 0)
+            self.vars[acc]["calendar"] = c_var
+            tk.Checkbutton(row, variable=c_var, bg=self.colors["bg"], activebackground=self.colors["bg"], 
+                           selectcolor="#CCCCCC", activeforeground="white", borderwidth=0, highlightthickness=0,
+                           font=("Segoe UI", 14)).pack(side="left", padx=5)
+
+    def on_folder_click(self, account):
+        def on_selected(paths):
+            self.vars[account]["email_folders"] = paths
+            messagebox.showinfo("Folders", f"Selected {len(paths)} folders for {account}")
+            
+        self.folder_selector(account, on_selected)
+
+    def get_settings(self):
+        final = {}
+        for acc in self.accounts:
+            final[acc] = {
+                "email": bool(self.vars[acc]["email"].get()),
+                "calendar": bool(self.vars[acc]["calendar"].get()),
+                "email_folders": self.vars[acc]["email_folders"]
+            }
+        return final
+
+class AccountSelectionDialog(tk.Toplevel):
+    def __init__(self, parent, accounts, current_enabled, callback):
+        super().__init__(parent)
+        self.callback = callback
         self.colors = {
-            "bg": "#202020", "fg": "#FFFFFF", "accent": "#60CDFF", 
-            "secondary": "#444444", "border": "#2b2b2b"
+            "bg": "#202020", "fg": "#FFFFFF", "accent": "#60CDFF"
         }
         
         self.title("Enabled Accounts")
@@ -1040,103 +1150,54 @@ class AccountSelectionDialog(tk.Toplevel):
         btn_close.pack(side="right", padx=15)
         btn_close.bind("<Button-1>", lambda e: self.destroy())
 
-        # Content
+        # Content (Use reused UI)
         container = tk.Frame(self, bg=self.colors["bg"])
         container.pack(fill="both", expand=True, padx=2, pady=2)
+        
+        self.ui_helper = AccountSelectionUI(container, accounts, current_enabled, self.launch_folder_selection, bg_color=self.colors["bg"])
+        self.ui_helper.pack(fill="both", expand=True)
 
-        # Help Text
-        tk.Label(
-            container, 
-            text="Click on folder to select folders. Hold Shift/Ctrl to select multiple.",
-            bg=self.colors["bg"], fg="#888888", font=("Segoe UI", 9, "italic")
-        ).pack(pady=(0, 5))
-        
-        canvas = tk.Canvas(container, bg=self.colors["bg"], highlightthickness=0)
-        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
-        scroll_frame = tk.Frame(canvas, bg=self.colors["bg"])
-        
-        scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        if len(self.accounts) > 5:
-            canvas.pack(side="left", fill="both", expand=True)
-            scrollbar.pack(side="right", fill="y")
-        else:
-            canvas.pack(side="left", fill="both", expand=True)
-            # No scrollbar packed
-        
-        # List
-        h_frame = tk.Frame(scroll_frame, bg=self.colors["bg"])
-        h_frame.pack(fill="x", pady=(5, 10), padx=10)
-        tk.Label(h_frame, text="Account", bg=self.colors["bg"], fg="#AAAAAA", width=25, anchor="w", font=("Segoe UI", 10)).pack(side="left")
-        tk.Label(h_frame, text="Email", bg=self.colors["bg"], fg="#AAAAAA", width=6, font=("Segoe UI", 10)).pack(side="left")
-        tk.Label(h_frame, text="Folders", bg=self.colors["bg"], fg="#AAAAAA", width=6, font=("Segoe UI", 10)).pack(side="left")
-        tk.Label(h_frame, text="Cal/Task", bg=self.colors["bg"], fg="#AAAAAA", width=8, font=("Segoe UI", 10)).pack(side="left")
-        
-        tk.Frame(scroll_frame, bg="#333333", height=1).pack(fill="x", padx=10, pady=(0, 5))
-
-        self.vars = {}
-        for acc in self.accounts:
-            row = tk.Frame(scroll_frame, bg=self.colors["bg"])
-            row.pack(fill="x", padx=10, pady=2)
-            
-            disp = acc if len(acc) < 30 else acc[:27] + "..."
-            tk.Label(row, text=disp, bg=self.colors["bg"], fg="white", 
-                     width=25, anchor="w", font=("Segoe UI", 9)).pack(side="left")
-            
-            self.vars[acc] = {}
-            vals = self.working_settings[acc]
-            
-            e_var = tk.IntVar(value=1 if vals.get("email") else 0)
-            self.vars[acc]["email"] = e_var
-            # High contrast selectcolor (white check on dark bg, or check matches fg)
-            # Enlarge Checkboxes by increasing font (even if no text)
-            tk.Checkbutton(row, variable=e_var, bg=self.colors["bg"], activebackground=self.colors["bg"], 
-                           selectcolor=self.colors["accent"], borderwidth=0, highlightthickness=0,
-                           font=("Segoe UI", 16)).pack(side="left", padx=(10, 5))
-            
-            # Folder Button
-            self.vars[acc]["email_folders"] = vals.get("email_folders", [])
-            
-            def open_folders(a=acc):
-                # Don't pass `self.main` here, we need the Outlook client or similar.
-                # Actually we can't easily get the Outlook client here unless we pass it.
-                # Assuming `self.parent` has access or we modify __init__.
-                # Hack: Use `parent.master.outlook_client` if available?
-                # Better: Callback to parent to open picker.
-                self.open_folder_picker(a)
-
-            btn_f = tk.Label(row, text="📁", bg=self.colors["bg"], fg=self.colors["accent"], cursor="hand2", font=("Segoe UI", 12))
-            btn_f.pack(side="left", padx=15)
-            btn_f.bind("<Button-1>", lambda e, a=acc: self.open_folder_picker(a))
-
-            c_var = tk.IntVar(value=1 if vals.get("calendar") else 0)
-            self.vars[acc]["calendar"] = c_var
-            tk.Checkbutton(row, variable=c_var, bg=self.colors["bg"], activebackground=self.colors["bg"], 
-                           selectcolor=self.colors["accent"], borderwidth=0, highlightthickness=0,
-                           font=("Segoe UI", 16)).pack(side="left", padx=10)
-            
         # Footer
-        footer = tk.Frame(self, bg=self.colors["bg"], height=100)
-        footer.pack(fill="x", side="bottom", pady=20)
+        footer = tk.Frame(self, bg=self.colors["bg"], height=60)
+        footer.pack(fill="x", side="bottom", pady=10)
         
         tk.Button(footer, text="Save Changes", command=self.save_selection,
-            bg=self.colors["accent"], fg="black", bd=0, font=("Segoe UI", 10, "bold"), padx=20, pady=10).pack(side="right", padx=15)
+            bg=self.colors["accent"], fg="black", bd=0, font=("Segoe UI", 10, "bold"), padx=20, pady=5).pack(side="right", padx=15)
         
         tk.Button(footer, text="Cancel", command=self.destroy,
-            bg="#333333", fg="white", bd=0, font=("Segoe UI", 10), padx=15, pady=10).pack(side="right", padx=5)
+            bg="#333333", fg="white", bd=0, font=("Segoe UI", 10), padx=15, pady=5).pack(side="right", padx=5)
 
     def save_selection(self):
-        final = {}
-        for acc in self.accounts:
-            final[acc] = {
-                "email": bool(self.vars[acc]["email"].get()),
-                "calendar": bool(self.vars[acc]["calendar"].get()),
-                "email_folders": self.vars[acc]["email_folders"]
-            }
+        final = self.ui_helper.get_settings()
         self.callback(final)
         self.destroy()
+
+    def launch_folder_selection(self, account_name, on_selected):
+        # Adapted from previous open_folder_picker
+        try:
+             # Find SidebarWindow reliably
+             sidebar = None
+             if hasattr(self.master, "outlook_client"):
+                 sidebar = self.master
+             elif hasattr(self.master, "main_window"):
+                 sidebar = self.master.main_window
+             elif hasattr(self.master, "master"):
+                 sidebar = self.master.master
+                 
+             if not sidebar or not hasattr(sidebar, "outlook_client"):
+                 messagebox.showerror("Error", "Could not connect to Outlook Sidebar.")
+                 return
+
+             folders = sidebar.outlook_client.get_folder_list(account_name)
+             
+             if not folders:
+                 messagebox.showwarning("No Folders", f"Could not retrieve folder list for '{account_name}'.")
+                 return
+                 
+             FolderPickerWindow(self, folders, on_selected)
+        except Exception as e:
+            print(f"Error opening folder picker: {e}")
+            messagebox.showerror("Error", f"Failed to open folder picker:\n{e}")
 
 
     def open_folder_picker(self, account_name):
@@ -1284,8 +1345,23 @@ class SettingsPanel(tk.Frame):
         self.option_add('*TCombobox*Listbox.selectForeground', 'white')
 
         # Red Cross Close
-        btn_close = tk.Label(header, text="✕", fg="#FFFFFF", bg="#C42B1C", font=("Arial", 10), width=5, cursor="hand2")
-        btn_close.pack(side="right", fill="y", padx=0)
+        if os.path.exists("icon2/close-window.png"):
+             try:
+                # Match Footer: 30x30, Red (#FF4444)
+                # Use main_window's loader if available
+                img = self.main_window.load_icon_colored("icon2/close-window.png", size=(30, 30), color="#FF4444")
+                if img:
+                    self.close_icon = img # Keep ref
+                    btn_close = tk.Label(header, image=self.close_icon, bg=self.colors["bg_root"], cursor="hand2")
+                else: 
+                     raise Exception("Load failed")
+             except Exception as e:
+                print(f"Error loading Close icon: {e}")
+                btn_close = tk.Label(header, text="✕", fg="#FF4444", bg=self.colors["bg_root"], font=("Arial", 14, "bold"), cursor="hand2")
+        else:
+             btn_close = tk.Label(header, text="✕", fg="#FF4444", bg=self.colors["bg_root"], font=("Arial", 14, "bold"), cursor="hand2")
+             
+        btn_close.pack(side="right", padx=10)
         btn_close.bind("<Button-1>", lambda e: self.close_panel())
 
         # Attribution Info Button
@@ -1429,7 +1505,11 @@ class SettingsPanel(tk.Frame):
         create_section_header(main_content, "Email Settings")
 
         # Account Selection Button
-        btn_accounts = tk.Button(main_content, text="Select Emails...", command=self.open_account_selection,
+        def open_drawer():
+             self.close_panel() # Close settings
+             self.main_window.toggle_account_selection() # Open drawer
+
+        btn_accounts = tk.Button(main_content, text="Select Emails...", command=open_drawer,
                                  bg=self.colors["bg_card"], fg="white", bd=0, font=("Segoe UI", 10),
                                  highlightthickness=1, highlightbackground="#444444", pady=8)
         btn_accounts.pack(fill="x", padx=(18, 30), pady=(5, 5))
@@ -1520,9 +1600,11 @@ class SettingsPanel(tk.Frame):
                        selectcolor=self.colors["bg_card"], activebackground=self.colors["bg_root"], 
                        activeforeground="white", font=("Segoe UI", 9)).grid(row=2, column=0, sticky="w")
         
+        # Move "Show Content on Hover" OUT of here
+        
         # Number of Lines Selector
         lines_frame = tk.Frame(self.email_content_frame, bg=self.colors["bg_root"])
-        lines_frame.grid(row=3, column=0, sticky="w", pady=(5,0))
+        lines_frame.grid(row=4, column=0, sticky="w", pady=(5,0))
         tk.Label(lines_frame, text="Lines:", bg=self.colors["bg_root"], fg="#cccccc", font=("Segoe UI", 10)).pack(side="left")
         
         self.email_body_lines_var = tk.StringVar(value=str(self.main_window.email_body_lines))
@@ -1539,6 +1621,20 @@ class SettingsPanel(tk.Frame):
              except:
                  pass
         self.cb_lines['postcommand'] = configure_lines_dropdown
+
+        # "Show Content on Hover" - Independent Setting (Below the content frame)
+        self.show_hover_content_var = tk.BooleanVar(value=self.main_window.show_hover_content)
+        chk_hover = tk.Checkbutton(
+             list_settings_frame, text="Show Content on Hover", 
+             variable=self.show_hover_content_var, 
+             command=self.update_email_filters, 
+             bg=self.colors["bg_root"], fg="white", 
+             selectcolor=self.colors["bg_card"], 
+             activebackground=self.colors["bg_root"], 
+             activeforeground="white", 
+             font=("Segoe UI", 10)
+        )
+        chk_hover.grid(row=4, column=0, sticky="w", pady=(5, 5))
 
         # --- Interaction Settings (Merged into Email Settings) ---
         interaction_frame = tk.Frame(main_content, bg=self.colors["bg_root"])
@@ -2127,6 +2223,7 @@ class SettingsPanel(tk.Frame):
         self.main_window.email_show_sender = self.email_show_sender_var.get()
         self.main_window.email_show_subject = self.email_show_subject_var.get()
         self.main_window.email_show_body = self.email_show_body_var.get()
+        self.main_window.show_hover_content = self.show_hover_content_var.get() # Persist Hover Setting
         try:
             self.main_window.email_body_lines = int(self.email_body_lines_var.get())
         except:
@@ -2529,10 +2626,11 @@ class SidebarWindow(tk.Tk):
         # Pack order: Rightmost first.
         
         # 1. Outlook Button (Rightmost)
-        if os.path.exists("icons/Outlook_48x48.png"):
-             # Increase size to 32x32
+        # 1. Outlook Button (Rightmost)
+        if os.path.exists("icon2/email.png"):
+             # Email: 32x32 (Left as is)
              try:
-                pil_img = Image.open("icons/Outlook_48x48.png").convert("RGBA")
+                pil_img = Image.open("icon2/email.png").convert("RGBA")
                 pil_img = pil_img.resize((32, 32), Image.Resampling.LANCZOS)
                 img = ImageTk.PhotoImage(pil_img)
                 self.image_cache["outlook_footer"] = img
@@ -2544,8 +2642,25 @@ class SidebarWindow(tk.Tk):
                 print(f"Error loading Outlook icon: {e}")
 
         # 0. Close Button (Leftmost)
-        # Use a simple text button or icon if available
-        self.btn_close = tk.Label(self.footer, text="✕", bg="#444444", fg="#aaaaaa", font=("Arial", 12), cursor="hand2")
+        # Use existing icon logic
+        if os.path.exists("icon2/close-window.png"):
+             try:
+                # Close: 30x30, Red (#E81123 is standard Windows close red, or just Red)
+                img = self.load_icon_colored("icon2/close-window.png", size=(30, 30), color="#FF4444")
+                if img:
+                    self.image_cache["close_footer"] = img
+                    self.btn_close = tk.Label(self.footer, image=img, bg="#444444", cursor="hand2")
+                else: 
+                     raise Exception("Load failed")
+             except Exception as e:
+                print(f"Error loading Close icon: {e}")
+                self.btn_close = tk.Label(self.footer, text="✕", bg="#444444", fg="#FF4444", font=("Arial", 14, "bold"), cursor="hand2")
+             except Exception as e:
+                print(f"Error loading Close icon: {e}")
+                self.btn_close = tk.Label(self.footer, text="✕", bg="#444444", fg="#aaaaaa", font=("Arial", 12), cursor="hand2")
+        else:
+            self.btn_close = tk.Label(self.footer, text="✕", bg="#444444", fg="#aaaaaa", font=("Arial", 12), cursor="hand2")
+            
         self.btn_close.pack(side="left", padx=10, pady=5)
         self.btn_close.bind("<Button-1>", lambda e: self.quit_application())
         ToolTip(self.btn_close, "Close Application")
@@ -2556,11 +2671,12 @@ class SidebarWindow(tk.Tk):
         ToolTip(self.lbl_version, f"App Version: {VERSION}")
                  
         # 2. Calendar Button (Next to Outlook)
-        if os.path.exists("icons/OutlookCalendar_48x48.png"):
-             # Increase size to 32x32
+        # 2. Calendar Button (Next to Outlook)
+        if os.path.exists("icon2/calendar.png"):
+             # Calendar: Reduced to 28x28
              try:
-                pil_img = Image.open("icons/OutlookCalendar_48x48.png").convert("RGBA")
-                pil_img = pil_img.resize((32, 32), Image.Resampling.LANCZOS)
+                pil_img = Image.open("icon2/calendar.png").convert("RGBA")
+                pil_img = pil_img.resize((28, 28), Image.Resampling.LANCZOS)
                 img = ImageTk.PhotoImage(pil_img)
                 self.image_cache["calendar_footer"] = img
                 self.btn_calendar = tk.Label(self.footer, image=img, bg="#444444", cursor="hand2")
@@ -2580,26 +2696,58 @@ class SidebarWindow(tk.Tk):
         self.header.bind("<ButtonRelease-1>", self.stop_window_drag)
         
         # Title
-        self.lbl_title = tk.Label(self.header, text="Outlook Monitor", bg="#444444", fg="white", font=(self.font_family, 10, "bold"))
+        self.lbl_title = tk.Label(self.header, text="Mail Mate", bg="#444444", fg="white", font=(self.font_family, 10, "bold"))
         self.lbl_title.pack(side="left", padx=10)
         self.lbl_title.bind("<Button-1>", self.start_window_drag)
         self.lbl_title.bind("<B1-Motion>", self.on_window_drag)
         self.lbl_title.bind("<ButtonRelease-1>", self.stop_window_drag)
 
         # Pin Button / Logo (Custom Canvas)
-        self.btn_pin = tk.Canvas(self.header, width=30, height=30, bg="#444444", highlightthickness=0)
+        # Pin Button / Logo
+        if os.path.exists("icon2/pin1.png"):
+             try:
+                 # Pin: 24x24 (Leave). Use pin1 for both.
+                 # Active (Pinned) = White (#FFFFFF)
+                 # Inactive (Unpinned) = Grey (#888888)
+                 
+                 # 1. Active State (Pinned) = White
+                 self.icon_pin_active = self.load_icon_colored("icon2/pin1.png", size=(24, 24), color="#FFFFFF")
+                 
+                 # 2. Inactive State (Unpinned) = Black (Natural)
+                 self.icon_pin_inactive = self.load_icon_colored("icon2/pin1.png", size=(24, 24), color="#000000")
+
+                 # Default to Active initially (since defaults to is_pinned=True)
+                 # toggle_pin will handle updates
+                 self.btn_pin = tk.Label(self.header, image=self.icon_pin_active, bg="#444444", cursor="hand2")
+             except Exception as e:
+                 print(f"Error loading Pin icon: {e}")
+                 # Fallback to canvas if fails
+                 self.btn_pin = tk.Canvas(self.header, width=30, height=30, bg="#444444", highlightthickness=0)
+                 self.draw_pin_icon()
+             except Exception as e:
+                 print(f"Error loading Pin icon: {e}")
+                 # Fallback to canvas if fails
+                 self.btn_pin = tk.Canvas(self.header, width=30, height=30, bg="#444444", highlightthickness=0)
+                 self.draw_pin_icon() 
+        else:
+             self.btn_pin = tk.Canvas(self.header, width=30, height=30, bg="#444444", highlightthickness=0)
+             self.draw_pin_icon()
+             
         self.btn_pin.pack(side="right", padx=5, pady=5)
         self.btn_pin.bind("<Button-1>", lambda e: self.toggle_pin())
         self.pin_tooltip = ToolTip(self.btn_pin, "Pin Window Open")
-        self.draw_pin_icon()
         
         # Custom Settings Button (Cog)
-        if os.path.exists("icons/Settings.png"):
-            img = self.load_icon_white("icons/Settings.png", size=(24, 24))
-            if img:
+        if os.path.exists("icon2/spanner.png"):
+            # Settings: 22x22, Raw Color (Match Calendar)
+            try:
+                pil_img = Image.open("icon2/spanner.png").convert("RGBA")
+                pil_img = pil_img.resize((22, 22), Image.Resampling.LANCZOS)
+                img = ImageTk.PhotoImage(pil_img)
                 self.image_cache["settings_header"] = img
                 self.btn_settings = tk.Label(self.header, image=img, bg="#444444", cursor="hand2")
-            else:
+            except Exception as e:
+                 print(f"Error loading Spanner icon: {e}")
                  self.btn_settings = tk.Label(self.header, text="⚙", bg="#444444", fg="#aaaaaa", font=(self.font_family, 12), cursor="hand2")
         else:
             self.btn_settings = tk.Label(self.header, text="⚙", bg="#444444", fg="#aaaaaa", font=(self.font_family, 12), cursor="hand2")
@@ -2607,13 +2755,16 @@ class SidebarWindow(tk.Tk):
         self.btn_settings.bind("<Button-1>", lambda e: self.open_settings())
 
         # Refresh Button
-        if os.path.exists("icons/Sync.png"):
-            # Increased by another 10% -> (28, 28)
-            img = self.load_icon_white("icons/Sync.png", size=(28, 28))
-            if img:
+        if os.path.exists("icon2/refresh.png"):
+            # Refresh: 22x22, Raw Color (Match Calendar)
+            try:
+                pil_img = Image.open("icon2/refresh.png").convert("RGBA")
+                pil_img = pil_img.resize((22, 22), Image.Resampling.LANCZOS)
+                img = ImageTk.PhotoImage(pil_img)
                 self.image_cache["sync_header"] = img
                 self.btn_refresh = tk.Label(self.header, image=img, bg="#444444", cursor="hand2")
-            else:
+            except Exception as e:
+                 print(f"Error loading Refresh icon: {e}")
                  self.btn_refresh = tk.Label(self.header, text="↻", bg="#444444", fg="#aaaaaa", font=(self.font_family, 15), cursor="hand2")
         else:
             self.btn_refresh = tk.Label(self.header, text="↻", bg="#444444", fg="#aaaaaa", font=(self.font_family, 15), cursor="hand2")
@@ -2624,13 +2775,16 @@ class SidebarWindow(tk.Tk):
         ToolTip(self.btn_refresh, "Refresh Email List")
 
         # Share Button
-        if os.path.exists("icons/Share.png"):
-            # Reduced by another 10% -> (20, 20)
-            img = self.load_icon_white("icons/Share.png", size=(20, 20))
-            if img:
+        if os.path.exists("icon2/share.png"):
+            # Share: 20x20, Raw Color (Match Calendar)
+            try:
+                pil_img = Image.open("icon2/share.png").convert("RGBA")
+                pil_img = pil_img.resize((20, 20), Image.Resampling.LANCZOS)
+                img = ImageTk.PhotoImage(pil_img)
                 self.image_cache["share_header"] = img
                 self.btn_share = tk.Label(self.header, image=img, bg="#444444", cursor="hand2")
-            else:
+            except Exception as e:
+                 print(f"Error loading Share icon: {e}")
                  self.btn_share = tk.Label(self.header, text="🔗", bg="#444444", fg="#aaaaaa", font=(self.font_family, 15), cursor="hand2")
         else:
             self.btn_share = tk.Label(self.header, text="🔗", bg="#444444", fg="#aaaaaa", font=(self.font_family, 15), cursor="hand2")
@@ -2659,7 +2813,7 @@ class SidebarWindow(tk.Tk):
         # We'll do this in refresh_emails or a delayed call.
         
         # Email section header (Created once, kept in pane_emails)
-        email_header = tk.Frame(self.pane_emails, bg="#333333", height=20)
+        email_header = tk.Frame(self.pane_emails, bg="#333333", height=26)
         email_header.pack(fill="x", side="top")
         email_header.pack_propagate(False)  # Maintain fixed height
         
@@ -2667,15 +2821,64 @@ class SidebarWindow(tk.Tk):
         self.email_list_frame = tk.Frame(self.pane_emails, bg="#222222")
         self.email_list_frame.pack(fill="both", expand=True)
 
-        # Reminder section header (Created once, kept in pane_reminders)
-        # Note: refresh_reminders currently builds its own header? Let's check.
-        # It seems refresh_emails builds the reminder container. We will adapt.
+        # ------------------
+        # Header Controls
+        # ------------------
         
-        tk.Label(
+        self.lbl_email_header = tk.Label(
             email_header, text="Email", 
-            bg="#333333", fg="#AAAAAA",
-            font=(self.font_family, 9, "bold")
-        ).pack(side="left", padx=10, pady=3)
+            bg="#333333", fg="#FFFFFF",
+            font=("Segoe UI", 9, "bold"), anchor="w"
+        )
+        self.lbl_email_header.pack(side="left", padx=5)
+        
+        # Dropdown / Drawer Button (Arrow)
+        # Load arrow icon (Down = Closed, Up = Open)
+        # Note: User requested "arrow24 icon (rotated 180 degrees)" for Closed state?
+        # Standard: Down arrow usually means "Expand/Open" or "Below". 
+        # User said: "rotated 180 degrees on the RHS... when open the arrow can rotate so it's facing up"
+        # If the file 'arrow 24.png' is a DOWN arrow, then 180 is UP.
+        # If 'arrow 24.png' is RIGHT arrow, 180 is LEFT.
+        # Let's assume standard resource is 'arrow 24.png' (implied Right or Down?). 
+        # Let's verify by loading. 
+        # Actually I will just load and rotate dynamically.
+        
+        if os.path.exists("icon2/arrow 24.png"):
+            # Load Base
+            pil_arrow = Image.open("icon2/arrow 24.png").convert("RGBA")
+            pil_arrow = pil_arrow.resize((17, 17), Image.Resampling.LANCZOS) # Increased size (12->17)
+            
+            # Colorize (White/Light) to stand out against #333333 header
+            colored_arrow_white = Image.new("RGBA", pil_arrow.size, "#FFFFFF")
+            
+            # Composite White
+            white_arrow = Image.new("RGBA", pil_arrow.size, (0, 0, 0, 0))
+            white_arrow.paste(colored_arrow_white, (0, 0), mask=pil_arrow.split()[-1])
+            
+            # Create RED version for "Open" (Close action) state
+            colored_arrow_red = Image.new("RGBA", pil_arrow.size, "#FF4444")
+            red_arrow = Image.new("RGBA", pil_arrow.size, (0, 0, 0, 0))
+            red_arrow.paste(colored_arrow_red, (0, 0), mask=pil_arrow.split()[-1])
+            
+            # Create Rotated Versions
+            # Closed State (Default): Pointing DOWN (White). 
+            self.icon_arrow_down = ImageTk.PhotoImage(white_arrow.rotate(180)) 
+            
+            # Open State: Pointing UP (Red).
+            self.icon_arrow_up = ImageTk.PhotoImage(red_arrow)
+            
+            # Wait, if 180 is "facing up" (Open), then 0 is Down (Closed).
+            # "when open the arrow can rotate so it's facing up".
+            # So Open = UP. Closed = DOWN.
+            
+            self.btn_account_toggle = tk.Label(email_header, image=self.icon_arrow_down, bg="#333333", cursor="hand2")
+            self.btn_account_toggle.pack(side="right", padx=5)
+            self.btn_account_toggle.bind("<Button-1>", lambda e: self.toggle_account_selection())
+            
+            ToolTip(self.btn_account_toggle, "Configure Accounts")
+        
+        # ------------------
+
         
         self.scroll_frame = ScrollableFrame(self.email_list_frame, bg="#222222")
         self.scroll_frame.pack(expand=True, fill="both")
@@ -2764,44 +2967,46 @@ class SidebarWindow(tk.Tk):
             new_width = self.expanded_width + self.settings_panel_width
             self.set_geometry(new_width)
         
-    def load_icon_white(self, path, size=None):
-        """Loads an image, converts it to white, and returns ImageTk.PhotoImage."""
+    def load_icon_colored(self, path, size=None, color="#BFBFBF", is_rgb_tuple=False):
+        """Loads an image, applies a solid color mask, and returns ImageTk.PhotoImage."""
         try:
             pil_img = Image.open(path).convert("RGBA")
             
-            # Resize if needed (optional, but good for consistency)
+            # Resize if needed
             if size:
                 pil_img = pil_img.resize(size, Image.Resampling.LANCZOS)
-                
-            # Create a white image of the same size
-            white_img = Image.new("RGBA", pil_img.size, (255, 255, 255, 255))
             
-            # Boost Alpha: Treat any non-transparent pixel as fully opaque (or at least boost it)
-            # This fixes "dim" icons that have low opacity
-            # Boost Alpha based on user setting
-            # If brightness is 1.0, threshold is 20. If 2.0 (max), threshold is lower (more sensitive) or we boost alpha values.
-            # User wants "Control Brightness".
-            # Simple approach: Multiply alpha by brightness factor.
+            # Determine color tuple (R, G, B)
+            if is_rgb_tuple:
+                target_color = color # Expected tuple (r,g,b)
+            else:
+                # Parse Hex string
+                c = color.lstrip('#')
+                target_color = tuple(int(c[i:i+2], 16) for i in (0, 2, 4))
+
+            # Create solid color image
+            colored_img = Image.new("RGBA", pil_img.size, target_color + (255,))
             
+            # Extract Alpha channel from source
             r, g, b, a = pil_img.split()
             
-            r, g, b, a = pil_img.split()
+            # Simple threshold mask logic from before, but applied to the colored block
+            # mask = a.point(lambda p: 255 if p > 20 else 0) 
             
-            # Use static 75% brightness (grey)
-            grey_val = 191
-            white_img = Image.new("RGBA", pil_img.size, (grey_val, grey_val, grey_val, 255))
+            # Use original alpha as mask for smoother edges (antialiasing), 
+            # OR use valid alpha only.
             
-            # Simple threshold mask
-            mask = a.point(lambda p: 255 if p > 20 else 0)
-             
-            # Use boosted mask
             final_img = Image.new("RGBA", pil_img.size, (0, 0, 0, 0))
-            final_img.paste(white_img, (0, 0), mask=mask)
+            final_img.paste(colored_img, (0, 0), mask=a)
             
             return ImageTk.PhotoImage(final_img)
         except Exception as e:
             print(f"Error loading/coloring icon {path}: {e}")
             return None
+
+    def load_icon_white(self, path, size=None):
+        """Legacy wrapper for load_icon_colored (defaults to standard grey)."""
+        return self.load_icon_colored(path, size, color="#BFBFBF")
 
     def handle_custom_action(self, config, email_data):
         """Executes the selected actions on the specific email."""
@@ -3244,6 +3449,23 @@ class SidebarWindow(tk.Tk):
         except Exception as e:
              print(f"Error opening email: {e}")
 
+    def toggle_body_hover(self, event, preview_label, show):
+        """Shows or hides the email body preview on hover."""
+        if not self.show_hover_content: return
+        if self.email_show_body: return # Already permanent
+
+        try:
+             if show:
+                 # Show: Pack it if not packed
+                 if not preview_label.winfo_ismapped():
+                      preview_label.pack(fill="x", padx=5, pady=(0, 2))
+             else:
+                 # Hide: Unpack
+                 if preview_label.winfo_ismapped():
+                      preview_label.pack_forget()
+        except:
+             pass
+
     def _wait_and_focus(self, title_fragment, attempt=1):
         """Polls for window and forces focus using AttachThreadInput."""
         if attempt > 15:
@@ -3299,6 +3521,72 @@ class SidebarWindow(tk.Tk):
         else:
             self.after(100, lambda: self._wait_and_focus(title_fragment, attempt+1))
 
+    def toggle_account_selection(self):
+        """Toggles the account selection overlay."""
+        if hasattr(self, "account_overlay") and self.account_overlay and self.account_overlay.winfo_exists():
+            # Closing: Save and Destroy
+            if hasattr(self, "account_ui_helper"):
+                new_settings = self.account_ui_helper.get_settings()
+                self.enabled_accounts = new_settings
+                self.save_config()
+                self.refresh_emails()
+                self.refresh_reminders()
+                
+            self.account_overlay.destroy()
+            self.account_overlay = None
+            
+            # Rotate Icon Down (Closed)
+            if hasattr(self, "icon_arrow_down"):
+                self.btn_account_toggle.config(image=self.icon_arrow_down)
+        else:
+            # Opening
+            # Rotate Icon Up (Open)
+            if hasattr(self, "icon_arrow_up"):
+                self.btn_account_toggle.config(image=self.icon_arrow_up)
+            
+            # Fetch Accounts
+            accounts = self.outlook_client.get_accounts()
+            if not accounts:
+                 messagebox.showerror("Error", "Could not fetch Outlook accounts.")
+                 return
+
+            # Note: We want to overlay the 'email_list_frame'.
+            # But 'place' is relative to the parent. 'email_list_frame' parent is 'pane_emails'.
+            # We want to cover 'pane_emails' but maybe start below the header?
+            # 'email_header' is 20px high.
+            
+            target_frame = self.pane_emails
+            
+            self.account_overlay = tk.Frame(target_frame, bg="#202020")
+            
+            # Geometry: Cover everything below the header (20px)
+            # Use 'place' for absolute positioning within the frame
+            self.account_overlay.place(x=0, y=20, relwidth=1.0, relheight=1.0, height=-20)
+            
+            # Add UI
+            # We don't need the footer with buttons, so just use AccountSelectionUI
+            # We use 'self.launch_folder_selection_from_overlay' as callback
+            self.account_ui_helper = AccountSelectionUI(
+                self.account_overlay, 
+                accounts, 
+                self.enabled_accounts, 
+                self.launch_folder_selection_from_overlay, 
+                bg_color="#202020"
+            )
+            self.account_ui_helper.pack(fill="both", expand=True)
+            
+            # Raise to top
+            self.account_overlay.lift()
+
+    def launch_folder_selection_from_overlay(self, account_name, on_selected):
+         """Callback for folder picker spawned from overlay."""
+         folders = self.outlook_client.get_folder_list(account_name)
+         if not folders:
+             messagebox.showwarning("No Folders", f"Could not retrieve folder list for '{account_name}'.")
+             return
+         # Use Toplevel for picker, parented to Sidebar
+         FolderPickerWindow(self, folders, on_selected)
+
     def refresh_emails(self):
         # Update UI fonts for header elements
         self.lbl_title.config(font=(self.font_family, 10, "bold"))
@@ -3312,11 +3600,16 @@ class SidebarWindow(tk.Tk):
         # Determine enabled accounts
         accounts = [n for n, s in self.enabled_accounts.items() if s.get("email")] if self.enabled_accounts else None
 
-        emails = self.outlook_client.get_inbox_items(
+        emails, unread_count = self.outlook_client.get_inbox_items(
             count=30, 
             unread_only=not self.show_read,
             account_names=accounts
         )
+        
+        # Update Header Count
+        try:
+             self.lbl_email_header.config(text=f"Email - {unread_count}")
+        except: pass
         
         # Fetch Category Colors
         cat_map = self.outlook_client.get_category_map()
@@ -3501,7 +3794,9 @@ class SidebarWindow(tk.Tk):
                 lbl_subject.pack(fill="x")
             
             # Preview (Body)
-            if self.email_show_body:
+            # Create if either Permanent Show OR Hover Show is enabled
+            lbl_preview = None
+            if self.email_show_body or self.show_hover_content:
                 try:
                     lines = int(self.email_body_lines)
                 except:
@@ -3518,68 +3813,29 @@ class SidebarWindow(tk.Tk):
                     wrap="word",
                     cursor="arrow"
                 )
-                lbl_preview.insert("1.0", email['preview'])
+                # Get preview text or fallback
+                # Use 'body' key which contains the truncated preview text from get_inbox_items
+                preview_text = email.get('body', '').strip() 
+                if not preview_text:
+                    preview_text = "(No preview available)"
+                
+                lbl_preview.insert("1.0", preview_text)
                 lbl_preview.config(state="disabled") # Read-only
-                lbl_preview.pack(fill="x")
                 
-                # Forward clicks to card handler (we need to capture the lambda from outer scope or re-bind)
-                # Since we are inside the loop, we can just bind.
-                # Note: We need to see how card click is handled. 
-                # Assuming standard binding later in loop, we mimic it for this widget.
-                # Or relying on bindtags. Text widget interrupts bindings usually.
-                # Let's add a tag binding later if needed, or bind right here if we know the callback.
-                # Looking at original code, card.bind is called later.
-                # I will store this widget in a list or just bind it later if I can find the binder.
-                # For now I'll create it. The tool chunk ends here.
+                # Check if we should initially pack it (Show Body = True)
+                if self.email_show_body:
+                     lbl_preview.pack(fill="x")
             
-            # --- Action Frame ---
-            action_frame = tk.Frame(card, bg=bg_color)
+            # --- Action Frame (Buttons) ---
+            # Rename locally to frame_buttons to match references
+            frame_buttons = tk.Frame(card, bg=bg_color)
             
-            # Hover Logic
-            if self.buttons_on_hover:
-                # Define handlers
-                def show_actions(e, af=action_frame):
-                    af.pack(fill="x", expand=True, padx=2, pady=(0, 2))
-                    
-                def hide_actions(e, af=action_frame, c=card):
-                    # Only hide if mouse is strictly OUTSIDE the card and all children
-                    # winfo_containing returns the widget under mouse
-                    x, y = c.winfo_pointerxy()
-                    widget = c.winfo_containing(x, y)
-                    
-                    # Check if widget is card or child of card
-                    is_descendant = False
-                    if widget:
-                        if widget == c:
-                            is_descendant = True
-                        elif str(widget).startswith(str(c)):
-                            is_descendant = True
-                            
-                    if not is_descendant:
-                        af.pack_forget()
-
-                # Start hidden
-                action_frame.pack_forget()
-                
-                # Bind Enter/Leave to card
-                card.bind("<Enter>", show_actions)
-                card.bind("<Leave>", hide_actions)
-                
-                # Propagate binding to children? No, events bubble to card? 
-                # Tkinter <Enter>/<Leave> on Frame fires when entering frame.
-            else:
-                # Always visible
-                action_frame.pack(fill="x", expand=True, padx=2, pady=(0, 2))
-            
-            # Add buttons to action_frame
+            # Populate buttons first (so they exist for binding)
             # Filter for valid buttons (Must have Icon AND Action)
             valid_buttons = [
                 conf for conf in self.btn_config 
                 if conf.get("icon") and conf.get("action1") != "None"
             ]
-            
-            # Limit to configured count if needed, but usually filtering is enough
-            # valid_buttons = valid_buttons[:self.btn_count] 
 
             for conf in valid_buttons:
                 icon = conf.get("icon", "🔘")
@@ -3588,20 +3844,18 @@ class SidebarWindow(tk.Tk):
                 btn_image = None
                 
                 if is_png:
-                    # Try to load from cache or disk
                     if icon in self.image_cache:
                         btn_image = self.image_cache[icon]
                     else:
                         path = os.path.join("icons", icon)
                         if os.path.exists(path):
-                            # Load and color white, resize to ~24x24 for buttons (slightly bigger)
                             btn_image = self.load_icon_white(path, size=(24, 24))
                             if btn_image:
                                 self.image_cache[icon] = btn_image
                 
                 if btn_image:
                     btn = tk.Label(
-                        action_frame, 
+                        frame_buttons, 
                         image=btn_image, 
                         bg=bg_color,
                         padx=10, pady=5,
@@ -3609,7 +3863,7 @@ class SidebarWindow(tk.Tk):
                     )
                 else:
                     btn = tk.Label(
-                        action_frame, 
+                        frame_buttons, 
                         text=icon, 
                         fg="white", 
                         bg=bg_color,
@@ -3618,35 +3872,115 @@ class SidebarWindow(tk.Tk):
                         cursor="hand2"
                     )
                 
-                # If only 1 button, restrict width slightly to avoid massive button
                 if len(valid_buttons) == 1:
                     btn.pack(side="left", expand=True, fill="y", ipadx=20)
                 else:
                     btn.pack(side="left", expand=True, fill="both")
                 
-                # Bind hover
+                # Button Styling Bindings
                 btn.bind("<Enter>", lambda e, b=btn: b.config(bg="#444444"))
                 btn.bind("<Leave>", lambda e, b=btn, bg=bg_color: b.config(bg=bg))
                 
                 # Tooltip logic
                 act1 = conf.get("action1", "")
                 act2 = conf.get("action2", "None")
-                if act2 != "None":
-                    tip_text = f"{act1} & {act2}"
-                else:
-                    tip_text = act1
-                
+                tip_text = f"{act1} & {act2}" if act2 != "None" else act1
                 ToolTip(btn, tip_text)
                 
-                # Click handler
+                # Bind Action
                 btn.bind("<Button-1>", lambda e, c=conf, em=email: self.handle_custom_action(c, em))
+
+            # --- Logic for Buttons Visibility ---
+            if self.buttons_on_hover:
+                # Start hidden
+                frame_buttons.pack_forget()
+            else:
+                # Always show
+                frame_buttons.pack(fill="x", expand=True, padx=2, pady=(0, 2))
+
+
+            # --- HOVER BINDINGS (Content & Buttons) ---
+            # Define common show/hide helpers with DEFAULT ARGS to capture loop variables correctly
+            def show_hover_elements(e, lp=lbl_preview, fb=frame_buttons):
+                # 1. Show Body Preview if enabled and not permanent
+                if self.show_hover_content and not self.email_show_body and lp:
+                     if not lp.winfo_ismapped():
+                         lp.config(height=25) 
+                         lp.pack(fill="x", padx=5, pady=(0, 2)) 
+                
+                # 2. Show Buttons if enabled
+                if self.buttons_on_hover:
+                     if not fb.winfo_ismapped():
+                          fb.pack(fill="x", expand=True, padx=2, pady=(0, 2))
             
-            # Click Logic (Open Email)
+            def hide_hover_elements(e, lp=lbl_preview, fb=frame_buttons):
+                # 1. Hide Body Preview
+                if self.show_hover_content and not self.email_show_body and lp:
+                     if lp.winfo_ismapped():
+                          lp.pack_forget()
+                
+                # 2. Hide Buttons
+                if self.buttons_on_hover:
+                     if fb.winfo_ismapped():
+                          fb.pack_forget()
+
+            
+            # Robust Hide Logic using winfo_containing
+            def robust_hide(e, c=card, lp=lbl_preview, fb=frame_buttons):
+                try:
+                    x, y = c.winfo_pointerxy()
+                    widget = c.winfo_containing(x, y)
+                    # Stay shown if mouse is over card or any of its descendants
+                    if not widget or (widget != c and not str(widget).startswith(str(c))):
+                        hide_hover_elements(e, lp, fb)
+                except:
+                    pass # Safety
+            
+            def safe_show(e, lp=lbl_preview, fb=frame_buttons):
+                 show_hover_elements(e, lp, fb)
+
+            # Apply Bindings
+            if (self.show_hover_content and not self.email_show_body) or self.buttons_on_hover:
+                card.bind("<Enter>", safe_show)
+                card.bind("<Leave>", robust_hide)
+                
+                # Bind children to prevent flickering
+                for child in card.winfo_children():
+                    child.bind("<Enter>", safe_show)
+                    child.bind("<Leave>", robust_hide)
+            
+            # Standard Click (Open Email) logic for card
+            # --- CLICK LOGIC (Open Email) ---
             def on_card_click(e, eid=email['entry_id'], w=card):
                 self.open_email(eid, source_widget=w)
+
+            # Apply Click Bindings
+            if self.email_double_click: 
+                 card.bind("<Double-Button-1>", on_card_click)
+                 card.bind("<Button-1>", lambda e, c=card: c.focus_set())
+            else:
+                 card.bind("<Button-1>", on_card_click)
             
-            if self.email_double_click:
-                 # Require Double Click
+            # Bind Children (Robustly)
+            for child in card.winfo_children():
+                 # Don't bind click to buttons (they have their own actions)
+                 if child != frame_buttons and getattr(child, "master", None) != frame_buttons:
+                    if self.email_double_click: 
+                        child.bind("<Double-Button-1>", on_card_click)
+                    else:
+                        child.bind("<Button-1>", on_card_click)
+                 # Preview text click -> Open Email
+                 if child == lbl_preview:
+                      if self.email_double_click: 
+                          child.bind("<Double-Button-1>", on_card_click)
+                      else:
+                          child.bind("<Button-1>", on_card_click)
+
+            
+            if self.email_double_click: 
+                  # Logic handled by bind_click helper inside loop (Wait, bind_click isn't shown here)
+                  # Assuming bind_click handles double click check or we need to add it.
+                  # The loop continues...
                  card.bind("<Double-Button-1>", on_card_click)
                  if lbl_sender: lbl_sender.bind("<Double-Button-1>", on_card_click)
                  if lbl_subject: lbl_subject.bind("<Double-Button-1>", on_card_click)
@@ -3807,7 +4141,7 @@ class SidebarWindow(tk.Tk):
         # 3. Flagged Emails
         if self.reminder_show_flagged:
              email_accounts = [n for n, s in self.enabled_accounts.items() if s.get("email")] if self.enabled_accounts else None
-             flags = self.outlook_client.get_inbox_items(
+             flags, _ = self.outlook_client.get_inbox_items(
                  count=30,
                  unread_only=False,
                  only_flagged=True,
@@ -3841,11 +4175,21 @@ class SidebarWindow(tk.Tk):
         
         # Update Tooltip
         if self.is_pinned:
-             self.pin_tooltip.text = "Unpin"
+            if hasattr(self, 'icon_pin_active') and isinstance(self.btn_pin, tk.Label):
+                 self.btn_pin.config(image=self.icon_pin_active)
+            elif isinstance(self.btn_pin, tk.Canvas):
+                 self.btn_pin.delete("all")
+                 self.draw_pin_icon() # Redraw pinned state
+            
+            self.pin_tooltip.text = "Unpin Window (Current: Pinned)"
         else:
-             self.pin_tooltip.text = "Pin Window Open"
-             
-        self.draw_pin_icon()
+            if hasattr(self, 'icon_pin_inactive') and isinstance(self.btn_pin, tk.Label):
+                 self.btn_pin.config(image=self.icon_pin_inactive)
+            elif isinstance(self.btn_pin, tk.Canvas):
+                 self.btn_pin.delete("all")
+                 self.draw_pin_icon() # Redraw unpinned state (draw_pin_icon checks is_pinned)
+            
+            self.pin_tooltip.text = "Pin Window (Current: Auto-Collapse)"
         self.save_config()
         self.apply_state()
 
@@ -4185,6 +4529,7 @@ class SidebarWindow(tk.Tk):
                 
                 self.buttons_on_hover = config.get("buttons_on_hover", True)
                 self.email_double_click = config.get("email_double_click", True)
+                self.show_hover_content = config.get("show_hover_content", False) # New setting
                      
                 # Reminder Settings
                 self.reminder_show_flagged = config.get("reminder_show_flagged", True)
