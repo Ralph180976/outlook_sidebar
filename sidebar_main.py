@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.2.32"
+VERSION = "v1.2.33"
 
 
 # --- Windows API Constants & Structures ---
@@ -119,7 +119,7 @@ class AppBarManager:
         # Query the system for an approved position
         shell32.SHAppBarMessage(ABM_QUERYPOS, ctypes.byref(self.abd))
         
-        # 2. Adjust if necessary
+        # 2. Adjust if necessary (System might have changed it)
         if self.edge == ABE_LEFT:
             self.abd.rc.right = self.abd.rc.left + width
         elif self.edge == ABE_RIGHT:
@@ -128,6 +128,9 @@ class AppBarManager:
         # 3. Set Position
         shell32.SHAppBarMessage(ABM_SETPOS, ctypes.byref(self.abd))
         
+        # DEBUG: Print committed rect
+        # print(f"AppBar SetPos: Edge={self.edge}, Rect=({self.abd.rc.left}, {self.abd.rc.top}, {self.abd.rc.right}, {self.abd.rc.bottom})")
+
         # Return the actual rectangle committed
         return self.abd.rc.left, self.abd.rc.top, self.abd.rc.right - self.abd.rc.left, self.abd.rc.bottom - self.abd.rc.top
 
@@ -152,12 +155,21 @@ class ScrollableFrame(tk.Frame):
 
         self.window_id = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
 
+        self._scroll_timer = None
+
         # Custom Scroll Buttons
         # We place them relative to 'self' so they overlay the canvas
-        self.btn_up = tk.Button(self, text="▲", command=lambda: self.scroll(-1), 
+        self.btn_up = tk.Button(self, text="▲",  
                                 bg="#444444", fg="white", bd=0, font=("Arial", 6), width=10, activebackground="#555555", activeforeground="white")
-        self.btn_down = tk.Button(self, text="▼", command=lambda: self.scroll(1), 
+        self.btn_up.bind("<ButtonPress-1>", lambda e: self.start_scroll(-1))
+        self.btn_up.bind("<ButtonRelease-1>", self.stop_scroll)
+        self.btn_up.bind("<Leave>", self.stop_scroll)
+
+        self.btn_down = tk.Button(self, text="▼", 
                                   bg="#444444", fg="white", bd=0, font=("Arial", 6), width=10, activebackground="#555555", activeforeground="white")
+        self.btn_down.bind("<ButtonPress-1>", lambda e: self.start_scroll(1))
+        self.btn_down.bind("<ButtonRelease-1>", self.stop_scroll)
+        self.btn_down.bind("<Leave>", self.stop_scroll)
 
         self.canvas.configure(yscrollcommand=self._on_scroll_update)
         self.canvas.pack(side="left", fill="both", expand=True)
@@ -172,6 +184,21 @@ class ScrollableFrame(tk.Frame):
     def _on_mousewheel(self, event):
         self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
         
+    def start_scroll(self, direction):
+        self.scroll(direction)
+        # Initial delay before continuous scroll (e.g. 500ms)
+        self._scroll_timer = self.after(300, lambda: self.auto_scroll(direction))
+
+    def auto_scroll(self, direction):
+        self.scroll(direction)
+        # Repeat interval (e.g. 50ms)
+        self._scroll_timer = self.after(50, lambda: self.auto_scroll(direction))
+
+    def stop_scroll(self, event=None):
+        if self._scroll_timer:
+            self.after_cancel(self._scroll_timer)
+            self._scroll_timer = None
+
     def scroll(self, direction):
         self.canvas.yview_scroll(direction, "units")
 
@@ -395,7 +422,7 @@ class OutlookClient:
             return
 
     def check_latest_time(self, account_names=None):
-        """Updates the globally tracked last_received_time from enabled accounts."""
+        """Updates the globally tracked last_received_time from enabled accounts using safe Tables."""
         if not self.namespace: return
         
         latest = None
@@ -404,13 +431,20 @@ class OutlookClient:
             for store in self._get_enabled_stores(account_names):
                 try:
                     inbox = store.GetDefaultFolder(6)
-                    items = inbox.Items
-                    items.Sort("[ReceivedTime]", True)
-                    item = items.GetFirst()
-                    if item:
-                        t = item.ReceivedTime
-                        if latest is None or t > latest:
-                            latest = t
+                    # Use Table to avoid traversing MailItem objects (Security Guard)
+                    table = inbox.GetTable()
+                    table.Sort("ReceivedTime", True) # Descending
+                    table.Columns.RemoveAll()
+                    table.Columns.Add("ReceivedTime")
+                    
+                    if not table.EndOfTable:
+                        row = table.GetNextRow()
+                        if row:
+                            # Use GetValues for safety
+                            vals = row.GetValues()
+                            t = vals[0]
+                            if latest is None or t > latest:
+                                latest = t
                 except:
                     continue
                     
@@ -421,7 +455,7 @@ class OutlookClient:
              pass
 
     def check_new_mail(self, account_names=None):
-        """Checks for new mail across enabled accounts."""
+        """Checks for new mail across enabled accounts using safe Tables."""
         for attempt in range(2):
             if not self.namespace:
                 if not self.connect(): return False
@@ -433,20 +467,27 @@ class OutlookClient:
                 for store in self._get_enabled_stores(account_names):
                     try:
                         inbox = store.GetDefaultFolder(6)
-                        items = inbox.Items
-                        items.Sort("[ReceivedTime]", True)
-                        item = items.GetFirst()
+                        # Use Table for security safety
+                        table = inbox.GetTable()
+                        table.Sort("ReceivedTime", True)
+                        table.Columns.RemoveAll()
+                        table.Columns.Add("ReceivedTime")
                         
-                        if item:
-                            current_time = item.ReceivedTime
-                            # Compare against our global max
-                            if self.last_received_time and current_time > self.last_received_time:
-                                found_new = True
-                            
-                            # Update local tracker for this poll
-                            if global_max is None or current_time > global_max:
-                                global_max = current_time
-                    except:
+                        if not table.EndOfTable:
+                            row = table.GetNextRow()
+                            if row:
+                                vals = row.GetValues()
+                                current_time = vals[0]
+                                # Compare against our global max
+                                if self.last_received_time and current_time > self.last_received_time:
+                                    # print(f"DEBUG: Found NEW mail! {current_time} > {self.last_received_time}")
+                                    found_new = True
+                                
+                                # Update local tracker for this poll
+                                if global_max is None or current_time > global_max:
+                                    global_max = current_time
+                    except Exception as e:
+                        # print(f"DEBUG: Error checking store: {e}")
                         continue
                 
                 if global_max:
@@ -460,13 +501,22 @@ class OutlookClient:
         
         return False
 
-    def get_calendar_items(self, start_date, end_date, account_names=None):
-        """Fetches calendar items from all enabled accounts."""
+    def get_calendar_items(self, start_dt, end_dt, account_names=None):
+        """Fetches calendar items from all enabled accounts. Accepts datetime objects."""
+        # Print Debug Log
+        try:
+             print(f"DEBUG: Calendar Query: {start_dt} to {end_dt}")
+        except: pass
+
         for attempt in range(2):
             if not self.namespace:
                  if not self.connect(): return []
             try:
                 all_results = []
+                
+                # Format for DASL/Jet - US Format usually preferred
+                s_str = start_dt.strftime('%m/%d/%Y %H:%M %p')
+                e_str = end_dt.strftime('%m/%d/%Y %H:%M %p')
                 
                 for store in self._get_enabled_stores(account_names):
                     try:
@@ -475,17 +525,34 @@ class OutlookClient:
                         items.Sort("[Start]")
                         items.IncludeRecurrences = True
                         
-                        restrict = f"[Start] >= '{start_date}' AND [Start] <= '{end_date}'"
-                        items = items.Restrict(restrict)
+                        restrict = f"[Start] >= '{s_str}' AND [Start] <= '{e_str}'"
+                        
+                        try:
+                            items = items.Restrict(restrict)
+                        except Exception as e:
+                            print(f"Restrict Warning: {e}")
+                            # Continue with full items (will be filtered manually below) NO, too slow.
+                            # If restrict fails, maybe just skip or try simple filter?
+                            pass
                         
                         for item in items:
                             try:
+                                # Manual Date Check (Safety Net against locale issues)
+                                # Normalize Item Start (Aware/Naive)
+                                i_start = item.Start
+                                if getattr(i_start, "tzinfo", None) is not None:
+                                     i_start = i_start.replace(tzinfo=None) # Make naive for comparison with our naive start_dt/end_dt
+                                
+                                if i_start < start_dt or i_start > end_dt:
+                                     continue
+
                                 all_results.append({
                                     "subject": item.Subject,
                                     "start": item.Start,
                                     "location": getattr(item, "Location", ""),
                                     "entry_id": item.EntryID,
                                     "is_meeting": True,
+                                    "response_status": getattr(item, "ResponseStatus", 0),
                                     "account": store.DisplayName # Optional: Track source
                                 })
                             except:
@@ -494,8 +561,6 @@ class OutlookClient:
                         continue
                         
                 # Sort merged results by start time
-                # Python's default sort is stable
-                # We need to handle datetime objects
                 try:
                     all_results.sort(key=lambda x: x["start"])
                 except:
@@ -508,7 +573,7 @@ class OutlookClient:
         return []
 
     def get_tasks(self, due_filters=None, account_names=None):
-        """Fetches Outlook Tasks from enabled accounts."""
+        """Fetches Outlook Tasks from enabled accounts using safe Tables."""
         for attempt in range(2):
             if not self.namespace:
                  if not self.connect(): return []
@@ -518,11 +583,10 @@ class OutlookClient:
                 for store in self._get_enabled_stores(account_names):
                     try:
                         tasks_folder = store.GetDefaultFolder(13)
-                        items = tasks_folder.Items
                         
                         restricts = ["[Complete] = False"]
                         
-                        # Date Filter Logic (Same as before)
+                        # Date Filter Logic
                         if due_filters and len(due_filters) > 0:
                             date_queries = []
                             now = datetime.now()
@@ -547,18 +611,30 @@ class OutlookClient:
                                 combined_date_query = " OR ".join(date_queries)
                                 restricts.append(f"({combined_date_query})")
 
-                        if restricts:
-                            restrict_str = " AND ".join(restricts)
-                            items = items.Restrict(restrict_str)
+                        restrict_str = " AND ".join(restricts) if restricts else ""
+                        
+                        try:
+                            table = tasks_folder.GetTable(restrict_str) if restrict_str else tasks_folder.GetTable()
+                        except:
+                            continue
+
+                        table.Columns.RemoveAll()
+                        table.Columns.Add("Subject")
+                        table.Columns.Add("DueDate")
+                        table.Columns.Add("EntryID")
                         
                         count = 0
-                        for item in items:
-                            if count > 30: break # Per account limit
+                        while not table.EndOfTable and count < 30:
+                            row = table.GetNextRow()
+                            if not row: break
+                            
                             try:
+                                vals = row.GetValues()
+                                
                                 all_results.append({
-                                    "subject": item.Subject,
-                                    "due": item.DueDate,
-                                    "entry_id": item.EntryID,
+                                    "subject": vals[0],
+                                    "due": vals[1],
+                                    "entry_id": vals[2],
                                     "is_task": True,
                                     "account": store.DisplayName
                                 })
@@ -569,8 +645,6 @@ class OutlookClient:
                         continue # Skip store if tasks failed
                         
                 # Sort combined results
-                # Sort by Due Date (Ascending usually for tasks - nearest first)
-                # Handle None/NaT if any
                 all_results.sort(key=lambda x: x["due"].timestamp() if getattr(x["due"], 'timestamp', None) else 0)
                 
                 return all_results
@@ -883,6 +957,110 @@ class OutlookClient:
         except Exception as e:
              print(f"Error fetching categories: {e}")
         return mapping
+
+    def create_email(self):
+        """Creates and displays a new email."""
+        if not self.outlook: self.connect()
+        try:
+            mail = self.outlook.CreateItem(0) # olMailItem
+            mail.Display()
+            return True
+        except Exception as e:
+            print(f"Error creating email: {e}")
+            return False
+
+    def create_appointment(self):
+        """Creates and displays a new appointment."""
+        if not self.outlook: self.connect()
+        try:
+            appt = self.outlook.CreateItem(1) # olAppointmentItem
+            appt.Display()
+            return True
+        except Exception as e:
+            print(f"Error creating appointment: {e}")
+            return False
+
+    def create_meeting(self):
+        """Creates and displays a new meeting."""
+        if not self.outlook: self.connect()
+        try:
+            appt = self.outlook.CreateItem(1) # olAppointmentItem
+            appt.MeetingStatus = 1 # olMeeting
+            appt.Display()
+            return True
+        except Exception as e:
+            print(f"Error creating meeting: {e}")
+            return False
+
+    def create_task(self):
+        """Creates and displays a new task."""
+        if not self.outlook: self.connect()
+        try:
+            task = self.outlook.CreateItem(3) # olTaskItem
+            task.Display()
+            return True
+        except Exception as e:
+            print(f"Error creating task: {e}")
+            return False
+
+    def check_due_items(self, account_names=None):
+        """Checks for items due today or overdue using safe Tables. Returns 'Overdue', 'Today', or None."""
+        if not self.namespace: self.connect()
+        try:
+            now = datetime.now()
+            today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            tomorrow = today + timedelta(days=1)
+            
+            # Formats for DASL queries
+            today_str = today.strftime('%m/%d/%Y %I:%M %p')
+            tom_str = tomorrow.strftime('%m/%d/%Y %I:%M %p')
+            
+            # Simple check across accounts
+            for store in self._get_enabled_stores(account_names):
+                try:
+                    # Check Tasks
+                    tasks = store.GetDefaultFolder(13)
+                    
+                    # Overdue check using Table
+                    # DASL filter for Table
+                    base_filter = "[Complete] = False"
+                    
+                    # Overdue
+                    overdue_filter = f"{base_filter} AND [DueDate] < '{today_str}'"
+                    try:
+                        t_over = tasks.GetTable(overdue_filter)
+                        if t_over.GetRowCount() > 0: return "Overdue"
+                    except: pass
+
+                    # Today
+                    today_filter = f"{base_filter} AND [DueDate] >= '{today_str}' AND [DueDate] < '{tom_str}'"
+                    try:
+                        t_today = tasks.GetTable(today_filter)
+                        if t_today.GetRowCount() > 0: return "Today"
+                    except: pass
+                    
+                    # Check Appointments (Today)
+                    # Use Calendar folder
+                    cal = store.GetDefaultFolder(9)
+                    # For Calendar, GetTable works but handling Recurrences is tricky with Tables.
+                    # However, GetTable DOES NOT expand recurrences by default.
+                    # But querying for "Today" is usually just a check.
+                    # Safest simple check is still GetTable, but we might miss recurrences.
+                    # Given 'Recurrences' expansion requires .Items.IncludeRecurrences which forces Item load...
+                    # We might skip Calendar Recurrence checks in background poll to be 100% safe,
+                    # OR we stick to basics. 
+                    # Let's use Table for basic appointments.
+                    
+                    cal_filter = f"[Start] >= '{today_str}' AND [Start] < '{tom_str}'"
+                    try:
+                        t_cal = cal.GetTable(cal_filter)
+                        if t_cal.GetRowCount() > 0: return "Today"
+                    except: pass
+
+                except: continue
+        except Exception as e:
+            print(f"Error checking due items: {e}")
+        return None
 
 
 
@@ -1675,6 +1853,38 @@ class SettingsPanel(tk.Frame):
                        selectcolor=self.colors["bg_card"], activebackground=self.colors["bg_root"], 
                        activeforeground="white", font=("Segoe UI", 9)).pack(side="left", padx=10)
 
+        create_section_header(main_content, "Quick Create")
+        
+        qc_frame = tk.Frame(main_content, bg=self.colors["bg_root"])
+        qc_frame.pack(fill="x", padx=(18, 30), pady=(10, 10))
+        
+        self.qc_options = ["New Email", "New Meeting", "New Appointment", "New Task"]
+        self.qc_vars = {}
+        
+        # Load current
+        current_qc = getattr(self.main_window, "quick_create_actions", ["New Email"])
+        
+        def update_qc_settings():
+            selected = [opt for opt, var in self.qc_vars.items() if var.get()]
+            self.main_window.quick_create_actions = selected
+            self.main_window.save_config()
+            self.main_window.update_quick_create_icon()
+
+        for idx, opt in enumerate(self.qc_options):
+            var = tk.BooleanVar(value=(opt in current_qc))
+            self.qc_vars[opt] = var
+            chk = tk.Checkbutton(
+                qc_frame, text=opt, variable=var,
+                command=update_qc_settings,
+                bg=self.colors["bg_root"], fg="white",
+                selectcolor=self.colors["bg_card"],
+                activebackground=self.colors["bg_root"],
+                activeforeground="white",
+                font=("Segoe UI", 9)
+            )
+            chk.grid(row=idx // 2, column=idx % 2, sticky="w", padx=(0, 15), pady=2)
+
+
         # === Button Configuration Table (Restored Original) ===
         # --- Button Configuration Table ---
         container = tk.Frame(main_content, bg=self.colors["bg_root"], pady=12)
@@ -2017,7 +2227,7 @@ class SettingsPanel(tk.Frame):
         # Unified Container
         self.meetings_container = tk.Frame(reminder_frame, bg=self.colors["bg_root"])
         self.meetings_container.grid(row=6, column=1, sticky="nw", rowspan=2, padx=(5, 0))
-        self.meetings_container.bind("<Leave>", lambda e: self.toggle_meetings_visibility(force_hide=True))
+        # Removed leave binding
 
         self.btn_toggle_meetings = tk.Label(
             self.meetings_container, text="▼",
@@ -2069,8 +2279,8 @@ class SettingsPanel(tk.Frame):
         chk_accepted.grid(row=0, column=1, sticky="w", pady=2)
         
         self.reminder_declined_meetings_var = tk.BooleanVar(value=self.main_window.reminder_declined_meetings)
-        chk_declined = tk.Checkbutton(
-            self.meetings_options_frame, text="Declined", 
+        chk_rejected = tk.Checkbutton(
+            self.meetings_options_frame, text="Rejected", 
             variable=self.reminder_declined_meetings_var,
             command=self.update_reminder_filters,
             bg=self.colors["bg_root"], fg="white",
@@ -2079,14 +2289,18 @@ class SettingsPanel(tk.Frame):
             activeforeground="white",
             font=("Segoe UI", 9)
         )
-        chk_declined.grid(row=0, column=2, sticky="w", pady=2)
+        chk_rejected.grid(row=1, column=0, sticky="w", pady=2)
         
         # Date filters
-        self.meeting_date_options = ["Today", "Tomorrow", "This Week", "Next Week"]
+        # Options: ["Today", "Tomorrow", "Next 7 Days", "Next X Days"]
+        self.meeting_date_options = ["Today", "Tomorrow", "Next 7 Days"]
         self.meeting_date_vars = {}
         
+        # Grid layout for first 3
         for idx, option in enumerate(self.meeting_date_options):
-            var = tk.BooleanVar(value=False)
+            # Init based on main window state
+            is_checked = option in self.main_window.reminder_meeting_dates
+            var = tk.BooleanVar(value=is_checked)
             self.meeting_date_vars[option] = var
             
             chk = tk.Checkbutton(
@@ -2099,7 +2313,45 @@ class SettingsPanel(tk.Frame):
                 activeforeground="white",
                 font=("Segoe UI", 9)
             )
-            chk.grid(row=1 + (idx // 2), column=idx % 2, sticky="w", padx=(0, 15), pady=2)
+            # Row 2: Today, Tomorrow. Row 3: Next 7 Days
+            r = 2 + (idx // 2)
+            c = idx % 2
+            chk.grid(row=r, column=c, sticky="w", padx=(0, 15), pady=2)
+
+        # "Next X Days" with Entry
+        is_custom = "Custom" in self.main_window.reminder_meeting_dates
+        self.meeting_date_vars["Custom"] = tk.BooleanVar(value=is_custom)
+        self.reminder_custom_days_var = tk.StringVar(value=str(getattr(self.main_window, "reminder_custom_days", 30)))
+        
+        f_custom = tk.Frame(self.meetings_options_frame, bg=self.colors["bg_root"])
+        f_custom.grid(row=3, column=1, sticky="w", padx=0, pady=2)
+        
+        chk_custom = tk.Checkbutton(
+            f_custom, text="Next",
+            variable=self.meeting_date_vars["Custom"],
+            command=self.update_reminder_filters,
+            bg=self.colors["bg_root"], fg="white",
+            selectcolor=self.colors["bg_card"],
+            activebackground=self.colors["bg_root"],
+            activeforeground="white",
+            font=("Segoe UI", 9)
+        )
+        chk_custom.pack(side="left")
+        
+        spin_days = tk.Spinbox(
+            f_custom, from_=1, to=365,
+            width=3,
+            textvariable=self.reminder_custom_days_var,
+            font=("Segoe UI", 9),
+            bg=self.colors["input_bg"],
+            fg="white",
+            buttonbackground=self.colors["bg_card"]
+        )
+        spin_days.pack(side="left", padx=2)
+        # trace changes to update immediately
+        self.reminder_custom_days_var.trace_add("write", lambda *a: self.update_reminder_filters())
+        
+        tk.Label(f_custom, text="Days", bg=self.colors["bg_root"], fg="white", font=("Segoe UI", 9)).pack(side="left")
         
         # Initially hide
         self.meetings_options_frame.grid_remove()
@@ -2192,9 +2444,8 @@ class SettingsPanel(tk.Frame):
         # --- Icon Brightness Setting REMOVED ---
         # User requested fixed 75% brightness, slider removed.
         
-        # Version Label
-        lbl_ver = tk.Label(self, text=VERSION, fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 8))
-        lbl_ver.place(relx=1.0, rely=1.0, anchor="se", x=-10, y=-5)
+        # Version Label REMOVED
+
 
     def refresh_dropdown_options(self):
         """Filters available options for each dropdown to prevent duplicate selections."""
@@ -2421,7 +2672,15 @@ class SettingsPanel(tk.Frame):
         
         # Collect selected meeting date filters
         selected_meeting_dates = [option for option, var in self.meeting_date_vars.items() if var.get()]
+        # Collect selected meeting date filters
+        selected_meeting_dates = [option for option, var in self.meeting_date_vars.items() if var.get()]
         self.main_window.reminder_meeting_dates = selected_meeting_dates
+        
+        try:
+             days = int(self.reminder_custom_days_var.get())
+             self.main_window.reminder_custom_days = days
+        except:
+             pass
         
         self.main_window.reminder_show_tasks = self.reminder_show_tasks_var.get()
         self.main_window.reminder_tasks = self.reminder_tasks_var.get()
@@ -2635,8 +2894,9 @@ class SidebarWindow(tk.Tk):
         self.reminder_show_meetings = True # Master toggle
         self.reminder_pending_meetings = True
         self.reminder_accepted_meetings = True # Default ON
-        self.reminder_declined_meetings = False
-        self.reminder_meeting_dates = [] # List of selected meeting date filters
+        self.reminder_declined_meetings = True # Changed to True as per user intent "Might want to know"
+        self.reminder_meeting_dates = ["Today", "Tomorrow"]
+        self.reminder_custom_days = 30
         
         # Tasks
         self.reminder_show_tasks = True # Master toggle
@@ -2688,9 +2948,15 @@ class SidebarWindow(tk.Tk):
 
         # --- AppBar Manager ---
         self.update_idletasks() 
-        self.hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
-        if not self.hwnd:
-             self.hwnd = self.winfo_id()
+        # Find the true top-level window handle (root owner)
+        self.hwnd = self.winfo_id()
+        temp_hwnd = self.hwnd
+        while True:
+            parent = ctypes.windll.user32.GetParent(temp_hwnd)
+            if not parent:
+                break
+            temp_hwnd = parent
+        self.hwnd = temp_hwnd
 
         self.appbar = AppBarManager(self.hwnd)
         
@@ -2766,6 +3032,22 @@ class SidebarWindow(tk.Tk):
                 ToolTip(self.btn_calendar, "Open Calendar")
              except Exception as e:
                 print(f"Error loading Calendar icon: {e}")
+
+        # Quick Create Button (Plus)
+        if os.path.exists("icon2/plus.png"):
+             try:
+                # Initial placeholder - update_quick_create_icon will set the correct one
+                img = self.load_icon_colored("icon2/plus.png", size=(26, 26), color="#555555") 
+                self.image_cache["quick_create"] = img
+                self.btn_quick_create = tk.Label(self.footer, image=img, bg="#444444", cursor="hand2")
+                self.btn_quick_create.pack(side="right", padx=5, pady=5)
+                self.btn_quick_create.bind("<Button-1>", lambda e: self.handle_quick_create())
+                ToolTip(self.btn_quick_create, "Quick Create")
+                
+                # Apply initial state
+                self.update_quick_create_icon()
+             except Exception as e:
+                print(f"Error loading Quick Create icon: {e}")
 
         # Header
         self.header = tk.Frame(self.main_frame, bg="#444444", height=40)
@@ -2993,6 +3275,9 @@ class SidebarWindow(tk.Tk):
         # Initial State
         self.apply_state()
         self.apply_window_layout()  # Apply window mode (single/dual)
+        
+        # Start Background Polling
+        self.start_polling()
 
     def quit_application(self):
         """Terminates the application."""
@@ -3166,67 +3451,42 @@ class SidebarWindow(tk.Tk):
 
         
     def start_polling(self):
-        """Poll Outlook every 30 seconds for new mail."""
+        """Poll Outlook every 30 seconds for new mail and due items."""
         # Get enabled email accounts
         accounts = [n for n, s in self.enabled_accounts.items() if s.get("email")] if self.enabled_accounts else None
         
-        if self.outlook_client.check_new_mail(accounts):
-            self.start_pulse()
-            self.refresh_emails() # Auto-refresh list
+        print(f"DEBUG: Pulse Start Polling - Interval: {self.poll_interval}s")
+        
+        pulse_triggered = False
+
+        # 1. Check New Mail
+        has_new = self.outlook_client.check_new_mail(accounts)
+        print(f"DEBUG: Check New Mail Result: {has_new}")
+        
+        if has_new:
+             print("DEBUG: New mail detected! Refreshing...")
+             self.refresh_emails()
+             # Trigger Pulse (Blue)
+             if not self.is_pinned and not self.is_expanded:
+                 print("DEBUG: Triggering BLUE Pulse")
+                 self.start_pulse("#0078D4")
+                 pulse_triggered = True
+        
+        # 2. Check Due Items (Tasks / Meetings)
+        # Returns "Overdue" or "Today" or None
+        due_status = self.outlook_client.check_due_items(accounts)
+        print(f"DEBUG: Due Status: {due_status}")
+        
+        if due_status and not self.is_pinned and not self.is_expanded and not pulse_triggered:
+             # Prioritize Overdue? Or just pulse
+             # Orange for Today/Overdue
+             print("DEBUG: Triggering ORANGE Pulse")
+             self.start_pulse("#E68D49")
             
         self.after(self.poll_interval * 1000, self.start_polling) # Dynamic interval
         
-    def start_pulse(self):
-        if not self.pulsing:
-            self.pulsing = True
-            self.pulse_step = 0
-            self.run_pulse_animation()
-            
-    def stop_pulse(self):
-        if self.pulsing:
-            self.pulsing = False
-            if self._pulse_job:
-                self.after_cancel(self._pulse_job)
-                self._pulse_job = None
-            # Reset
-            self.hot_strip_canvas.delete("pulse")
 
-    def run_pulse_animation(self):
-        if not self.pulsing: return
-        
-        # Calculate Height factor using sine wave (0.0 to 1.0)
-        # math.sin goes from -1 to 1. We want 0 to 1 back to 0.
-        # shifting phase to start at 0
-        factor = (math.sin(self.pulse_step) + 1) / 2 # 0 to 1
-        
-        # Alternatively, for a "growth" from center:
-        # We can just cycle 0 -> PI
-        
-        self.hot_strip_canvas.delete("pulse")
-        
-        w = self.hot_strip_width
-        h = self.screen_height
-        
-        # Dynamic height based on factor
-        # Let's make it grow to full height then shrink
-        bar_height = h * factor
-        
-        # Center coords
-        y1 = (h / 2) - (bar_height / 2)
-        y2 = (h / 2) + (bar_height / 2)
-        
-        # Draw the "light" bar
-        self.hot_strip_canvas.create_rectangle(
-            0, y1, w, y2,
-            fill=self.pulse_color,
-            outline="",
-            tags="pulse"
-        )
-        
-        self.pulse_step += self.animation_speed
-        
-        # Speed: 50ms (20fps) for smooth gentle pulse
-        self._pulse_job = self.after(50, self.run_pulse_animation)
+
 
     # --- Outlook Window Management (COM-based) ---
 
@@ -4126,13 +4386,73 @@ class SidebarWindow(tk.Tk):
                 widget.bind("<Button-1>", lambda e, eid=entry_id, w=widget: self.open_email(eid, source_widget=w))
         
         # 1. Meetings (Today & Tomorrow)
+        # 1. Meetings
         now = datetime.now()
-        start_str = now.strftime('%m/%d/%Y 00:00 AM')
-        end_str = (now + timedelta(days=1)).strftime('%m/%d/%Y 11:59 PM')
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         
-        cal_accounts = [n for n, s in self.enabled_accounts.items() if s.get("calendar")] if self.enabled_accounts else None
+        # Calculate End Date based on Selection
+        # If multiple are selected, we take the MAX date
+        end_date = today_start # Start with today
+        
+        has_date_filter = False
+        
+        if "Today" in self.reminder_meeting_dates:
+             # Today EOD
+             d = today_start + timedelta(days=1) - timedelta(seconds=1)
+             if d > end_date: end_date = d
+             has_date_filter = True
+             
+        if "Tomorrow" in self.reminder_meeting_dates:
+             # Tomorrow EOD
+             d = today_start + timedelta(days=2) - timedelta(seconds=1)
+             if d > end_date: end_date = d
+             has_date_filter = True
 
-        meetings = self.outlook_client.get_calendar_items(start_str, end_str, cal_accounts)
+        if "Next 7 Days" in self.reminder_meeting_dates:
+             d = today_start + timedelta(days=8) - timedelta(seconds=1) # Today + 7 full days
+             if d > end_date: end_date = d
+             has_date_filter = True
+             
+        if "Custom" in self.reminder_meeting_dates:
+             try:
+                 days = int(getattr(self, "reminder_custom_days", 30))
+             except: days = 30
+             d = today_start + timedelta(days=days+1) - timedelta(seconds=1)
+             if d > end_date: end_date = d
+             has_date_filter = True
+             
+        # If no date filter, maybe don't show any? Or default?
+        # User said "defaults for next one should be Today, Tomorrow". 
+        # If they untick all, implies show none?
+        if not has_date_filter:
+             # Show none
+             meetings = []
+        else:
+             cal_accounts = [n for n, s in self.enabled_accounts.items() if s.get("calendar")] if self.enabled_accounts else None
+             # Pass datetime objects directly
+             raw_meetings = self.outlook_client.get_calendar_items(today_start, end_date, cal_accounts)
+             
+             # Filter by Status
+             # olResponseNone = 0, olResponseOrganized = 1, olResponseTentative = 2, olResponseAccepted = 3, olResponseDeclined = 4
+             meetings = []
+             for m in raw_meetings:
+                 status = m.get("response_status", 0)
+                 
+                 # Accepted
+                 if status == 3 and self.reminder_accepted_meetings:
+                     meetings.append(m)
+                     continue
+                     
+                 # Declined
+                 if status == 4 and self.reminder_declined_meetings:
+                     meetings.append(m)
+                     continue
+                     
+                 # Pending (None, Organized, Tentative, NotResponded=5)
+                 # Basically anything not Accepted(3) or Declined(4)
+                 if status not in [3, 4] and self.reminder_pending_meetings:
+                     meetings.append(m)
+                     continue
         
         if meetings:
             tk.Label(container, text="CALENDAR", fg="#60CDFF", bg="#1e1e1e", font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=5, pady=(5, 2))
@@ -4425,10 +4745,18 @@ class SidebarWindow(tk.Tk):
         Uses EnumDisplayMonitors to find the monitor closest to the window center.
         Returns check-safe dictionary with 'monitor' and 'work' tuples (x,y,w,h).
         """
-        hwnd = self.winfo_id()
-        try:
-            hwnd = ctypes.windll.user32.GetParent(hwnd) or hwnd
-        except: pass
+    def get_monitor_metrics(self):
+        """
+        Uses EnumDisplayMonitors to find the monitor closest to the window center.
+        Returns check-safe dictionary with 'monitor' and 'work' tuples (x,y,w,h).
+        """
+        if hasattr(self, 'hwnd') and self.hwnd:
+            hwnd = self.hwnd
+        else:
+            hwnd = self.winfo_id()
+            try:
+                hwnd = ctypes.windll.user32.GetParent(hwnd) or hwnd
+            except: pass
             
         # Get Window Rect center
         try:
@@ -4542,6 +4870,54 @@ class SidebarWindow(tk.Tk):
         self.apply_state()
 
 
+    def start_pulse(self, color):
+        """Starts the hot strip pulsing animation."""
+        if self.is_pinned or self.is_expanded: return # Don't pulse if open
+        
+        self.pulse_active = True
+        self.pulse_color = color
+        self.pulse_step = 0
+        if not getattr(self, "pulse_timer", None):
+            self.animate_pulse()
+
+    def stop_pulse(self):
+        """Stops the pulsing animation."""
+        self.pulse_active = False
+        if getattr(self, "pulse_timer", None):
+            self.after_cancel(self.pulse_timer)
+            self.pulse_timer = None
+        
+        # Reset color
+        if hasattr(self, "hot_strip_canvas"):
+            self.hot_strip_canvas.config(bg="#444444")
+            self.hot_strip_canvas.delete("pulse_center")
+
+    def animate_pulse(self):
+        """Animating loop for pulse."""
+        if not self.pulse_active: return
+        
+        # Pulse Center Indicator
+        step = self.pulse_step % 40
+        opacity = step if step <= 20 else 40 - step # 0 to 20
+        
+        # Height variation: 10 to 50
+        h = 10 + (opacity * 2) 
+        
+        w = self.hot_strip_width
+        center_y = self.winfo_height() // 2
+        
+        self.hot_strip_canvas.delete("pulse_center")
+        self.hot_strip_canvas.create_rectangle(
+            0, center_y - (h // 2),
+            w, center_y + (h // 2),
+            fill=self.pulse_color,
+            outline="",
+            tags="pulse_center"
+        )
+        
+        self.pulse_step += 1
+        self.pulse_timer = self.after(50, self.animate_pulse)
+
     def on_enter(self, event):
         # Stop pulsing on interaction
         self.stop_pulse()
@@ -4631,6 +5007,9 @@ class SidebarWindow(tk.Tk):
                 self.buttons_on_hover = config.get("buttons_on_hover", True)
                 self.email_double_click = config.get("email_double_click", True)
                 self.show_hover_content = config.get("show_hover_content", False) # New setting
+                
+                # Quick Create
+                self.quick_create_actions = config.get("quick_create_actions", ["New Email"])
                      
                 # Reminder Settings
                 self.reminder_show_flagged = config.get("reminder_show_flagged", True)
@@ -4647,8 +5026,9 @@ class SidebarWindow(tk.Tk):
                 self.reminder_show_meetings = config.get("reminder_show_meetings", True)
                 self.reminder_pending_meetings = config.get("reminder_pending_meetings", True)
                 self.reminder_accepted_meetings = config.get("reminder_accepted_meetings", True)
-                self.reminder_declined_meetings = config.get("reminder_declined_meetings", False)
-                self.reminder_meeting_dates = config.get("reminder_meeting_dates", [])
+                self.reminder_declined_meetings = config.get("reminder_declined_meetings", True)
+                self.reminder_meeting_dates = config.get("reminder_meeting_dates", ["Today", "Tomorrow"])
+                self.reminder_custom_days = config.get("reminder_custom_days", 30)
                 
                 self.reminder_show_tasks = config.get("reminder_show_tasks", True)
                 self.reminder_tasks = config.get("reminder_tasks", True)
@@ -4696,6 +5076,7 @@ class SidebarWindow(tk.Tk):
             "reminder_accepted_meetings": self.reminder_accepted_meetings,
             "reminder_declined_meetings": self.reminder_declined_meetings,
             "reminder_meeting_dates": self.reminder_meeting_dates,
+            "reminder_custom_days": self.reminder_custom_days,
             
             "reminder_show_tasks": self.reminder_show_tasks,
             "reminder_tasks": self.reminder_tasks,
@@ -4706,13 +5087,77 @@ class SidebarWindow(tk.Tk):
             "email_show_sender": self.email_show_sender,
             "email_show_subject": self.email_show_subject,
             "email_show_body": self.email_show_body,
-            "email_body_lines": self.email_body_lines
+            "email_body_lines": self.email_body_lines,
+            
+            # Quick Create
+            "quick_create_actions": self.quick_create_actions
         }
         try:
             with open(config_path, "w") as f:
                 json.dump(config, f, indent=4)
         except Exception as e:
             print(f"Error saving config: {e}")
+
+    def handle_quick_create(self):
+        """Handles the quick create button click."""
+        actions = getattr(self, "quick_create_actions", ["New Email"])
+        
+        # If disabled/empty, do nothing
+        if not actions:
+             return
+
+        if len(actions) == 1:
+            self._execute_quick_action(actions[0])
+        else:
+            # Show menu
+            menu = tk.Menu(self, tearoff=0)
+            
+            def make_cmd(act):
+                return lambda: self._execute_quick_action(act)
+
+            for act in actions:
+                menu.add_command(label=act, command=make_cmd(act))
+            
+            try:
+                x = self.btn_quick_create.winfo_rootx()
+                y = self.btn_quick_create.winfo_rooty()
+                menu.tk_popup(x, y)
+            except: pass
+
+    def update_quick_create_icon(self):
+        """Updates the Quick Create button icon/color based on selection."""
+        if not hasattr(self, "btn_quick_create"): return
+
+        actions = getattr(self, "quick_create_actions", [])
+        
+        # Determine Color
+        color = "#555555" # Grey (Disabled)
+        if not actions:
+            color = "#555555"
+        elif len(actions) > 1:
+            color = "#FFFFFF" # White (Multi)
+        else:
+            # Single Action Colors
+            act = actions[0]
+            if act == "New Email": color = "#6fb7ff"      # Light Blue
+            elif act == "New Meeting": color = "#ffb366"  # Light Orange
+            elif act == "New Appointment": color = "#ffcc80" # Lighter Orange
+            elif act == "New Task": color = "#80e0a0"     # Light Green
+            
+        # Update Icon
+        try:
+            # 26x26 Size
+            if os.path.exists("icon2/plus.png"):
+                img = self.load_icon_colored("icon2/plus.png", size=(26, 26), color=color)
+                self.image_cache["quick_create"] = img
+                self.btn_quick_create.configure(image=img)
+        except: pass
+
+    def _execute_quick_action(self, action):
+        if action == "New Email": self.outlook_client.create_email()
+        elif action == "New Meeting": self.outlook_client.create_meeting()
+        elif action == "New Appointment": self.outlook_client.create_appointment()
+        elif action == "New Task": self.outlook_client.create_task()
 
 # --- Single Instance Logic (Mutex) ---
 
