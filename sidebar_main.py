@@ -26,7 +26,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.2.33"
+VERSION = "v1.3.0"
 
 
 # --- Windows API Constants & Structures ---
@@ -500,6 +500,45 @@ class OutlookClient:
                 self.namespace = None 
         
         return False
+
+    def get_unread_count(self, account_names=None, account_config=None):
+        """Returns total unread count from configured folders."""
+        total = 0
+        if not self.namespace: 
+            if not self.connect(): return 0
+            
+        for store in self._get_enabled_stores(account_names):
+            try:
+                folders_to_scan = []
+                # Check config
+                if account_config and store.DisplayName in account_config:
+                    conf = account_config[store.DisplayName]
+                    if "email_folders" in conf and conf["email_folders"]:
+                        for path in conf["email_folders"]:
+                            f = self.get_folder_by_path(store, path)
+                            if f: folders_to_scan.append(f)
+                
+                # Fallback to Inbox
+                if not folders_to_scan:
+                    try: folders_to_scan.append(store.GetDefaultFolder(6))
+                    except: pass
+                    
+                for f in folders_to_scan:
+                    try: total += f.UnReadItemCount
+                    except: pass
+            except: continue
+        return total
+
+    def get_folder_by_path(self, store, folder_path):
+        """Helper to navigate folder path string (e.g. 'Inbox/Subfolder')."""
+        try:
+            parts = folder_path.split("/")
+            curr = store.GetRootFolder()
+            for p in parts:
+                curr = curr.Folders[p]
+            return curr
+        except:
+            return None
 
     def get_calendar_items(self, start_dt, end_dt, account_names=None):
         """Fetches calendar items from all enabled accounts. Accepts datetime objects."""
@@ -1003,8 +1042,9 @@ class OutlookClient:
             print(f"Error creating task: {e}")
             return False
 
-    def check_due_items(self, account_names=None):
-        """Checks for items due today or overdue using safe Tables. Returns 'Overdue', 'Today', or None."""
+    def get_due_status(self, account_names=None):
+        """Checks for items due today or overdue. Returns dict {'tasks': status, 'calendar': status}."""
+        status = {"tasks": None, "calendar": None}
         if not self.namespace: self.connect()
         try:
             now = datetime.now()
@@ -1019,48 +1059,38 @@ class OutlookClient:
             for store in self._get_enabled_stores(account_names):
                 try:
                     # Check Tasks
-                    tasks = store.GetDefaultFolder(13)
-                    
-                    # Overdue check using Table
-                    # DASL filter for Table
-                    base_filter = "[Complete] = False"
-                    
-                    # Overdue
-                    overdue_filter = f"{base_filter} AND [DueDate] < '{today_str}'"
-                    try:
-                        t_over = tasks.GetTable(overdue_filter)
-                        if t_over.GetRowCount() > 0: return "Overdue"
-                    except: pass
+                    if status["tasks"] != "Overdue": # Optimization: Stop if worst case found
+                        tasks = store.GetDefaultFolder(13)
+                        base_filter = "[Complete] = False"
+                        
+                        # Overdue
+                        overdue_filter = f"{base_filter} AND [DueDate] < '{today_str}'"
+                        try:
+                            t_over = tasks.GetTable(overdue_filter)
+                            if t_over.GetRowCount() > 0: status["tasks"] = "Overdue"
+                        except: pass
 
-                    # Today
-                    today_filter = f"{base_filter} AND [DueDate] >= '{today_str}' AND [DueDate] < '{tom_str}'"
-                    try:
-                        t_today = tasks.GetTable(today_filter)
-                        if t_today.GetRowCount() > 0: return "Today"
-                    except: pass
+                        if status["tasks"] is None:
+                            # Today
+                            today_filter = f"{base_filter} AND [DueDate] >= '{today_str}' AND [DueDate] < '{tom_str}'"
+                            try:
+                                t_today = tasks.GetTable(today_filter)
+                                if t_today.GetRowCount() > 0: status["tasks"] = "Today"
+                            except: pass
                     
                     # Check Appointments (Today)
-                    # Use Calendar folder
-                    cal = store.GetDefaultFolder(9)
-                    # For Calendar, GetTable works but handling Recurrences is tricky with Tables.
-                    # However, GetTable DOES NOT expand recurrences by default.
-                    # But querying for "Today" is usually just a check.
-                    # Safest simple check is still GetTable, but we might miss recurrences.
-                    # Given 'Recurrences' expansion requires .Items.IncludeRecurrences which forces Item load...
-                    # We might skip Calendar Recurrence checks in background poll to be 100% safe,
-                    # OR we stick to basics. 
-                    # Let's use Table for basic appointments.
-                    
-                    cal_filter = f"[Start] >= '{today_str}' AND [Start] < '{tom_str}'"
-                    try:
-                        t_cal = cal.GetTable(cal_filter)
-                        if t_cal.GetRowCount() > 0: return "Today"
-                    except: pass
+                    if status["calendar"] is None:
+                        cal = store.GetDefaultFolder(9)
+                        cal_filter = f"[Start] >= '{today_str}' AND [Start] < '{tom_str}'"
+                        try:
+                            t_cal = cal.GetTable(cal_filter)
+                            if t_cal.GetRowCount() > 0: status["calendar"] = "Today"
+                        except: pass
 
                 except: continue
         except Exception as e:
             print(f"Error checking due items: {e}")
-        return None
+        return status
 
 
 
@@ -2844,7 +2874,7 @@ class SidebarWindow(tk.Tk):
 
         # --- Configuration ---
         self.min_width = 300  
-        self.hot_strip_width = 10
+        self.hot_strip_width = 16 # Customized
         self.expanded_width = 300
         self.is_pinned = True
         self.is_expanded = False
@@ -3059,7 +3089,8 @@ class SidebarWindow(tk.Tk):
         self.header.bind("<ButtonRelease-1>", self.stop_window_drag)
         
         # Title
-        self.lbl_title = tk.Label(self.header, text="Mail Mate", bg="#444444", fg="white", font=(self.font_family, 10, "bold"))
+        # Title
+        self.lbl_title = tk.Label(self.header, text="InboxBar", bg="#444444", fg="white", font=(self.font_family, 10, "bold"))
         self.lbl_title.pack(side="left", padx=10)
         self.lbl_title.bind("<Button-1>", self.start_window_drag)
         self.lbl_title.bind("<B1-Motion>", self.on_window_drag)
@@ -3260,9 +3291,9 @@ class SidebarWindow(tk.Tk):
         self.resize_grip.bind("<B1-Motion>", self.on_resize_drag)
         self.resize_grip.bind("<ButtonRelease-1>", self.on_resize_release)
 
-        # Hot Strip Visual overlay (only visible when collapsed)
+        # Hot Strip Visual overlay (only visible when collected)
         # We use a Canvas now to draw the animation
-        self.hot_strip_canvas = tk.Canvas(self.main_frame, bg="#007ACC", highlightthickness=0)
+        self.hot_strip_canvas = tk.Canvas(self.main_frame, bg="#444444", highlightthickness=0)
         
         # --- Events ---
         self.bind("<Enter>", self.on_enter)
@@ -3459,16 +3490,21 @@ class SidebarWindow(tk.Tk):
         
         pulse_triggered = False
 
-        # 1. Check New Mail
+        # 1. Check New Mail (For Refreshing List)
         has_new = self.outlook_client.check_new_mail(accounts)
         print(f"DEBUG: Check New Mail Result: {has_new}")
         
         if has_new:
              print("DEBUG: New mail detected! Refreshing...")
              self.refresh_emails()
-             # Trigger Pulse (Blue)
+        
+        # Check Total Unread for Pulse (State-based)
+        unread_count = self.outlook_client.get_unread_count(accounts, self.enabled_accounts)
+
+        # Trigger Pulse (Blue) if Unread > 0
+        if unread_count > 0:
              if not self.is_pinned and not self.is_expanded:
-                 print("DEBUG: Triggering BLUE Pulse")
+                 print("DEBUG: Triggering BLUE Pulse (Unread Items present)")
                  self.start_pulse("#0078D4")
                  pulse_triggered = True
         
@@ -4628,56 +4664,52 @@ class SidebarWindow(tk.Tk):
             self.appbar.abd.uEdge = new_edge
 
         if self.is_pinned:
-            # Pinned: Always Expanded, Always Reserved (Docked)
-            self.hot_strip_canvas.place_forget()
-            # Ensure header is at the top (before content)
-            self.header.pack(fill="x", side="top", before=self.paned_window)
-            # self.content_container.pack(expand=True, fill="both", padx=5, pady=5)  # Now managed by grid
-            
-            # Place grip on opposite side of dock
-            if self.dock_side == "Left":
-                self.resize_grip.place(relx=1.0, rely=0, anchor="ne", relheight=1.0)
-            else:
-                self.resize_grip.place(relx=0.0, rely=0, anchor="nw", relheight=1.0)
-            
-            self.appbar.register() # This will re-register on the new edge
-            # Use authoritative position from Windows to avoid gaps
-            x, y, w, h = self.appbar.set_pos(self.expanded_width, self.monitor_x, self.monitor_y, self.screen_width, self.screen_height)
-            self.geometry(f"{w}x{h}+{x}+{y}")
-            self.update_idletasks()
-            self.is_expanded = True
+            # Pinned: Reserve Full Width, Visual Full Width
+            mode = "PINNED"
+            reserve_w = self.expanded_width
+            visual_w = self.expanded_width
             
         elif self.is_expanded:
-            # Expanded (Hover): Broad width, BUT acts as OVERLAY (No docking/reservation)
-            self.hot_strip_canvas.place_forget()
-            # Ensure header is at the top (before content)
-            self.header.pack(fill="x", side="top", before=self.paned_window)
-            # For overlay mode, we still show the content
-            # self.content_container.pack(expand=True, fill="both", padx=5, pady=5)  # Now managed by grid
+            # Expanded/Overlay: Reserve Strip Width, Visual Full Width
+            # This allows the "Overlay" effect without losing the "Sneak Behind" protection for the strip.
+            mode = "OVERLAY"
+            reserve_w = self.hot_strip_width
+            visual_w = self.expanded_width
             
+        else:
+            # Collapsed: Reserve Strip Width, Visual Strip Width
+            mode = "COLLAPSED"
+            reserve_w = self.hot_strip_width
+            visual_w = self.hot_strip_width
+
+        # --- UI Management ---
+        if mode == "COLLAPSED":
+            # Hide internals
+            self.header.pack_forget()
+            self.resize_grip.place_forget()
+            # Show Hot Strip
+            self.hot_strip_canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
+        else:
+            # Show internals
+            self.hot_strip_canvas.place_forget()
+            self.header.pack(fill="x", side="top", before=self.paned_window)
+            
+            # Grip Placement
             if self.dock_side == "Left":
                 self.resize_grip.place(relx=1.0, rely=0, anchor="ne", relheight=1.0)
             else:
                 self.resize_grip.place(relx=0.0, rely=0, anchor="nw", relheight=1.0)
-            
-            # Unregister AppBar so we don't push other windows
-            self.appbar.unregister()
-            
-            self.set_geometry(self.expanded_width)
-            
-        else:
-            # Collapsed: Thin width, Overlay
-            self.appbar.unregister() # Release space
-            
-            # Hide internals to prevent squishing
-            self.header.pack_forget()
-            # self.content_container.pack_forget()  # Now managed by grid
-            self.resize_grip.place_forget()
-            
-            # Show Hot Strip
-            self.hot_strip_canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
-            
-            self.set_geometry(self.hot_strip_width)
+
+        # --- AppBar & Geometry ---
+        self.appbar.register() # Ensure always registered
+        
+        # 1. Set Reservation (This keeps other windows away from at least the strip)
+        # Note: In Overlay mode, we only reserve the strip width, so we draw OVER other windows 
+        # but they still respect the base strip edge.
+        self.appbar.set_pos(reserve_w, self.monitor_x, self.monitor_y, self.screen_width, self.screen_height)
+        
+        # 2. Set Visual Geometry (Can be larger than reservation)
+        self.set_geometry(visual_w)
 
     def on_resize_drag(self, event):
         if self.is_pinned or self.is_expanded:
@@ -4712,7 +4744,7 @@ class SidebarWindow(tk.Tk):
         wx, wy, ww, wh = monitor_info['work']
         
         # Determine Reference Geometry
-        if self.is_pinned and self.appbar.registered:
+        if self.appbar.registered:
             # Use the registered AppBar position (system adjusted)
             rect = self.appbar.abd.rc
             x = rect.left
@@ -4722,7 +4754,7 @@ class SidebarWindow(tk.Tk):
             if self.dock_side == "Right":
                  x = rect.right - width
         else:
-            # Unpinned / Overlay Mode
+            # Unpinned / Overlay Mode (Only if registration failed or deliberately unregistered)
             # Use Work Area for Height/Y to respect Taskbar
             y = wy
             h = wh
@@ -4869,16 +4901,73 @@ class SidebarWindow(tk.Tk):
         # Re-apply state which will snap to monitor edge and re-register
         self.apply_state()
 
+    # --- Polling Control ---
+    def start_polling(self):
+        """Starts the background polling loop."""
+        self.check_updates()
 
-    def start_pulse(self, color):
-        """Starts the hot strip pulsing animation."""
-        if self.is_pinned or self.is_expanded: return # Don't pulse if open
+    def check_updates(self):
+        """Threaded (or scheduled) update check."""
+        try:
+            self._perform_check()
+        except Exception as e:
+            print(f"Polling error: {e}")
         
-        self.pulse_active = True
-        self.pulse_color = color
-        self.pulse_step = 0
-        if not getattr(self, "pulse_timer", None):
-            self.animate_pulse()
+        # Schedule next poll
+        interval = getattr(self, "poll_interval", 15) * 1000
+        self.after(interval, self.check_updates)
+
+    def _perform_check(self):
+        """Actual check logic."""
+        accounts = None
+        if self.enabled_accounts:
+            accounts = list(self.enabled_accounts.keys())
+
+        # 1. Check New Mail (For Refreshing List)
+        has_new = self.outlook_client.check_new_mail(accounts)
+        if has_new:
+             print("DEBUG: Refreshing emails...")
+             self.refresh_emails()
+        
+        # 2. Gather Statuses for Pulse
+        unread_count = self.outlook_client.get_unread_count(accounts, self.enabled_accounts)
+        due_status = self.outlook_client.get_due_status(accounts) # Returns dict
+
+        active_colors = []
+        
+        # Priority 1: Unread Mail (Blue)
+        if unread_count > 0:
+            active_colors.append("#0078D4")
+
+        # Priority 2: Meetings (Orange)
+        if due_status["calendar"] == "Today":
+            active_colors.append("#E68D49") # Soft Orange
+            
+        # Priority 3: Tasks (Green)
+        if due_status["tasks"] in ["Overdue", "Today"]:
+            active_colors.append("#28C745") # Bright Green
+            
+        # Trigger Pulse if needed
+        if active_colors and not self.is_pinned and not self.is_expanded:
+            self.start_pulse(active_colors)
+        elif not active_colors:
+            self.stop_pulse()
+
+    def start_pulse(self, colors):
+        """Starts the hot strip pulsing animation with a list of colors."""
+        if self.is_pinned or self.is_expanded: return 
+        
+        # Ensure colors is a list
+        if isinstance(colors, str): colors = [colors]
+        
+        # Update colors if already running
+        self.pulse_colors = colors
+        
+        if not self.pulse_active:
+            self.pulse_active = True
+            self.pulse_step = 0
+            if not getattr(self, "pulse_timer", None):
+                self.animate_pulse()
 
     def stop_pulse(self):
         """Stops the pulsing animation."""
@@ -4893,40 +4982,94 @@ class SidebarWindow(tk.Tk):
             self.hot_strip_canvas.delete("pulse_center")
 
     def animate_pulse(self):
-        """Animating loop for pulse."""
-        if not self.pulse_active: return
+        """Animating loop for pulse: Stacked, Fixed Height, Fading Opacity."""
+        if not self.pulse_active or not getattr(self, "pulse_colors", None): 
+            self.stop_pulse()
+            return
         
-        # Pulse Center Indicator
-        step = self.pulse_step % 40
-        opacity = step if step <= 20 else 40 - step # 0 to 20
+        cycle_len = 40
+        colors = self.pulse_colors
+        num_colors = len(colors)
         
-        # Height variation: 10 to 50
-        h = 10 + (opacity * 2) 
-        
-        w = self.hot_strip_width
-        center_y = self.winfo_height() // 2
+        # Calculate Opacity/Brightness Step (0 to 1.0)
+        local_step = self.pulse_step % cycle_len
+        # Triangle wave: 0 -> 20 (1.0) -> 40 (0)
+        scale = local_step if local_step <= (cycle_len // 2) else (cycle_len - local_step)
+        # Normalize to 0.2 - 1.0 range (Never fully invisible)
+        brightness = 0.3 + (0.7 * (scale / 20.0)) 
         
         self.hot_strip_canvas.delete("pulse_center")
-        self.hot_strip_canvas.create_rectangle(
-            0, center_y - (h // 2),
-            w, center_y + (h // 2),
-            fill=self.pulse_color,
-            outline="",
-            tags="pulse_center"
-        )
+        
+        # Geometry
+        item_h = 110 # Fixed height (Reduced from 150)
+        w = self.hot_strip_width
+        
+        # Calculate total stack height
+        total_h = num_colors * item_h + ((num_colors - 1) * 12) # Include Gaps
+        start_y = (self.winfo_height() // 2) - (total_h // 2)
+        
+        for i, hex_color in enumerate(colors):
+            y1 = start_y + (i * item_h) + (i * 12) # Gap of 12px
+            y2 = y1 + item_h
+            
+            # Interpolate Color for "Fading" effect
+            faded_color = self.adjust_color_brightness(hex_color, brightness)
+            
+            self.hot_strip_canvas.create_rectangle(
+                0, y1, w, y2,
+                fill=faded_color,
+                outline="",
+                tags="pulse_center"
+            )
         
         self.pulse_step += 1
-        self.pulse_timer = self.after(50, self.animate_pulse)
+        # Previous was 15ms. 10% slower = ~17ms.
+        self.pulse_timer = self.after(17, self.animate_pulse)
+
+    def adjust_color_brightness(self, hex_color, factor):
+        """Dim a hex color by factor (0.0 to 1.0). Simulates opacity over dark bg."""
+        # Parse Hex
+        if not hex_color.startswith("#"): return hex_color
+        r = int(hex_color[1:3], 16)
+        g = int(hex_color[3:5], 16)
+        b = int(hex_color[5:7], 16)
+        
+        # Interpolate towards background (#444444 approx rgb(68,68,68))
+        # Or just dim towards black if we want "pulsing off"
+        # User said "pulsing off", usually implies fading out. 
+        # Fading to black is easiest. Fading to BG #444444 is "opacity".
+        bg_r, bg_g, bg_b = 68, 68, 68
+        
+        # Linear interpolation
+        nr = int(bg_r + (r - bg_r) * factor)
+        ng = int(bg_g + (g - bg_g) * factor)
+        nb = int(bg_b + (b - bg_b) * factor)
+        
+        # Clamp
+        nr = max(0, min(255, nr))
+        ng = max(0, min(255, ng))
+        nb = max(0, min(255, nb))
+        
+        return f"#{nr:02x}{ng:02x}{nb:02x}"
 
     def on_enter(self, event):
-        # Stop pulsing on interaction
-        self.stop_pulse()
+        # Note: We do NOT stop pulsing here anymore. 
+        # We want it to keep pulsing until we actually expand.
         
         if self._collapse_timer:
             self.after_cancel(self._collapse_timer)
             self._collapse_timer = None
         
         if not self.is_pinned and not self.is_expanded:
+            # Start hover timer (0.75s delay)
+            if not self._hover_timer:
+                self._hover_timer = self.after(750, self.do_expand)
+
+    def do_expand(self):
+        """Actually expands the sidebar after delay."""
+        self._hover_timer = None
+        if not self.is_pinned and not self.is_expanded:
+            self.stop_pulse() # Stop pulse only when genuinely opening
             self.is_expanded = True
             self.apply_state() # Expand and reserve space
 
@@ -4937,11 +5080,17 @@ class SidebarWindow(tk.Tk):
         widget_under_mouse = self.winfo_containing(x, y)
         
         # If we are really outside the window
-        if not self.is_pinned and self.is_expanded:
-             # Delay collapse
-             if self._collapse_timer:
-                 self.after_cancel(self._collapse_timer)
-             self._collapse_timer = self.after(self.hover_delay, self.do_collapse)
+        if not self.is_pinned:
+            # Cancel potential expand timer if we left quickly (mouse-over between screens)
+            if self._hover_timer:
+                self.after_cancel(self._hover_timer)
+                self._hover_timer = None
+                
+            if self.is_expanded:
+                 # Delay collapse
+                 if self._collapse_timer:
+                     self.after_cancel(self._collapse_timer)
+                 self._collapse_timer = self.after(self.hover_delay, self.do_collapse)
 
     def on_motion(self, event):
         # Reset collapse timer if moving inside
@@ -5195,7 +5344,7 @@ if __name__ == "__main__":
     if app_instance.already_running():
         # Optional: Bring existing window to front (Requires FindWindow/SetForegroundWindow logic)
         # For now, just exit silently or print
-        # messagebox.showinfo("Outlook Sidebar", "The application is already running.")
+        # messagebox.showinfo("InboxBar", "The application is already running.")
         sys.exit(0)
 
     # Keep the mutex handle alive for the duration of the app

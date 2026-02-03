@@ -17,7 +17,7 @@ def create_shortcut():
     try:
         shell = win32com.client.Dispatch("WScript.Shell")
         desktop = shell.SpecialFolders("Desktop")
-        path = os.path.join(desktop, "Outlook Monitor.lnk")
+        path = os.path.join(desktop, "InboxBar.lnk")
         
         # Target: pythonw.exe (no console) executing sidebar_main.py
         # We need absolute path to pythonw and the script
@@ -32,7 +32,7 @@ def create_shortcut():
         shortcut.Arguments = '"{}"'.format(script_path)
         shortcut.WorkingDirectory = working_dir
         shortcut.IconLocation = icon_path
-        shortcut.Description = "Outlook Monitor Sidebar"
+        shortcut.Description = "InboxBar"
         shortcut.Save()
         
         print("Shortcut created at: {}".format(path))
