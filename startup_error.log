@@ -1,0 +1,9 @@
+Startup Error: 'ascii' codec can't decode byte 0xe2 in position 0: ordinal not in range(128)
+Traceback (most recent call last):
+  File "sidebar_main.py", line 5359, in <module>
+    app = SidebarWindow()
+  File "sidebar_main.py", line 3343, in __init__
+    self.refresh_emails()
+  File "sidebar_main.py", line 4093, in refresh_emails
+    sender_text = "● " + sender_text # Add indicator dot
+UnicodeDecodeError: 'ascii' codec can't decode byte 0xe2 in position 0: ordinal not in range(128)

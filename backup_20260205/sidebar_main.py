@@ -1,15 +1,12 @@
 # -*- coding: utf-8 -*-
 try:
-    # Python 2
-    import Tkinter as tk
-    import ttk
-    import tkMessageBox as messagebox
-except ImportError:
-    # Python 3
     import tkinter as tk
     from tkinter import ttk
     from tkinter import messagebox
-
+except ImportError:
+    import Tkinter as tk
+    import ttk
+    import tkMessageBox as messagebox
 import ctypes
 from ctypes import wintypes
 import time
@@ -21,15 +18,8 @@ import win32con
 import re
 import math # Added for animation
 import glob
-# from tkinter import messagebox (handled above)
-from PIL import Image, ImageTk, ImageDraw
-try:
-    # Pillow 10+
-    RESAMPLE_MODE = Image.Resampling.LANCZOS
-except AttributeError:
-    # Older Pillow
-    RESAMPLE_MODE = Image.ANTIALIAS
 
+from PIL import Image, ImageTk, ImageDraw
 from datetime import datetime, timedelta
 
 # --- Store Compatibility Imports ---
@@ -155,7 +145,7 @@ class ScrollableFrame(tk.Frame):
     A scrollable frame that can contain multiple email cards.
     """
     def __init__(self, container, *args, **kwargs):
-        tk.Frame.__init__(self, container, *args, **kwargs)
+        super().__init__(container, *args, **kwargs)
         self.canvas = tk.Canvas(self, bg=kwargs.get("bg", "#222222"), highlightthickness=0)
         self.scrollable_frame = tk.Frame(self.canvas, bg=kwargs.get("bg", "#222222"))
 
@@ -559,10 +549,8 @@ class OutlookClient:
     def get_calendar_items(self, start_dt, end_dt, account_names=None):
         """Fetches calendar items from all enabled accounts. Accepts datetime objects."""
         # Print Debug Log
-        # Print Debug Log
         try:
-             # print("DEBUG: Calendar Query: {} to {}".format(start_dt, end_dt))
-             pass
+             print("DEBUG: Calendar Query: {} to {}".format(start_dt, end_dt))
         except: pass
 
         for attempt in range(2):
@@ -749,14 +737,7 @@ class OutlookClient:
                         continue
                         
                 # Sort merged results by ReceivedTime (Descending)
-                # Sort merged results by ReceivedTime (Descending)
-                def sort_key(x):
-                    dt = x.get("received_dt")
-                    if dt:
-                        return dt
-                    return datetime.min
-
-                all_items.sort(key=sort_key, reverse=True)
+                all_items.sort(key=lambda x: x["received_dt"].timestamp() if x["received_dt"] else 0, reverse=True)
                 
                 return all_items[:count], total_unread_count
                 
@@ -844,42 +825,19 @@ class OutlookClient:
             
             try:
                 vals = row.GetValues()
-                
                 item_data = {}
-                if vals:
-                     if len(vals) != len(active_cols):
-                         # Attempt to map anyway up to min length
-                         limit = min(len(vals), len(active_cols))
-                         for i in range(limit):
-                             item_data[active_cols[i]] = vals[i]
-                     else:
-                        for i, col_name in enumerate(active_cols):
-                            item_data[col_name] = vals[i]
+                if vals and len(vals) == len(active_cols):
+                    for i, col_name in enumerate(active_cols):
+                        item_data[col_name] = vals[i]
                 
                 # Normalize Data
                 received_dt = item_data.get("ReceivedTime")
-                received_str = ""
                 if received_dt:
-                    try:
-                        # PyTime compatible conversion
-                        if hasattr(received_dt, "strftime"):
-                            received_str = received_dt.strftime("%d/%m %H:%M")
-                        else:
-                            # Fallback for PyTime objects (Python 2.7 win32com)
-                            # Casting to str normally gives "YYYY-MM-DD HH:MM:SS..."
-                            # Or convert to datetime via timestamp if available, or just explicit construction
-                            try:
-                                # Start can be accessed via .year, .month etc if it's PyTime
-                                d = datetime(received_dt.year, received_dt.month, received_dt.day, received_dt.hour, received_dt.minute, received_dt.second)
-                                received_str = d.strftime("%d/%m %H:%M")
-                                # Replace the PyTime object with the python datetime object for later use
-                                item_data["ReceivedTime"] = d
-                            except:
-                                received_str = str(received_dt)[:16] # Fallback
-                                
-                    except Exception as e:
-                        print("DEBUG: Date conversion error: {}".format(e))
-                        received_str = str(received_dt)
+                    received_str = received_dt.strftime("%d/%m %H:%M")
+                    # Handle Timezone offset if needed (naive vs aware)
+                    # For now keep as is
+                else:
+                    received_str = ""
                     
                 entry_id = item_data.get("EntryID")
                 
@@ -901,8 +859,7 @@ class OutlookClient:
                     "account": store.DisplayName
                 }
                 results.append(res)
-            except Exception as e:
-                print("DEBUG: Row processing error: {}".format(e))
+            except:
                 continue
                 
         return results
@@ -1145,7 +1102,7 @@ class OutlookClient:
 
 class FolderPickerFrame(tk.Frame):
     def __init__(self, parent, folders, callback, on_cancel, selected_paths=None):
-        tk.Frame.__init__(self, parent)
+        super().__init__(parent)
         self.callback = callback
         self.on_cancel = on_cancel
         self.folders = folders
@@ -1264,7 +1221,7 @@ class FolderPickerFrame(tk.Frame):
 
 class FolderPickerWindow(tk.Toplevel):
     def __init__(self, parent, folders, callback, selected_paths=None):
-        tk.Toplevel.__init__(self, parent)
+        super().__init__(parent)
         self.callback = callback
         self.title("Select Folders")
         self.overrideredirect(True) 
@@ -1308,7 +1265,7 @@ class FolderPickerWindow(tk.Toplevel):
 
 class AccountSelectionUI(tk.Frame):
     def __init__(self, parent, accounts, current_enabled, folder_selector, bg_color="#202020"):
-        tk.Frame.__init__(self, parent, bg=bg_color)
+        super().__init__(parent, bg=bg_color)
         self.accounts = accounts
         self.current_enabled = current_enabled or {}
         self.folder_selector = folder_selector # Function(account, on_selected_callback)
@@ -1339,7 +1296,7 @@ class AccountSelectionUI(tk.Frame):
         if os.path.exists("icon2/close-window.png"):
              try:
                 pil_img = Image.open("icon2/close-window.png").convert("RGBA")
-                pil_img = pil_img.resize((20, 20), RESAMPLE_MODE)
+                pil_img = pil_img.resize((20, 20), Image.Resampling.LANCZOS)
                 self.close_icon = ImageTk.PhotoImage(pil_img)
                 btn_close = tk.Label(header, image=self.close_icon, bg=self.colors["bg"], cursor="hand2")
              except:
@@ -1436,7 +1393,7 @@ class AccountSelectionUI(tk.Frame):
 
 class AccountSelectionDialog(tk.Toplevel):
     def __init__(self, parent, accounts, current_enabled, callback):
-        tk.Toplevel.__init__(self, parent)
+        super().__init__(parent)
         self.callback = callback
         self.colors = {
             "bg": "#202020", "fg": "#FFFFFF", "accent": "#60CDFF"
@@ -1532,7 +1489,7 @@ class AccountSelectionDialog(tk.Toplevel):
 class SettingsPanel(tk.Frame):
     """Inline settings panel that extends from the sidebar."""
     def __init__(self, parent, main_window, callback):
-        tk.Frame.__init__(self, parent, bg="#202020")
+        super().__init__(parent, bg="#202020")
         self.main_window = main_window
         self.callback = callback
         
@@ -1966,8 +1923,6 @@ class SettingsPanel(tk.Frame):
 
         # === Button Configuration Table (Restored Original) ===
         # --- Button Configuration Table ---
-        create_section_header(main_content, "Hover Buttons")
-        
         container = tk.Frame(main_content, bg=self.colors["bg_root"], pady=12)
         container.pack(fill="x", expand=False, padx=(2, 20))  # 2px left padding
         
@@ -2025,27 +1980,6 @@ class SettingsPanel(tk.Frame):
             cb_act1.set(c_data.get("action1", "None")) 
             cb_act1.grid(row=i+1, column=1, padx=8, pady=5, ipady=1)
             
-            # 3. Folder Picker UI (Entry + Button) - Shifted to Column 2
-            f_frame = tk.Frame(container, bg=self.colors["bg_root"])
-            f_frame.grid(row=i+1, column=2, padx=8, pady=5)
-            
-            e_folder = ttk.Entry(f_frame, width=15, font=("Segoe UI", 10))
-            e_folder.insert(0, c_data.get("folder", ""))
-            e_folder.pack(side="left", ipady=1)
-            e_folder.bind("<FocusOut>", lambda e: self.update_button_config())
-
-            # Picker Button
-            btn_pick = tk.Label(f_frame, text="...", bg=self.colors["bg_card"], fg="white", font=("Segoe UI", 8), width=3, cursor="hand2")
-            btn_pick.pack(side="left", padx=(5,0), fill="y")
-            
-            # Bind picker
-            def open_picker(event, entry=e_folder):
-                folders = self.main_window.outlook_client.get_folder_list()
-                FolderPickerWindow(self, folders if folders else ["Inbox"], 
-                                   lambda path: (entry.delete(0, tk.END), entry.insert(0, path), self.update_button_config()))
-
-            btn_pick.bind("<Button-1>", open_picker)
-            
             # Helper to update icon display based on action
             def update_icon_display(action_widget, icon_label, row_idx):
                 action = action_widget.get()
@@ -2077,32 +2011,43 @@ class SettingsPanel(tk.Frame):
                 if len(self.rows_data) > row_idx:
                     self.rows_data[row_idx]["icon_val"] = new_icon
 
-            # Helper for visibility
-            def update_folder_visibility(action_widget, folder_frame):
-                 if action_widget.get() == "Move To...":
-                      folder_frame.grid()
-                 else:
-                      folder_frame.grid_remove()
-
             # Auto-update Handler
-            def on_action_change(event, act_cb=cb_act1, icon_lbl=lbl_icon, idx=i, f_frm=f_frame):
+            def on_action_change(event, act_cb=cb_act1, icon_lbl=lbl_icon, idx=i):
                  update_icon_display(act_cb, icon_lbl, idx)
-                 update_folder_visibility(act_cb, f_frm)
                  self.refresh_dropdown_options() # Enforce uniqueness
                  self.update_button_config()  # Apply changes immediately
             
             cb_act1.bind("<<ComboboxSelected>>", on_action_change)
             
+            # 3. Folder Picker UI (Entry + Button) - Shifted to Column 2
+            f_frame = tk.Frame(container, bg=self.colors["bg_root"])
+            f_frame.grid(row=i+1, column=2, padx=8, pady=5)
+            
+            e_folder = ttk.Entry(f_frame, width=15, font=("Segoe UI", 10))
+            e_folder.insert(0, c_data.get("folder", ""))
+            e_folder.pack(side="left", ipady=1)
+            e_folder.bind("<FocusOut>", lambda e: self.update_button_config())
+
+            # Picker Button
+            btn_pick = tk.Label(f_frame, text="...", bg=self.colors["bg_card"], fg="white", font=("Segoe UI", 8), width=3, cursor="hand2")
+            btn_pick.pack(side="left", padx=(5,0), fill="y")
+            
+            # Bind picker
+            def open_picker(event, entry=e_folder):
+                folders = self.main_window.outlook_client.get_folder_list()
+                FolderPickerWindow(self, folders if folders else ["Inbox"], 
+                                   lambda path: (entry.delete(0, tk.END), entry.insert(0, path), self.update_button_config()))
+
+            btn_pick.bind("<Button-1>", open_picker)
+
             self.rows_data.append({
                 "icon_val": current_icon_val, # Store value directly
                 "act1": cb_act1,
-                "folder": e_folder,
-                "folder_frame": f_frame
+                "folder": e_folder
             })
             
             # Trigger initial display update manually
             update_icon_display(cb_act1, lbl_icon, i)
-            update_folder_visibility(cb_act1, f_frame)
             
         # Initial Refresh of Options
         self.refresh_dropdown_options()
@@ -2914,157 +2859,6 @@ class SettingsPanel(tk.Frame):
         """Close the settings panel."""
         self.main_window.toggle_settings_panel()
         
-class HelpPanel(tk.Frame):
-    """Inline help panel that extends from the sidebar."""
-    def __init__(self, parent, main_window):
-        tk.Frame.__init__(self, parent, bg="#202020")
-        self.main_window = main_window
-        
-        # --- Windows 11 Dark Theme ---
-        self.colors = {
-            "bg_root": "#202020",       # Deep Dark
-            "bg_card": "#2D2D30",       # Input BG
-            "accent": "#60CDFF",        # Win11 Blue
-            "fg_text": "#FFFFFF",
-            "fg_dim": "#A0A0A0",
-        }
-        
-        # Frame styling
-        self.config(bg=self.colors["bg_root"])
-        self.configure(highlightbackground="#444444", highlightthickness=1)
-        
-        # Fixed width matches Settings
-        self.panel_width = 370
-        self.config(width=self.panel_width)
-        self.pack_propagate(False)
-        
-        # --- Header ---
-        header = tk.Frame(self, bg=self.colors["bg_root"], height=40)
-        header.pack(fill="x", side="top")
-        
-        lbl_title = tk.Label(header, text="Instructions", fg=self.colors["fg_text"], bg=self.colors["bg_root"], font=("Segoe UI Variable Display", 12, "bold"))
-        lbl_title.pack(side="left", padx=20, pady=10)
-        
-        title_underline = tk.Frame(self, bg=self.colors["accent"], height=2)
-        title_underline.pack(fill="x", side="top")
-        
-        # Close Button
-        btn_close = tk.Label(header, text="✕", fg="#FF4444", bg=self.colors["bg_root"], font=("Arial", 14, "bold"), cursor="hand2")
-        btn_close.pack(side="right", padx=10)
-        btn_close.bind("<Button-1>", lambda e: self.main_window.toggle_help_panel())
-
-        # --- Scrollable Container ---
-        self.scroll_frame = ScrollableFrame(self, bg=self.colors["bg_root"])
-        self.scroll_frame.pack(fill="both", expand=True, padx=2, pady=2)
-        
-        main_content = self.scroll_frame.scrollable_frame
-        main_content.config(bg=self.colors["bg_root"])
-
-        # --- Content Sections ---
-        
-        # Image cache to prevent GC
-        self.help_images = []
-
-        def create_text_section(parent, header, text, image_path=None):
-            frame = tk.Frame(parent, bg=self.colors["bg_root"])
-            frame.pack(fill="x", anchor="w", padx=15, pady=10)
-            
-            # Header
-            tk.Label(frame, text=header, fg=self.colors["accent"], bg=self.colors["bg_root"], 
-                     font=("Segoe UI", 11, "bold")).pack(anchor="w")
-            
-            # Text
-            tk.Label(frame, text=text, fg="#DDDDDD", bg=self.colors["bg_root"], 
-                     font=("Segoe UI", 9), justify="left", wraplength=320).pack(anchor="w", pady=(5, 5))
-            
-            # Image Loading
-            if image_path:
-                 full_path = os.path.join("images", image_path)
-                 if os.path.exists(full_path):
-                     try:
-                         # Load + Resize
-                         pil_img = Image.open(full_path)
-                         
-                         # Calculate resize (Max width 320)
-                         w_orig, h_orig = pil_img.size
-                         max_w = 320
-                         if w_orig > max_w:
-                             ratio = float(max_w) / w_orig
-                             new_h = int(h_orig * ratio)
-                             pil_img = pil_img.resize((max_w, new_h), RESAMPLE_MODE)
-                         
-                         tk_img = ImageTk.PhotoImage(pil_img)
-                         
-                         # Cache it!
-                         self.help_images.append(tk_img)
-                         
-                         img_lbl = tk.Label(frame, image=tk_img, bg=self.colors["bg_root"], bd=1, relief="solid")
-                         img_lbl.pack(anchor="w", pady=5)
-                         
-                     except Exception as e:
-                         print("Error loading help image {}: {}".format(full_path, e))
-                         # Fallback to placeholder text
-                         ph = tk.Canvas(frame, bg="#333333", height=100, highlightthickness=0)
-                         ph.pack(fill="x", pady=5)
-                         ph.create_text(160, 50, text="FAILED TO LOAD:\n{}".format(image_path), fill="#FF4444", font=("Segoe UI", 8), justify="center")
-                 else:
-                     # Placeholder for missing file
-                     ph = tk.Canvas(frame, bg="#333333", height=100, highlightthickness=0)
-                     ph.pack(fill="x", pady=5)
-                     ph.create_text(160, 50, text="MISSING FILE:\n{}".format(image_path), fill="#666666", font=("Segoe UI", 8), justify="center")
-
-        # 1. Introduction
-        create_text_section(main_content, "Welcome to Outlook Sidebar", 
-            "A streamlined, distraction-free interface for your Outlook emails, calendar, and tasks. It sits quietly on the edge of your screen, keeping you updated without the clutter of the full Outlook window.")
-
-        # 2. The Header (Top Bar)
-        create_text_section(main_content, "The Header",
-            "The top bar gives you quick access to essential controls: Pin/Unpin the window, open Settings, Refresh data, or Share.",
-            "Top Bar.png")
-
-        # 3. Window Modes
-        create_text_section(main_content, "Window Modes", 
-            "Choose between 'Email Only' for a compact view, or 'Emails & Reminders' to see your upcoming schedule and tasks side-by-side.", 
-            "Window Selection.png")
-
-        # 4. General Settings
-        create_text_section(main_content, "General Settings",
-            "Customize the Look & Feel. Adjust the Font Family, Font Size, and how often the data refreshes.",
-            "General Settings.png")
-
-        # 5. Email List Settings
-        create_text_section(main_content, "Email List Settings",
-            "Control what you see. Toggle 'Read' emails, attachment icons, and even preview message content directly in the list.",
-            "Email Settings.png")
-
-        # 6. Quick Actions (Hover)
-        create_text_section(main_content, "Quick Actions", 
-            "Hover over any email to reveal quick actions like Reply, Delete, or Mark as Read.",
-            "Hover Buttons.png")
-
-        # 7. Customizing Buttons
-        create_text_section(main_content, "Customizing Buttons", 
-            "In Settings, assign different actions to the four quick-action slots. You can even set a button to 'Move To Folder' for one-click filing.",
-            "Hover Button Settings.png")
-
-        # 8. Reminders & Flags
-        create_text_section(main_content, "Reminders & Flags", 
-            "The Reminders pane shows flagged emails and Outlook Tasks. Use the filter options (Today, Tomorrow, Overdue) to focus on what's important now.",
-            "Flagged_Reminders Window.png")
-
-        create_text_section(main_content, "Reminder Settings",
-            "Choose which reminders appear. You can filter by Follow-up Flags, Categories, or Importance.",
-            "Reminder Settings.png")
-
-        # 9. Quick Create
-        create_text_section(main_content, "Quick Create", 
-            "Use the icons at the bottom of the sidebar to instantly create new items. You can customize which actions appear here.",
-            "Bottom Bar.png")
-
-        create_text_section(main_content, "Quick Create Settings",
-            "Select which creations you use most. \n\nNOTE: If only one option is selected (e.g., 'New Email'), the Quick Create button will immediately launch that action instead of showing a selection menu.",
-            "Quick Create Settings.png")
-        
     def open_account_selection(self):
         """Opens the account selection dialog."""
         accounts = self.main_window.outlook_client.get_accounts()
@@ -3082,7 +2876,7 @@ class HelpPanel(tk.Frame):
 
 class SidebarWindow(tk.Tk):
     def __init__(self):
-        tk.Tk.__init__(self)
+        super().__init__()
 
         # --- Configuration ---
         self.min_width = 300  
@@ -3165,9 +2959,6 @@ class SidebarWindow(tk.Tk):
         self.buttons_on_hover = True
         self.email_double_click = True
         
-        self.help_panel = None
-        self.help_panel_open = False
-        
         # Account Settings
         self.enabled_accounts = {} # {"Name": {"email": True, "calendar": True}}
         
@@ -3246,6 +3037,9 @@ class SidebarWindow(tk.Tk):
                     self.btn_close = tk.Label(self.footer, image=img, bg="#444444", cursor="hand2")
                 else: 
                      raise Exception("Load failed")
+             except Exception as e:
+                print("Error loading Close icon: {}".format(e))
+                self.btn_close = tk.Label(self.footer, text="✕", bg="#444444", fg="#FF4444", font=("Arial", 14, "bold"), cursor="hand2")
              except Exception as e:
                 print("Error loading Close icon: {}".format(e))
                 self.btn_close = tk.Label(self.footer, text="✕", bg="#444444", fg="#aaaaaa", font=("Arial", 12), cursor="hand2")
@@ -3350,8 +3144,6 @@ class SidebarWindow(tk.Tk):
                 img = self.load_icon_colored("icon2/spanner.png", size=(22, 22), color="#FFFFFF")
                 self.image_cache["settings_header"] = img
                 self.btn_settings = tk.Label(self.header, image=img, bg="#444444", cursor="hand2")
-        
-
             except Exception as e:
                  print("Error loading Spanner icon: {}".format(e))
                  self.btn_settings = tk.Label(self.header, text="⚙", bg="#444444", fg="#aaaaaa", font=(self.font_family, 12), cursor="hand2")
@@ -3359,12 +3151,6 @@ class SidebarWindow(tk.Tk):
             self.btn_settings = tk.Label(self.header, text="⚙", bg="#444444", fg="#aaaaaa", font=(self.font_family, 12), cursor="hand2")
         self.btn_settings.pack(side="right", padx=5)
         self.btn_settings.bind("<Button-1>", lambda e: self.open_settings())
-
-        # Help Button (?)
-        self.btn_help = tk.Label(self.header, text="?", bg="#444444", fg="#AAAAAA", font=("Segoe UI", 14, "bold"), cursor="hand2")
-        self.btn_help.pack(side="right", padx=(5, 5), pady=5)
-        self.btn_help.bind("<Button-1>", lambda e: self.toggle_help_panel())
-        ToolTip(self.btn_help, "Instructions")
 
         # Refresh Button
         if os.path.exists("icon2/refresh.png"):
@@ -3399,6 +3185,37 @@ class SidebarWindow(tk.Tk):
         self.btn_share.pack(side="right", padx=5)
         # No action yet, just tooltip
         ToolTip(self.btn_share, "Sharing not available yet")
+
+        # Help Button (?)
+        self.btn_help = tk.Label(self.header, text="?", bg="#444444", fg="#aaaaaa", font=(self.font_family, 12, "bold"), cursor="hand2")
+        self.btn_help.pack(side="right", padx=5)
+        self.btn_help.bind("<Button-1>", lambda e: self.open_help_page())
+        ToolTip(self.btn_help, "Open User Guide")
+
+    def open_help_page(self):
+        """Opens the User Guide file."""
+        try:
+            # Robustly resolve path relative to this script
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            help_file = os.path.join(base_dir, "USER_GUIDE.md")
+            
+            if os.path.exists(help_file):
+                os.startfile(help_file)
+            else:
+                print("User Guide not found at {}".format(help_file))
+                # Try simple filename as fallback
+                if os.path.exists("USER_GUIDE.md"):
+                    os.startfile("USER_GUIDE.md")
+                else:
+                    # Alert user if not found
+                    try:
+                        user32.MessageBoxW(0, "Could not find Help file at:\n{}".format(help_file), "Help File Missing", 0x10)
+                    except: pass
+        except Exception as e:
+            print("Error opening help file: {}".format(e))
+            try:
+                user32.MessageBoxW(0, "Error opening Help:\n{}".format(e), "Error", 0x10)
+            except: pass
 
         # Content Area - Using PanedWindow for draggable resizing
         # Replaces grid_container
@@ -3530,6 +3347,24 @@ class SidebarWindow(tk.Tk):
         # Start Background Polling
         self.start_polling()
 
+        # First Run Check: If no accounts configured, open selection overlay
+        if not self.enabled_accounts:
+            # Delay slightly longer to ensure window is ready/mapped
+            self.after(2000, self._auto_open_accounts)
+
+    def _auto_open_accounts(self):
+        try:
+            # Ensure Outlook is ready
+            if self.outlook_client:
+                # Silent check first
+                accounts = self.outlook_client.get_accounts()
+                if accounts:
+                    self.toggle_account_selection()
+                else:
+                    print("Skipping auto-open: No Outlook accounts found yet.")
+        except Exception as e:
+            print("Error in auto-open: {}".format(e))
+
     def quit_application(self):
         """Terminates the application."""
         self.destroy()
@@ -3543,10 +3378,6 @@ class SidebarWindow(tk.Tk):
 
     def toggle_settings_panel(self):
         """Show or hide the settings panel alongside the email list."""
-        # Ensure Help panel is closed
-        if self.help_panel_open:
-             self.toggle_help_panel()
-
         if self.settings_panel_open:
             # Close the panel
             if self.settings_panel:
@@ -3574,45 +3405,8 @@ class SidebarWindow(tk.Tk):
             self.settings_panel.pack(side="left", fill="y")
             self.settings_panel_open = True
             
-            # Expand window by exactly +370px (Updated width)
-            new_width = self.expanded_width + self.settings_panel.panel_width
-            self.set_geometry(new_width)
-
-    def toggle_help_panel(self):
-        """Show or hide the help panel alongside the email list."""
-        # Ensure Settings panel is closed
-        if self.settings_panel_open:
-             self.toggle_settings_panel()
-
-        if self.help_panel_open:
-            # Close the panel
-            if self.help_panel:
-                self.help_panel.pack_forget()
-                self.help_panel.destroy()
-                self.help_panel = None
-            self.help_panel_open = False
-            
-            # Unfreeze main_frame
-            self.main_frame.pack_propagate(True)
-            self.main_frame.config(width=0)
-            self.main_frame.pack(side="left", fill="both", expand=True)
-            
-            # Restore original width
-            self.set_geometry(self.expanded_width)
-        else:
-            # Freeze main_frame
-            current_width = self.main_frame.winfo_width()
-            self.main_frame.config(width=current_width)
-            self.main_frame.pack_propagate(False)
-            self.main_frame.pack(side="left", fill="y", expand=False)
-            
-            # Open the panel
-            self.help_panel = HelpPanel(self.content_wrapper, self)
-            self.help_panel.pack(side="left", fill="y")
-            self.help_panel_open = True
-            
-            # Expand window
-            new_width = self.expanded_width + self.help_panel.panel_width
+            # Expand window by exactly +350px
+            new_width = self.expanded_width + self.settings_panel_width
             self.set_geometry(new_width)
         
     def load_icon_colored(self, path, size=None, color="#BFBFBF", is_rgb_tuple=False):
@@ -3622,7 +3416,7 @@ class SidebarWindow(tk.Tk):
             
             # Resize if needed
             if size:
-                pil_img = pil_img.resize(size, RESAMPLE_MODE)
+                pil_img = pil_img.resize(size, Image.Resampling.LANCZOS)
             
             # Determine color tuple (R, G, B)
             if is_rgb_tuple:
@@ -3742,7 +3536,46 @@ class SidebarWindow(tk.Tk):
 
 
         
+    def start_polling(self):
+        """Poll Outlook every 30 seconds for new mail and due items."""
+        # Get enabled email accounts
+        accounts = [n for n, s in self.enabled_accounts.items() if s.get("email")] if self.enabled_accounts else None
+        
+        print("DEBUG: Pulse Start Polling - Interval: {}s".format(self.poll_interval))
+        
+        pulse_triggered = False
 
+        # 1. Check New Mail (For Refreshing List)
+        has_new = self.outlook_client.check_new_mail(accounts)
+        print("DEBUG: Check New Mail Result: {}".format(has_new))
+        
+        if has_new:
+             print("DEBUG: New mail detected! Refreshing...")
+             self.refresh_emails()
+        
+        # Check Total Unread for Pulse (State-based)
+        unread_count = self.outlook_client.get_unread_count(accounts, self.enabled_accounts)
+
+        # Trigger Pulse (Blue) if Unread > 0
+        if unread_count > 0:
+             if not self.is_pinned and not self.is_expanded:
+                 print("DEBUG: Triggering BLUE Pulse (Unread Items present)")
+                 self.start_pulse("#0078D4")
+                 pulse_triggered = True
+        
+        # 2. Check Due Items (Tasks / Meetings)
+        # Returns "Overdue" or "Today" or None
+        due_status = self.outlook_client.check_due_items(accounts)
+        print("DEBUG: Due Status: {}".format(due_status))
+        
+        if due_status and not self.is_pinned and not self.is_expanded and not pulse_triggered:
+             # Prioritize Overdue? Or just pulse
+             # Orange for Today/Overdue
+             print("DEBUG: Triggering ORANGE Pulse")
+             self.start_pulse("#E68D49")
+            
+        self.after(self.poll_interval * 1000, self.start_polling) # Dynamic interval
+        
 
 
 
@@ -3918,16 +3751,8 @@ class SidebarWindow(tk.Tk):
                 self.reminder_has_reminder = data.get("reminder_has_reminder", False)
                 self.buttons_on_hover = data.get("buttons_on_hover", False)
                 self.email_double_click = data.get("email_double_click", False)
-        except (FileNotFoundError, ValueError, IndexError):
-            # If config is missing or corrupt, auto-enable all discovered accounts
-            try:
-                available = self.outlook_client.get_accounts()
-                if available:
-                    for acc in available:
-                        self.enabled_accounts[acc] = {"email": True, "calendar": True, "tasks": True}
-                    self.save_config()
-            except:
-                pass
+        except FileNotFoundError:
+            pass
 
     def save_config(self):
         data = {
@@ -3985,7 +3810,7 @@ class SidebarWindow(tk.Tk):
     def flash_widget_recursive(self, widget, flash_color="#FFFFFF", duration=200):
         """Flashes a widget and ALL its children recursively."""
         try:
-            # print("DEBUG: Flashing {}".format(widget))
+            # print(f"DEBUG: Flashing {widget}")
             restore_map = {}
             
             def collect_and_flash(w):
@@ -3995,7 +3820,7 @@ class SidebarWindow(tk.Tk):
                         restore_map[w] = orig
                         w.config(bg=flash_color)
                 except Exception as e:
-                    # print("DEBUG: Flash config failed for {}: {}".format(w, e))
+                    # print(f"DEBUG: Flash config failed for {w}: {e}")
                     pass
                 
                 # Recurse
@@ -4066,7 +3891,7 @@ class SidebarWindow(tk.Tk):
     def _wait_and_focus(self, title_fragment, attempt=1):
         """Polls for window and forces focus using AttachThreadInput."""
         if attempt > 15:
-            # print("DEBUG: Could not find window with title '{}'".format(title_fragment))
+            # print(f"DEBUG: Could not find window with title '{title_fragment}'")
             return
 
         found_hwnd = None
@@ -4083,7 +3908,7 @@ class SidebarWindow(tk.Tk):
              
         if wins:
             target_hwnd = wins[0]
-            # print("DEBUG: Found window {} for '{}'".format(hex(target_hwnd), title_fragment))
+            # print(f"DEBUG: Found window {hex(target_hwnd)} for '{title_fragment}'")
             
             try:
                 # 1. Force Restore if Minimized
@@ -4981,6 +4806,11 @@ class SidebarWindow(tk.Tk):
             y = rect.top
             h = rect.bottom - rect.top
             
+            # SAFEGUARD: If AppBar gives us 0 height (e.g. startup timing), fallback to work area
+            if h < 100: 
+                h = wh
+                y = wy
+            
             if self.dock_side == "Right":
                  x = rect.right - width
         else:
@@ -5132,7 +4962,6 @@ class SidebarWindow(tk.Tk):
         self.apply_state()
 
     # --- Polling Control ---
-    # --- Polling Control ---
     def start_polling(self):
         """Starts the background polling loop."""
         self.check_updates()
@@ -5180,7 +5009,6 @@ class SidebarWindow(tk.Tk):
             
         # Trigger Pulse if needed
         if active_colors and not self.is_pinned and not self.is_expanded:
-            print("DEBUG: Active Pulse Colors: {}".format(active_colors))
             self.start_pulse(active_colors)
         elif not active_colors:
             self.stop_pulse()
@@ -5571,18 +5399,15 @@ class SingleInstance:
             kernel32.CloseHandle(self.mutex_handle)
 
 if __name__ == "__main__":
-    try:
-        # Check Single Instance
-        app_instance = SingleInstance()
-        if app_instance.already_running():
-            sys.exit(0)
+    # Check Single Instance
+    app_instance = SingleInstance()
+    if app_instance.already_running():
+        # Optional: Bring existing window to front (Requires FindWindow/SetForegroundWindow logic)
+        # For now, just exit silently or print
+        # messagebox.showinfo("InboxBar", "The application is already running.")
+        sys.exit(0)
 
-        # Keep the mutex handle alive for the duration of the app
-        app = SidebarWindow()
-        app.mainloop()
-    except Exception as e:
-        import traceback
-        with open("startup_error.log", "w") as f:
-            f.write("Startup Error: {}\n".format(e))
-            f.write(traceback.format_exc())
+    # Keep the mutex handle alive for the duration of the app
+    app = SidebarWindow()
+    app.mainloop()
 
