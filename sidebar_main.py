@@ -1,6 +1,15 @@
 # -*- coding: utf-8 -*-
-import tkinter as tk
-from tkinter import ttk
+try:
+    # Python 2
+    import Tkinter as tk
+    import ttk
+    import tkMessageBox as messagebox
+except ImportError:
+    # Python 3
+    import tkinter as tk
+    from tkinter import ttk
+    from tkinter import messagebox
+
 import ctypes
 from ctypes import wintypes
 import time
@@ -12,8 +21,15 @@ import win32con
 import re
 import math # Added for animation
 import glob
-from tkinter import messagebox
+# from tkinter import messagebox (handled above)
 from PIL import Image, ImageTk, ImageDraw
+try:
+    # Pillow 10+
+    RESAMPLE_MODE = Image.Resampling.LANCZOS
+except AttributeError:
+    # Older Pillow
+    RESAMPLE_MODE = Image.ANTIALIAS
+
 from datetime import datetime, timedelta
 
 # --- Store Compatibility Imports ---
@@ -139,7 +155,7 @@ class ScrollableFrame(tk.Frame):
     A scrollable frame that can contain multiple email cards.
     """
     def __init__(self, container, *args, **kwargs):
-        super().__init__(container, *args, **kwargs)
+        tk.Frame.__init__(self, container, *args, **kwargs)
         self.canvas = tk.Canvas(self, bg=kwargs.get("bg", "#222222"), highlightthickness=0)
         self.scrollable_frame = tk.Frame(self.canvas, bg=kwargs.get("bg", "#222222"))
 
@@ -333,7 +349,7 @@ class ToolTip:
             x = widget_x + 20
             y = widget_y + widget_h + 5
             
-        tw.wm_geometry(f"+{x}+{y}")
+        tw.wm_geometry("+{}+{}".format(x, y))
 
     def hide_tip(self):
         """Hides the tooltip."""
@@ -390,7 +406,7 @@ class OutlookClient:
             # print("Connected to Outlook")
             return True
         except Exception as e:
-            print(f"Error connecting to Outlook: {e}")
+            print("Error connecting to Outlook: {}".format(e))
             self.outlook = None
             self.namespace = None
             return False
@@ -403,7 +419,7 @@ class OutlookClient:
             for store in self.namespace.Stores:
                 accounts.append(store.DisplayName)
         except Exception as e:
-            print(f"Error fetching accounts: {e}")
+            print("Error fetching accounts: {}".format(e))
         return accounts
 
     def _get_enabled_stores(self, account_names):
@@ -496,7 +512,7 @@ class OutlookClient:
                 return found_new
                 
             except Exception as e:
-                print(f"Polling error (Attempt {attempt+1}): {e}")
+                print("Polling error (Attempt {}): {}".format(attempt+1, e))
                 self.namespace = None 
         
         return False
@@ -543,8 +559,10 @@ class OutlookClient:
     def get_calendar_items(self, start_dt, end_dt, account_names=None):
         """Fetches calendar items from all enabled accounts. Accepts datetime objects."""
         # Print Debug Log
+        # Print Debug Log
         try:
-             print(f"DEBUG: Calendar Query: {start_dt} to {end_dt}")
+             # print("DEBUG: Calendar Query: {} to {}".format(start_dt, end_dt))
+             pass
         except: pass
 
         for attempt in range(2):
@@ -564,12 +582,12 @@ class OutlookClient:
                         items.Sort("[Start]")
                         items.IncludeRecurrences = True
                         
-                        restrict = f"[Start] >= '{s_str}' AND [Start] <= '{e_str}'"
+                        restrict = "[Start] >= '{}' AND [Start] <= '{}'".format(s_str, e_str)
                         
                         try:
                             items = items.Restrict(restrict)
                         except Exception as e:
-                            print(f"Restrict Warning: {e}")
+                            print("Restrict Warning: {}".format(e))
                             # Continue with full items (will be filtered manually below) NO, too slow.
                             # If restrict fails, maybe just skip or try simple filter?
                             pass
@@ -607,7 +625,7 @@ class OutlookClient:
                     
                 return all_results
             except Exception as e:
-                print(f"Calendar error: {e}")
+                print("Calendar error: {}".format(e))
                 self.namespace = None
         return []
 
@@ -635,20 +653,20 @@ class OutlookClient:
                             
                             for filter_name in due_filters:
                                 if filter_name == "Overdue":
-                                    date_queries.append(f"[DueDate] < '{today.strftime('%m/%d/%Y %I:%M %p')}'") 
+                                    date_queries.append("[DueDate] < '{}'".format(today.strftime('%m/%d/%Y %I:%M %p'))) 
                                 elif filter_name == "Today":
-                                    date_queries.append(f"([DueDate] >= '{today.strftime('%m/%d/%Y %I:%M %p')}' AND [DueDate] < '{tomorrow.strftime('%m/%d/%Y %I:%M %p')}')")
+                                    date_queries.append("([DueDate] >= '{}' AND [DueDate] < '{}')".format(today.strftime('%m/%d/%Y %I:%M %p'), tomorrow.strftime('%m/%d/%Y %I:%M %p')))
                                 elif filter_name == "Tomorrow":
-                                    date_queries.append(f"([DueDate] >= '{tomorrow.strftime('%m/%d/%Y %I:%M %p')}' AND [DueDate] < '{db_tomorrow.strftime('%m/%d/%Y %I:%M %p')}')")
+                                    date_queries.append("([DueDate] >= '{}' AND [DueDate] < '{}')".format(tomorrow.strftime('%m/%d/%Y %I:%M %p'), db_tomorrow.strftime('%m/%d/%Y %I:%M %p')))
                                 elif filter_name == "Next 7 Days":
                                     next_week = today + timedelta(days=8)
-                                    date_queries.append(f"([DueDate] >= '{today.strftime('%m/%d/%Y %I:%M %p')}' AND [DueDate] < '{next_week.strftime('%m/%d/%Y %I:%M %p')}')")
+                                    date_queries.append("([DueDate] >= '{}' AND [DueDate] < '{}')".format(today.strftime('%m/%d/%Y %I:%M %p'), next_week.strftime('%m/%d/%Y %I:%M %p')))
                                 elif filter_name == "No Date":
                                     date_queries.append("([DueDate] IS NULL OR [DueDate] > '01/01/4500')")
                             
                             if date_queries:
                                 combined_date_query = " OR ".join(date_queries)
-                                restricts.append(f"({combined_date_query})")
+                                restricts.append("({})".format(combined_date_query))
 
                         restrict_str = " AND ".join(restricts) if restricts else ""
                         
@@ -688,7 +706,7 @@ class OutlookClient:
                 
                 return all_results
             except Exception as e:
-                print(f"Tasks error: {e}")
+                print("Tasks error: {}".format(e))
                 self.namespace = None
         return []
 
@@ -731,12 +749,19 @@ class OutlookClient:
                         continue
                         
                 # Sort merged results by ReceivedTime (Descending)
-                all_items.sort(key=lambda x: x["received_dt"].timestamp() if x["received_dt"] else 0, reverse=True)
+                # Sort merged results by ReceivedTime (Descending)
+                def sort_key(x):
+                    dt = x.get("received_dt")
+                    if dt:
+                        return dt
+                    return datetime.min
+
+                all_items.sort(key=sort_key, reverse=True)
                 
                 return all_items[:count], total_unread_count
                 
             except Exception as e:
-                print(f"Inbox error: {e}")
+                print("Inbox error: {}".format(e))
                 
         return [], 0
 
@@ -756,20 +781,20 @@ class OutlookClient:
                 
                 for filter_name in due_filters:
                     if filter_name == "Overdue":
-                        date_queries.append(f"[TaskDueDate] < '{today.strftime('%m/%d/%Y %I:%M %p')}'") 
+                        date_queries.append("[TaskDueDate] < '{}'".format(today.strftime('%m/%d/%Y %I:%M %p'))) 
                     elif filter_name == "Today":
-                        date_queries.append(f"([TaskDueDate] >= '{today.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{tomorrow.strftime('%m/%d/%Y %I:%M %p')}')")
+                        date_queries.append("([TaskDueDate] >= '{}' AND [TaskDueDate] < '{}')".format(today.strftime('%m/%d/%Y %I:%M %p'), tomorrow.strftime('%m/%d/%Y %I:%M %p')))
                     elif filter_name == "Tomorrow":
-                        date_queries.append(f"([TaskDueDate] >= '{tomorrow.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{db_tomorrow.strftime('%m/%d/%Y %I:%M %p')}')")
+                        date_queries.append("([TaskDueDate] >= '{}' AND [TaskDueDate] < '{}')".format(tomorrow.strftime('%m/%d/%Y %I:%M %p'), db_tomorrow.strftime('%m/%d/%Y %I:%M %p')))
                     elif filter_name == "Next 7 Days":
                         next_week = today + timedelta(days=8)
-                        date_queries.append(f"([TaskDueDate] >= '{today.strftime('%m/%d/%Y %I:%M %p')}' AND [TaskDueDate] < '{next_week.strftime('%m/%d/%Y %I:%M %p')}')")
+                        date_queries.append("([TaskDueDate] >= '{}' AND [TaskDueDate] < '{}')".format(today.strftime('%m/%d/%Y %I:%M %p'), next_week.strftime('%m/%d/%Y %I:%M %p')))
                     elif filter_name == "No Date":
                         date_queries.append("([TaskDueDate] IS NULL OR [TaskDueDate] > '01/01/4500')")
                 
                 if date_queries:
                     combined_date_query = " OR ".join(date_queries)
-                    restricts.append(f"({combined_date_query})")
+                    restricts.append("({})".format(combined_date_query))
         else:
             if unread_only:
                 restricts.append("[UnRead] = True")
@@ -819,19 +844,42 @@ class OutlookClient:
             
             try:
                 vals = row.GetValues()
+                
                 item_data = {}
-                if vals and len(vals) == len(active_cols):
-                    for i, col_name in enumerate(active_cols):
-                        item_data[col_name] = vals[i]
+                if vals:
+                     if len(vals) != len(active_cols):
+                         # Attempt to map anyway up to min length
+                         limit = min(len(vals), len(active_cols))
+                         for i in range(limit):
+                             item_data[active_cols[i]] = vals[i]
+                     else:
+                        for i, col_name in enumerate(active_cols):
+                            item_data[col_name] = vals[i]
                 
                 # Normalize Data
                 received_dt = item_data.get("ReceivedTime")
+                received_str = ""
                 if received_dt:
-                    received_str = received_dt.strftime("%d/%m %H:%M")
-                    # Handle Timezone offset if needed (naive vs aware)
-                    # For now keep as is
-                else:
-                    received_str = ""
+                    try:
+                        # PyTime compatible conversion
+                        if hasattr(received_dt, "strftime"):
+                            received_str = received_dt.strftime("%d/%m %H:%M")
+                        else:
+                            # Fallback for PyTime objects (Python 2.7 win32com)
+                            # Casting to str normally gives "YYYY-MM-DD HH:MM:SS..."
+                            # Or convert to datetime via timestamp if available, or just explicit construction
+                            try:
+                                # Start can be accessed via .year, .month etc if it's PyTime
+                                d = datetime(received_dt.year, received_dt.month, received_dt.day, received_dt.hour, received_dt.minute, received_dt.second)
+                                received_str = d.strftime("%d/%m %H:%M")
+                                # Replace the PyTime object with the python datetime object for later use
+                                item_data["ReceivedTime"] = d
+                            except:
+                                received_str = str(received_dt)[:16] # Fallback
+                                
+                    except Exception as e:
+                        print("DEBUG: Date conversion error: {}".format(e))
+                        received_str = str(received_dt)
                     
                 entry_id = item_data.get("EntryID")
                 
@@ -853,7 +901,8 @@ class OutlookClient:
                     "account": store.DisplayName
                 }
                 results.append(res)
-            except:
+            except Exception as e:
+                print("DEBUG: Row processing error: {}".format(e))
                 continue
                 
         return results
@@ -868,7 +917,7 @@ class OutlookClient:
                 return self.namespace.GetItemFromID(entry_id, store_id)
             return self.namespace.GetItemFromID(entry_id)
         except Exception as e:
-            print(f"Error getting item {entry_id}: {e}")
+            print("Error getting item {}: {}".format(entry_id, e))
             return None
 
     def get_folder_by_path(self, store, path_str):
@@ -891,7 +940,7 @@ class OutlookClient:
                     return None
             return current
         except Exception as e:
-            print(f"Error resolving path '{path_str}': {e}")
+            print("Error resolving path '{}': {}".format(path_str, e))
             return None
 
     def mark_task_complete(self, entry_id, store_id=None):
@@ -903,7 +952,7 @@ class OutlookClient:
                 item.Save()
                 return True
         except Exception as e:
-            print(f"Error marking task complete: {e}")
+            print("Error marking task complete: {}".format(e))
             return False
 
     def dismiss_calendar_item(self, entry_id):
@@ -914,7 +963,7 @@ class OutlookClient:
                 item.Delete()
                 return True
         except Exception as e:
-            print(f"Error dismissing calendar item: {e}")
+            print("Error dismissing calendar item: {}".format(e))
             return False
         """
         Recursively searches for a folder by name. 
@@ -938,7 +987,7 @@ class OutlookClient:
 
             return recursive_find(root)
         except Exception as e:
-            print(f"Error finding folder {folder_name}: {e}")
+            print("Error finding folder {}: {}".format(folder_name, e))
             return None
 
 
@@ -965,7 +1014,7 @@ class OutlookClient:
             def recurse(folder, parent_path=""):
                 try:
                     name = folder.Name
-                    path = f"{parent_path}/{name}" if parent_path else name
+                    path = "{}/{}".format(parent_path, name) if parent_path else name
                     folders.append(path)
                     
                     # 3 levels deep max
@@ -978,7 +1027,7 @@ class OutlookClient:
                 recurse(f)
                 
         except Exception as e:
-            print(f"Error fetching folder list: {e}")
+            print("Error fetching folder list: {}".format(e))
             
         return sorted(folders)
 
@@ -994,7 +1043,7 @@ class OutlookClient:
                     hex_code = self.OL_CAT_COLORS.get(c_enum, "#555555")
                     mapping[cat.Name] = hex_code
         except Exception as e:
-             print(f"Error fetching categories: {e}")
+             print("Error fetching categories: {}".format(e))
         return mapping
 
     def create_email(self):
@@ -1005,7 +1054,7 @@ class OutlookClient:
             mail.Display()
             return True
         except Exception as e:
-            print(f"Error creating email: {e}")
+            print("Error creating email: {}".format(e))
             return False
 
     def create_appointment(self):
@@ -1016,7 +1065,7 @@ class OutlookClient:
             appt.Display()
             return True
         except Exception as e:
-            print(f"Error creating appointment: {e}")
+            print("Error creating appointment: {}".format(e))
             return False
 
     def create_meeting(self):
@@ -1028,7 +1077,7 @@ class OutlookClient:
             appt.Display()
             return True
         except Exception as e:
-            print(f"Error creating meeting: {e}")
+            print("Error creating meeting: {}".format(e))
             return False
 
     def create_task(self):
@@ -1039,7 +1088,7 @@ class OutlookClient:
             task.Display()
             return True
         except Exception as e:
-            print(f"Error creating task: {e}")
+            print("Error creating task: {}".format(e))
             return False
 
     def get_due_status(self, account_names=None):
@@ -1064,7 +1113,7 @@ class OutlookClient:
                         base_filter = "[Complete] = False"
                         
                         # Overdue
-                        overdue_filter = f"{base_filter} AND [DueDate] < '{today_str}'"
+                        overdue_filter = "{} AND [DueDate] < '{}'".format(base_filter, today_str)
                         try:
                             t_over = tasks.GetTable(overdue_filter)
                             if t_over.GetRowCount() > 0: status["tasks"] = "Overdue"
@@ -1072,7 +1121,7 @@ class OutlookClient:
 
                         if status["tasks"] is None:
                             # Today
-                            today_filter = f"{base_filter} AND [DueDate] >= '{today_str}' AND [DueDate] < '{tom_str}'"
+                            today_filter = "{} AND [DueDate] >= '{}' AND [DueDate] < '{}'".format(base_filter, today_str, tom_str)
                             try:
                                 t_today = tasks.GetTable(today_filter)
                                 if t_today.GetRowCount() > 0: status["tasks"] = "Today"
@@ -1081,7 +1130,7 @@ class OutlookClient:
                     # Check Appointments (Today)
                     if status["calendar"] is None:
                         cal = store.GetDefaultFolder(9)
-                        cal_filter = f"[Start] >= '{today_str}' AND [Start] < '{tom_str}'"
+                        cal_filter = "[Start] >= '{}' AND [Start] < '{}'".format(today_str, tom_str)
                         try:
                             t_cal = cal.GetTable(cal_filter)
                             if t_cal.GetRowCount() > 0: status["calendar"] = "Today"
@@ -1089,14 +1138,14 @@ class OutlookClient:
 
                 except: continue
         except Exception as e:
-            print(f"Error checking due items: {e}")
+            print("Error checking due items: {}".format(e))
         return status
 
 
 
 class FolderPickerFrame(tk.Frame):
     def __init__(self, parent, folders, callback, on_cancel, selected_paths=None):
-        super().__init__(parent)
+        tk.Frame.__init__(self, parent)
         self.callback = callback
         self.on_cancel = on_cancel
         self.folders = folders
@@ -1175,7 +1224,7 @@ class FolderPickerFrame(tk.Frame):
             parent = ""
             current = ""
             for i, part in enumerate(parts):
-                current = f"{parent}/{part}" if parent else part
+                current = "{}/{}".format(parent, part) if parent else part
                 if current not in nodes:
                     pid = parent if parent else ""
                     try:
@@ -1194,7 +1243,7 @@ class FolderPickerFrame(tk.Frame):
                     parts = path.split("/")
                     curr = ""
                     for p in parts[:-1]:
-                        curr = f"{curr}/{p}" if curr else p
+                        curr = "{}/{}".format(curr, p) if curr else p
                         if self.tree.exists(curr):
                             self.tree.item(curr, open=True)
             
@@ -1215,7 +1264,7 @@ class FolderPickerFrame(tk.Frame):
 
 class FolderPickerWindow(tk.Toplevel):
     def __init__(self, parent, folders, callback, selected_paths=None):
-        super().__init__(parent)
+        tk.Toplevel.__init__(self, parent)
         self.callback = callback
         self.title("Select Folders")
         self.overrideredirect(True) 
@@ -1230,7 +1279,7 @@ class FolderPickerWindow(tk.Toplevel):
             y = parent.winfo_y() + 60
         except:
             x, y = 100, 100
-        self.geometry(f"{w}x{h}+{x}+{y}")
+        self.geometry("{}x{}+{}+{}".format(w, h, x, y))
         
         def on_cancel():
             self.destroy()
@@ -1254,12 +1303,12 @@ class FolderPickerWindow(tk.Toplevel):
         deltay = event.y - self._y
         x = self.winfo_x() + deltax
         y = self.winfo_y() + deltay
-        self.geometry(f"+{x}+{y}")
+        self.geometry("+{}+{}".format(x, y))
 
 
 class AccountSelectionUI(tk.Frame):
     def __init__(self, parent, accounts, current_enabled, folder_selector, bg_color="#202020"):
-        super().__init__(parent, bg=bg_color)
+        tk.Frame.__init__(self, parent, bg=bg_color)
         self.accounts = accounts
         self.current_enabled = current_enabled or {}
         self.folder_selector = folder_selector # Function(account, on_selected_callback)
@@ -1387,7 +1436,7 @@ class AccountSelectionUI(tk.Frame):
 
 class AccountSelectionDialog(tk.Toplevel):
     def __init__(self, parent, accounts, current_enabled, callback):
-        super().__init__(parent)
+        tk.Toplevel.__init__(self, parent)
         self.callback = callback
         self.colors = {
             "bg": "#202020", "fg": "#FFFFFF", "accent": "#60CDFF"
@@ -1402,7 +1451,7 @@ class AccountSelectionDialog(tk.Toplevel):
         w, h = 450, 550
         x = parent.winfo_x() + 50
         y = parent.winfo_y() + 50
-        self.geometry(f"{w}x{h}+{x}+{y}")
+        self.geometry("{}x{}+{}+{}".format(w, h, x, y))
         
         # Header
         header = tk.Frame(self, bg=self.colors["bg"], height=40)
@@ -1459,13 +1508,13 @@ class AccountSelectionDialog(tk.Toplevel):
              folders = sidebar.outlook_client.get_folder_list(account_name)
              
              if not folders:
-                 messagebox.showwarning("No Folders", f"Could not retrieve folder list for '{account_name}'.")
+                 messagebox.showwarning("No Folders", "Could not retrieve folder list for '{}'.".format(account_name))
                  return
                  
              FolderPickerWindow(self, folders, on_selected, selected_paths)
         except Exception as e:
-            print(f"Error opening folder picker: {e}")
-            messagebox.showerror("Error", f"Failed to open folder picker:\n{e}")
+            print("Error opening folder picker: {}".format(e))
+            messagebox.showerror("Error", "Failed to open folder picker:\n{}".format(e))
 
 
     def start_move(self, event):
@@ -1477,13 +1526,13 @@ class AccountSelectionDialog(tk.Toplevel):
         deltay = event.y - self._y
         x = self.winfo_x() + deltax
         y = self.winfo_y() + deltay
-        self.geometry(f"+{x}+{y}")
+        self.geometry("+{}+{}".format(x, y))
 
 
 class SettingsPanel(tk.Frame):
     """Inline settings panel that extends from the sidebar."""
     def __init__(self, parent, main_window, callback):
-        super().__init__(parent, bg="#202020")
+        tk.Frame.__init__(self, parent, bg="#202020")
         self.main_window = main_window
         self.callback = callback
         
@@ -1587,7 +1636,7 @@ class SettingsPanel(tk.Frame):
                 else: 
                      raise Exception("Load failed")
              except Exception as e:
-                print(f"Error loading Close icon: {e}")
+                print("Error loading Close icon: {}".format(e))
                 btn_close = tk.Label(header, text="✕", fg="#FF4444", bg=self.colors["bg_root"], font=("Arial", 14, "bold"), cursor="hand2")
         else:
              btn_close = tk.Label(header, text="✕", fg="#FF4444", bg=self.colors["bg_root"], font=("Arial", 14, "bold"), cursor="hand2")
@@ -1701,7 +1750,7 @@ class SettingsPanel(tk.Frame):
             try:
                 # Get the popdown window and its listbox
                 popdown = self.font_size_cb.tk.call('ttk::combobox::PopdownWindow', self.font_size_cb)
-                listbox = f'{popdown}.f.l'
+                listbox = '{}.f.l'.format(popdown)
                 
                 # Set dropdown width to match or exceed combobox width
                 cb_width = self.font_size_cb.winfo_width()
@@ -1751,7 +1800,7 @@ class SettingsPanel(tk.Frame):
         
         print("DEBUG: Creating email settings checkboxes")
         self.show_read_var = tk.BooleanVar(value=self.main_window.show_read)
-        print(f"DEBUG: show_read_var created with value: {self.show_read_var.get()}")
+        print("DEBUG: show_read_var created with value: {}".format(self.show_read_var.get()))
         
         # Add trace callback
         def on_show_read_change(*args):
@@ -1774,7 +1823,7 @@ class SettingsPanel(tk.Frame):
         print("DEBUG: show_read checkbox created and gridded")
 
         self.show_has_attachment_var = tk.BooleanVar(value=self.main_window.show_has_attachment)
-        print(f"DEBUG: show_has_attachment_var created with value: {self.show_has_attachment_var.get()}")
+        print("DEBUG: show_has_attachment_var created with value: {}".format(self.show_has_attachment_var.get()))
         
         # Add trace callback
         def on_show_attachment_change(*args):
@@ -1847,7 +1896,7 @@ class SettingsPanel(tk.Frame):
         def configure_lines_dropdown():
              try:
                  popdown = self.cb_lines.tk.call('ttk::combobox::PopdownWindow', self.cb_lines)
-                 listbox = f'{popdown}.f.l'
+                 listbox = '{}.f.l'.format(popdown)
                  self.cb_lines.tk.call(listbox, 'configure', '-font', ('Segoe UI', 10))
              except:
                  pass
@@ -1974,6 +2023,27 @@ class SettingsPanel(tk.Frame):
             cb_act1.set(c_data.get("action1", "None")) 
             cb_act1.grid(row=i+1, column=1, padx=8, pady=5, ipady=1)
             
+            # 3. Folder Picker UI (Entry + Button) - Shifted to Column 2
+            f_frame = tk.Frame(container, bg=self.colors["bg_root"])
+            f_frame.grid(row=i+1, column=2, padx=8, pady=5)
+            
+            e_folder = ttk.Entry(f_frame, width=15, font=("Segoe UI", 10))
+            e_folder.insert(0, c_data.get("folder", ""))
+            e_folder.pack(side="left", ipady=1)
+            e_folder.bind("<FocusOut>", lambda e: self.update_button_config())
+
+            # Picker Button
+            btn_pick = tk.Label(f_frame, text="...", bg=self.colors["bg_card"], fg="white", font=("Segoe UI", 8), width=3, cursor="hand2")
+            btn_pick.pack(side="left", padx=(5,0), fill="y")
+            
+            # Bind picker
+            def open_picker(event, entry=e_folder):
+                folders = self.main_window.outlook_client.get_folder_list()
+                FolderPickerWindow(self, folders if folders else ["Inbox"], 
+                                   lambda path: (entry.delete(0, tk.END), entry.insert(0, path), self.update_button_config()))
+
+            btn_pick.bind("<Button-1>", open_picker)
+            
             # Helper to update icon display based on action
             def update_icon_display(action_widget, icon_label, row_idx):
                 action = action_widget.get()
@@ -2005,43 +2075,32 @@ class SettingsPanel(tk.Frame):
                 if len(self.rows_data) > row_idx:
                     self.rows_data[row_idx]["icon_val"] = new_icon
 
+            # Helper for visibility
+            def update_folder_visibility(action_widget, folder_frame):
+                 if action_widget.get() == "Move To...":
+                      folder_frame.grid()
+                 else:
+                      folder_frame.grid_remove()
+
             # Auto-update Handler
-            def on_action_change(event, act_cb=cb_act1, icon_lbl=lbl_icon, idx=i):
+            def on_action_change(event, act_cb=cb_act1, icon_lbl=lbl_icon, idx=i, f_frm=f_frame):
                  update_icon_display(act_cb, icon_lbl, idx)
+                 update_folder_visibility(act_cb, f_frm)
                  self.refresh_dropdown_options() # Enforce uniqueness
                  self.update_button_config()  # Apply changes immediately
             
             cb_act1.bind("<<ComboboxSelected>>", on_action_change)
             
-            # 3. Folder Picker UI (Entry + Button) - Shifted to Column 2
-            f_frame = tk.Frame(container, bg=self.colors["bg_root"])
-            f_frame.grid(row=i+1, column=2, padx=8, pady=5)
-            
-            e_folder = ttk.Entry(f_frame, width=15, font=("Segoe UI", 10))
-            e_folder.insert(0, c_data.get("folder", ""))
-            e_folder.pack(side="left", ipady=1)
-            e_folder.bind("<FocusOut>", lambda e: self.update_button_config())
-
-            # Picker Button
-            btn_pick = tk.Label(f_frame, text="...", bg=self.colors["bg_card"], fg="white", font=("Segoe UI", 8), width=3, cursor="hand2")
-            btn_pick.pack(side="left", padx=(5,0), fill="y")
-            
-            # Bind picker
-            def open_picker(event, entry=e_folder):
-                folders = self.main_window.outlook_client.get_folder_list()
-                FolderPickerWindow(self, folders if folders else ["Inbox"], 
-                                   lambda path: (entry.delete(0, tk.END), entry.insert(0, path), self.update_button_config()))
-
-            btn_pick.bind("<Button-1>", open_picker)
-
             self.rows_data.append({
                 "icon_val": current_icon_val, # Store value directly
                 "act1": cb_act1,
-                "folder": e_folder
+                "folder": e_folder,
+                "folder_frame": f_frame
             })
             
             # Trigger initial display update manually
             update_icon_display(cb_act1, lbl_icon, i)
+            update_folder_visibility(cb_act1, f_frame)
             
         # Initial Refresh of Options
         self.refresh_dropdown_options()
@@ -2540,10 +2599,10 @@ class SettingsPanel(tk.Frame):
         except:
             self.main_window.email_body_lines = 1
             
-        print(f"DEBUG: Content Settings: Sender={self.main_window.email_show_sender}, Subject={self.main_window.email_show_subject}, Body={self.main_window.email_show_body}, Lines={self.main_window.email_body_lines}")
+        print("DEBUG: Content Settings: Sender={}, Subject={}, Body={}, Lines={}".format(self.main_window.email_show_sender, self.main_window.email_show_subject, self.main_window.email_show_body, self.main_window.email_body_lines))
         
         self.main_window.save_config()
-        print(f"DEBUG: Calling callback: {self.callback}")
+        print("DEBUG: Calling callback: {}".format(self.callback))
         self.callback()  # refresh_emails
         print("DEBUG: Callback completed")
 
@@ -2774,14 +2833,14 @@ class SettingsPanel(tk.Frame):
                  self.vars[account_name]["email_folders"] = paths
                  
              if not folders:
-                 messagebox.showwarning("No Folders", f"Could not retrieve folder list for '{account_name}'.")
+                 messagebox.showwarning("No Folders", "Could not retrieve folder list for '{}'.".format(account_name))
                  return
                  
              self.scroll_frame.pack_forget()
              self.folder_picker = FolderPickerFrame(self, folders, on_pick, on_return)
              self.folder_picker.pack(fill="both", expand=True)
         except Exception as e:
-            print(f"Error opening folder picker: {e}")
+            print("Error opening folder picker: {}".format(e))
 
     def browse_folder(self, idx):
         """Open folder picker for button at idx."""
@@ -2810,7 +2869,7 @@ class SettingsPanel(tk.Frame):
             picker.pack(fill="both", expand=True)
             
         except Exception as e:
-            print(f"Error browsing folders: {e}")
+            print("Error browsing folders: {}".format(e))
 
     def select_window_mode(self, mode):
         """Handle window mode selection (single or dual)."""
@@ -2870,7 +2929,7 @@ class SettingsPanel(tk.Frame):
 
 class SidebarWindow(tk.Tk):
     def __init__(self):
-        super().__init__()
+        tk.Tk.__init__(self)
 
         # --- Configuration ---
         self.min_width = 300  
@@ -3018,7 +3077,7 @@ class SidebarWindow(tk.Tk):
                 self.btn_outlook.bind("<Button-1>", lambda e: self.open_outlook_app())
                 ToolTip(self.btn_outlook, "Open Outlook")
              except Exception as e:
-                print(f"Error loading Outlook icon: {e}")
+                print("Error loading Outlook icon: {}".format(e))
 
         # 0. Close Button (Leftmost)
         # Use existing icon logic
@@ -3032,10 +3091,7 @@ class SidebarWindow(tk.Tk):
                 else: 
                      raise Exception("Load failed")
              except Exception as e:
-                print(f"Error loading Close icon: {e}")
-                self.btn_close = tk.Label(self.footer, text="✕", bg="#444444", fg="#FF4444", font=("Arial", 14, "bold"), cursor="hand2")
-             except Exception as e:
-                print(f"Error loading Close icon: {e}")
+                print("Error loading Close icon: {}".format(e))
                 self.btn_close = tk.Label(self.footer, text="✕", bg="#444444", fg="#aaaaaa", font=("Arial", 12), cursor="hand2")
         else:
             self.btn_close = tk.Label(self.footer, text="✕", bg="#444444", fg="#aaaaaa", font=("Arial", 12), cursor="hand2")
@@ -3047,7 +3103,7 @@ class SidebarWindow(tk.Tk):
         # Version Label
         self.lbl_version = tk.Label(self.footer, text=VERSION, bg="#444444", fg="#888888", font=("Segoe UI", 8))
         self.lbl_version.pack(side="left", padx=5, pady=5)
-        ToolTip(self.lbl_version, f"App Version: {VERSION}")
+        ToolTip(self.lbl_version, "App Version: {}".format(VERSION))
                  
         # 2. Calendar Button (Next to Outlook)
         # 2. Calendar Button (Next to Outlook)
@@ -3061,7 +3117,7 @@ class SidebarWindow(tk.Tk):
                 self.btn_calendar.bind("<Button-1>", lambda e: self.open_calendar_app())
                 ToolTip(self.btn_calendar, "Open Calendar")
              except Exception as e:
-                print(f"Error loading Calendar icon: {e}")
+                print("Error loading Calendar icon: {}".format(e))
 
         # Quick Create Button (Plus)
         if os.path.exists("icon2/plus.png"):
@@ -3077,7 +3133,7 @@ class SidebarWindow(tk.Tk):
                 # Apply initial state
                 self.update_quick_create_icon()
              except Exception as e:
-                print(f"Error loading Quick Create icon: {e}")
+                print("Error loading Quick Create icon: {}".format(e))
 
         # Header
         self.header = tk.Frame(self.main_frame, bg="#444444", height=40)
@@ -3114,12 +3170,12 @@ class SidebarWindow(tk.Tk):
                  # toggle_pin will handle updates
                  self.btn_pin = tk.Label(self.header, image=self.icon_pin_active, bg="#444444", cursor="hand2")
              except Exception as e:
-                 print(f"Error loading Pin icon: {e}")
+                 print("Error loading Pin icon: {}".format(e))
                  # Fallback to canvas if fails
                  self.btn_pin = tk.Canvas(self.header, width=30, height=30, bg="#444444", highlightthickness=0)
                  self.draw_pin_icon()
              except Exception as e:
-                 print(f"Error loading Pin icon: {e}")
+                 print("Error loading Pin icon: {}".format(e))
                  # Fallback to canvas if fails
                  self.btn_pin = tk.Canvas(self.header, width=30, height=30, bg="#444444", highlightthickness=0)
                  self.draw_pin_icon() 
@@ -3139,7 +3195,7 @@ class SidebarWindow(tk.Tk):
                 self.image_cache["settings_header"] = img
                 self.btn_settings = tk.Label(self.header, image=img, bg="#444444", cursor="hand2")
             except Exception as e:
-                 print(f"Error loading Spanner icon: {e}")
+                 print("Error loading Spanner icon: {}".format(e))
                  self.btn_settings = tk.Label(self.header, text="⚙", bg="#444444", fg="#aaaaaa", font=(self.font_family, 12), cursor="hand2")
         else:
             self.btn_settings = tk.Label(self.header, text="⚙", bg="#444444", fg="#aaaaaa", font=(self.font_family, 12), cursor="hand2")
@@ -3154,7 +3210,7 @@ class SidebarWindow(tk.Tk):
                 self.image_cache["sync_header"] = img
                 self.btn_refresh = tk.Label(self.header, image=img, bg="#444444", cursor="hand2")
             except Exception as e:
-                 print(f"Error loading Refresh icon: {e}")
+                 print("Error loading Refresh icon: {}".format(e))
                  self.btn_refresh = tk.Label(self.header, text="↻", bg="#444444", fg="#aaaaaa", font=(self.font_family, 15), cursor="hand2")
         else:
             self.btn_refresh = tk.Label(self.header, text="↻", bg="#444444", fg="#aaaaaa", font=(self.font_family, 15), cursor="hand2")
@@ -3172,7 +3228,7 @@ class SidebarWindow(tk.Tk):
                 self.image_cache["share_header"] = img
                 self.btn_share = tk.Label(self.header, image=img, bg="#444444", cursor="hand2")
             except Exception as e:
-                 print(f"Error loading Share icon: {e}")
+                 print("Error loading Share icon: {}".format(e))
                  self.btn_share = tk.Label(self.header, text="🔗", bg="#444444", fg="#aaaaaa", font=(self.font_family, 15), cursor="hand2")
         else:
             self.btn_share = tk.Label(self.header, text="🔗", bg="#444444", fg="#aaaaaa", font=(self.font_family, 15), cursor="hand2")
@@ -3253,7 +3309,7 @@ class SidebarWindow(tk.Tk):
              
              self.btn_account_toggle = tk.Label(email_header, image=self.icon_arrow_down, bg="#333333", cursor="hand2")
         except Exception as e:
-             print(f"Error generating arrow icons: {e}")
+             print("Error generating arrow icons: {}".format(e))
              self.btn_account_toggle = tk.Label(email_header, text="▼", bg="#333333", fg="white", cursor="hand2")
              
         self.btn_account_toggle.pack(side="right", padx=5)
@@ -3361,7 +3417,7 @@ class SidebarWindow(tk.Tk):
             
             # Resize if needed
             if size:
-                pil_img = pil_img.resize(size, Image.Resampling.LANCZOS)
+                pil_img = pil_img.resize(size, RESAMPLE_MODE)
             
             # Determine color tuple (R, G, B)
             if is_rgb_tuple:
@@ -3388,7 +3444,7 @@ class SidebarWindow(tk.Tk):
             
             return ImageTk.PhotoImage(final_img)
         except Exception as e:
-            print(f"Error loading/coloring icon {path}: {e}")
+            print("Error loading/coloring icon {}: {}".format(path, e))
             return None
 
     def load_icon_white(self, path, size=None):
@@ -3397,7 +3453,7 @@ class SidebarWindow(tk.Tk):
 
     def handle_custom_action(self, config, email_data):
         """Executes the selected actions on the specific email."""
-        print(f"Executing Actions for {config.get('label')} on {email_data.get('subject')}")
+        print("Executing Actions for {} on {}".format(config.get('label'), email_data.get('subject')))
         
         entry_id = email_data.get("entry_id")
         store_id = email_data.get("store_id") # Support multi-account
@@ -3456,9 +3512,9 @@ class SidebarWindow(tk.Tk):
                     if folder_name:
                         target = self.outlook_client.find_folder_by_name(folder_name)
                         if target: item.Move(target)
-                        else: print(f"Folder '{folder_name}' not found.")
+                        else: print("Folder '{}' not found.".format(folder_name))
             except Exception as e:
-                print(f"Error executing {act_name}: {e}")
+                print("Error executing {}: {}".format(act_name, e))
 
         try:
             # Execute Action 1
@@ -3471,7 +3527,7 @@ class SidebarWindow(tk.Tk):
             self.after(500, self.refresh_emails)
             
         except Exception as e:
-            print(f"Action execution loop error: {e}")
+            print("Action execution loop error: {}".format(e))
 
     def toggle_card_actions(self, action_frame):
         if action_frame.winfo_viewable():
@@ -3481,46 +3537,7 @@ class SidebarWindow(tk.Tk):
 
 
         
-    def start_polling(self):
-        """Poll Outlook every 30 seconds for new mail and due items."""
-        # Get enabled email accounts
-        accounts = [n for n, s in self.enabled_accounts.items() if s.get("email")] if self.enabled_accounts else None
-        
-        print(f"DEBUG: Pulse Start Polling - Interval: {self.poll_interval}s")
-        
-        pulse_triggered = False
 
-        # 1. Check New Mail (For Refreshing List)
-        has_new = self.outlook_client.check_new_mail(accounts)
-        print(f"DEBUG: Check New Mail Result: {has_new}")
-        
-        if has_new:
-             print("DEBUG: New mail detected! Refreshing...")
-             self.refresh_emails()
-        
-        # Check Total Unread for Pulse (State-based)
-        unread_count = self.outlook_client.get_unread_count(accounts, self.enabled_accounts)
-
-        # Trigger Pulse (Blue) if Unread > 0
-        if unread_count > 0:
-             if not self.is_pinned and not self.is_expanded:
-                 print("DEBUG: Triggering BLUE Pulse (Unread Items present)")
-                 self.start_pulse("#0078D4")
-                 pulse_triggered = True
-        
-        # 2. Check Due Items (Tasks / Meetings)
-        # Returns "Overdue" or "Today" or None
-        due_status = self.outlook_client.check_due_items(accounts)
-        print(f"DEBUG: Due Status: {due_status}")
-        
-        if due_status and not self.is_pinned and not self.is_expanded and not pulse_triggered:
-             # Prioritize Overdue? Or just pulse
-             # Orange for Today/Overdue
-             print("DEBUG: Triggering ORANGE Pulse")
-             self.start_pulse("#E68D49")
-            
-        self.after(self.poll_interval * 1000, self.start_polling) # Dynamic interval
-        
 
 
 
@@ -3696,8 +3713,16 @@ class SidebarWindow(tk.Tk):
                 self.reminder_has_reminder = data.get("reminder_has_reminder", False)
                 self.buttons_on_hover = data.get("buttons_on_hover", False)
                 self.email_double_click = data.get("email_double_click", False)
-        except FileNotFoundError:
-            pass
+        except (FileNotFoundError, ValueError, IndexError):
+            # If config is missing or corrupt, auto-enable all discovered accounts
+            try:
+                available = self.outlook_client.get_accounts()
+                if available:
+                    for acc in available:
+                        self.enabled_accounts[acc] = {"email": True, "calendar": True, "tasks": True}
+                    self.save_config()
+            except:
+                pass
 
     def save_config(self):
         data = {
@@ -3755,7 +3780,7 @@ class SidebarWindow(tk.Tk):
     def flash_widget_recursive(self, widget, flash_color="#FFFFFF", duration=200):
         """Flashes a widget and ALL its children recursively."""
         try:
-            # print(f"DEBUG: Flashing {widget}")
+            # print("DEBUG: Flashing {}".format(widget))
             restore_map = {}
             
             def collect_and_flash(w):
@@ -3765,7 +3790,7 @@ class SidebarWindow(tk.Tk):
                         restore_map[w] = orig
                         w.config(bg=flash_color)
                 except Exception as e:
-                    # print(f"DEBUG: Flash config failed for {w}: {e}")
+                    # print("DEBUG: Flash config failed for {}: {}".format(w, e))
                     pass
                 
                 # Recurse
@@ -3778,7 +3803,7 @@ class SidebarWindow(tk.Tk):
             self.after(duration, lambda: self._revert_flash(restore_map))
             
         except Exception as e:
-            print(f"Flash Error: {e}")
+            print("Flash Error: {}".format(e))
 
     def _revert_flash(self, restore_map):
         for w, orig in restore_map.items():
@@ -3810,11 +3835,11 @@ class SidebarWindow(tk.Tk):
                      caption = inspector.Caption
                      self.after(50, lambda: self._wait_and_focus(caption, attempt=1))
                  except Exception as e:
-                     print(f"Focus preparation error: {e}")
+                     print("Focus preparation error: {}".format(e))
              else:
                  print("Error: Not connected to Outlook")
         except Exception as e:
-             print(f"Error opening email: {e}")
+             print("Error opening email: {}".format(e))
 
     def toggle_body_hover(self, event, preview_label, show):
         """Shows or hides the email body preview on hover."""
@@ -3836,7 +3861,7 @@ class SidebarWindow(tk.Tk):
     def _wait_and_focus(self, title_fragment, attempt=1):
         """Polls for window and forces focus using AttachThreadInput."""
         if attempt > 15:
-            # print(f"DEBUG: Could not find window with title '{title_fragment}'")
+            # print("DEBUG: Could not find window with title '{}'".format(title_fragment))
             return
 
         found_hwnd = None
@@ -3853,7 +3878,7 @@ class SidebarWindow(tk.Tk):
              
         if wins:
             target_hwnd = wins[0]
-            # print(f"DEBUG: Found window {hex(target_hwnd)} for '{title_fragment}'")
+            # print("DEBUG: Found window {} for '{}'".format(hex(target_hwnd), title_fragment))
             
             try:
                 # 1. Force Restore if Minimized
@@ -3884,7 +3909,7 @@ class SidebarWindow(tk.Tk):
                     win32gui.SetForegroundWindow(target_hwnd)
 
             except Exception as e:
-                print(f"Focus Magic Error: {e}")
+                print("Focus Magic Error: {}".format(e))
         else:
             self.after(100, lambda: self._wait_and_focus(title_fragment, attempt+1))
 
@@ -3954,7 +3979,7 @@ class SidebarWindow(tk.Tk):
          """Callback for folder picker spawned from overlay."""
          folders = self.outlook_client.get_folder_list(account_name)
          if not folders:
-             messagebox.showwarning("No Folders", f"Could not retrieve folder list for '{account_name}'.")
+             messagebox.showwarning("No Folders", "Could not retrieve folder list for '{}'.".format(account_name))
              return
          
          def on_return():
@@ -3996,7 +4021,7 @@ class SidebarWindow(tk.Tk):
         
         # Update Header Count
         try:
-             self.lbl_email_header.config(text=f"Email - {unread_count}")
+             self.lbl_email_header.config(text="Email - {}".format(unread_count))
         except: pass
         
         # Fetch Category Colors
@@ -4070,7 +4095,7 @@ class SidebarWindow(tk.Tk):
                         if diff == 0:
                             badge_text = "FLAGGED TODAY"
                         else:
-                            badge_text = f"FLAGGED {diff}D"
+                            badge_text = "FLAGGED {}D".format(diff)
                         badge_bg = "#8E8E8E"
                     except:
                         pass
@@ -4272,7 +4297,7 @@ class SidebarWindow(tk.Tk):
                 # Tooltip logic
                 act1 = conf.get("action1", "")
                 act2 = conf.get("action2", "None")
-                tip_text = f"{act1} & {act2}" if act2 != "None" else act1
+                tip_text = "{} & {}".format(act1, act2) if act2 != "None" else act1
                 ToolTip(btn, tip_text)
                 
                 # Bind Action
@@ -4768,7 +4793,7 @@ class SidebarWindow(tk.Tk):
             else:
                 x = wx + ww - width
 
-        self.geometry(f"{width}x{h}+{x}+{y}")
+        self.geometry("{}x{}+{}+{}".format(width, h, x, y))
         self.update_idletasks()
         self.wm_attributes("-topmost", True)
 
@@ -4878,7 +4903,7 @@ class SidebarWindow(tk.Tk):
         x = self.winfo_x() + deltax
         y = self.winfo_y() + deltay
         # During drag, we don't snap/resize, just move
-        self.geometry(f"+{x}+{y}")
+        self.geometry("+{}+{}".format(x, y))
 
     def stop_window_drag(self, event):
         # Auto-Snap Logic
@@ -4902,6 +4927,7 @@ class SidebarWindow(tk.Tk):
         self.apply_state()
 
     # --- Polling Control ---
+    # --- Polling Control ---
     def start_polling(self):
         """Starts the background polling loop."""
         self.check_updates()
@@ -4911,7 +4937,7 @@ class SidebarWindow(tk.Tk):
         try:
             self._perform_check()
         except Exception as e:
-            print(f"Polling error: {e}")
+            print("Polling error: {}".format(e))
         
         # Schedule next poll
         interval = getattr(self, "poll_interval", 15) * 1000
@@ -4949,6 +4975,7 @@ class SidebarWindow(tk.Tk):
             
         # Trigger Pulse if needed
         if active_colors and not self.is_pinned and not self.is_expanded:
+            print("DEBUG: Active Pulse Colors: {}".format(active_colors))
             self.start_pulse(active_colors)
         elif not active_colors:
             self.stop_pulse()
@@ -5050,7 +5077,7 @@ class SidebarWindow(tk.Tk):
         ng = max(0, min(255, ng))
         nb = max(0, min(255, nb))
         
-        return f"#{nr:02x}{ng:02x}{nb:02x}"
+        return "#{:02x}{:02x}{:02x}".format(nr, ng, nb)
 
     def on_enter(self, event):
         # Note: We do NOT stop pulsing here anymore. 
@@ -5113,7 +5140,7 @@ class SidebarWindow(tk.Tk):
             try:
                 os.makedirs(app_dir)
             except OSError as e:
-                print(f"Error creating app data dir: {e}")
+                print("Error creating app data dir: {}".format(e))
                 # Fallback to temp if strictly needed, or just fail
         return app_dir
 
@@ -5130,7 +5157,7 @@ class SidebarWindow(tk.Tk):
                         # Copy bundled default to AppData so user can edit it later
                         shutil.copy2(bundled_config, config_path)
                     except Exception as e:
-                        print(f"Failed to copy default config: {e}")
+                        print("Failed to copy default config: {}".format(e))
             
             if os.path.exists(config_path):
                 with open(config_path, "r") as f:
@@ -5190,7 +5217,7 @@ class SidebarWindow(tk.Tk):
                 self.email_show_body = config.get("email_show_body", False)
                 self.email_body_lines = config.get("email_body_lines", 2)
         except Exception as e:
-            print(f"Error loading config: {e}")
+            print("Error loading config: {}".format(e))
 
     def save_config(self):
         app_dir = self.get_app_data_dir()
@@ -5245,7 +5272,7 @@ class SidebarWindow(tk.Tk):
             with open(config_path, "w") as f:
                 json.dump(config, f, indent=4)
         except Exception as e:
-            print(f"Error saving config: {e}")
+            print("Error saving config: {}".format(e))
 
     def handle_quick_create(self):
         """Handles the quick create button click."""
@@ -5339,15 +5366,18 @@ class SingleInstance:
             kernel32.CloseHandle(self.mutex_handle)
 
 if __name__ == "__main__":
-    # Check Single Instance
-    app_instance = SingleInstance()
-    if app_instance.already_running():
-        # Optional: Bring existing window to front (Requires FindWindow/SetForegroundWindow logic)
-        # For now, just exit silently or print
-        # messagebox.showinfo("InboxBar", "The application is already running.")
-        sys.exit(0)
+    try:
+        # Check Single Instance
+        app_instance = SingleInstance()
+        if app_instance.already_running():
+            sys.exit(0)
 
-    # Keep the mutex handle alive for the duration of the app
-    app = SidebarWindow()
-    app.mainloop()
+        # Keep the mutex handle alive for the duration of the app
+        app = SidebarWindow()
+        app.mainloop()
+    except Exception as e:
+        import traceback
+        with open("startup_error.log", "w") as f:
+            f.write("Startup Error: {}\n".format(e))
+            f.write(traceback.format_exc())
 
