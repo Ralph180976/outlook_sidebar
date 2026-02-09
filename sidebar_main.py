@@ -2602,9 +2602,9 @@ class SettingsPanel(tk.Frame):
         # ----------------------------------------------------
         # 8. Feedback (Moved from Help Panel)
         # ----------------------------------------------------
-        create_section_header(scroll_content, "Feedback", pady=(20, 5))
+        create_section_header(main_content, "Feedback", pady=(20, 5))
         
-        f_feedback = tk.Frame(scroll_content, bg=self.colors["bg_root"])
+        f_feedback = tk.Frame(main_content, bg=self.colors["bg_root"])
         f_feedback.pack(fill="x", anchor="w", padx=20, pady=5)
         
         tk.Label(f_feedback, text="Found a bug or have an idea?", 
