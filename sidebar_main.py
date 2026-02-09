@@ -42,7 +42,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.3.1"
+VERSION = "v1.3.2"
 
 
 # --- Windows API Constants & Structures ---
@@ -965,6 +965,19 @@ class OutlookClient:
         except Exception as e:
             print("Error dismissing calendar item: {}".format(e))
             return False
+
+    def unflag_email(self, entry_id, store_id=None):
+        """Unflags an email (marks as complete)."""
+        try:
+            item = self.get_item_by_entryid(entry_id, store_id)
+            if item:
+                # 1 = olFlagComplete
+                item.FlagStatus = 1 
+                item.Save()
+                return True
+        except Exception as e:
+            print("Error unflagging email: {}".format(e))
+            return False
         """
         Recursively searches for a folder by name. 
         Starts at default Inbox parent (likely the account root).
@@ -1385,6 +1398,24 @@ class AccountSelectionUI(tk.Frame):
 
         tk.Frame(scroll_frame, bg="#333333", height=1).pack(fill="x", padx=5, pady=(0, 5))
 
+        # Preload folder icon
+        self.folder_icon_img = None
+        if os.path.exists("icon2/folder.png"):
+             try:
+                pil_img = Image.open("icon2/folder.png").convert("RGBA")
+                
+                # Create a solid white image of the same size
+                white_img = Image.new("RGBA", pil_img.size, (255, 255, 255, 255))
+                # Use the alpha channel from the original image as a mask/channel
+                r, g, b, a = pil_img.split()
+                white_img.putalpha(a)
+                pil_img = white_img
+                
+                pil_img = pil_img.resize((20, 20), RESAMPLE_MODE)
+                self.folder_icon_img = ImageTk.PhotoImage(pil_img)
+             except Exception as e:
+                print("Error loading folder icon: {}".format(e))
+
         for acc in self.accounts:
             row = tk.Frame(scroll_frame, bg=self.colors["bg"])
             row.pack(fill="x", padx=5, pady=2)
@@ -1406,7 +1437,12 @@ class AccountSelectionUI(tk.Frame):
             
             # Folder Button
             self.vars[acc]["email_folders"] = vals.get("email_folders", [])
-            btn_f = tk.Label(row, text="📁", bg=self.colors["bg"], fg=self.colors["accent"], cursor="hand2", font=("Segoe UI", 10))
+            
+            if self.folder_icon_img:
+                btn_f = tk.Label(row, image=self.folder_icon_img, bg=self.colors["bg"], cursor="hand2")
+            else:
+                btn_f = tk.Label(row, text="📁", bg=self.colors["bg"], fg=self.colors["accent"], cursor="hand2", font=("Segoe UI", 10))
+                
             btn_f.pack(side="left", padx=10)
             btn_f.bind("<Button-1>", lambda e, a=acc: self.on_folder_click(a))
 
@@ -1807,7 +1843,7 @@ class SettingsPanel(tk.Frame):
             print("DEBUG: show_read_var changed!")
             self.update_email_filters()
         
-        self.show_read_var.trace_add("write", on_show_read_change)
+        self.show_read_var.trace("w", on_show_read_change)
         print("DEBUG: Trace added to show_read_var")
         
         self.chk_show_read = tk.Checkbutton(
@@ -1830,7 +1866,7 @@ class SettingsPanel(tk.Frame):
             print("DEBUG: show_has_attachment_var changed!")
             self.update_email_filters()
         
-        self.show_has_attachment_var.trace_add("write", on_show_attachment_change)
+        self.show_has_attachment_var.trace("w", on_show_attachment_change)
         print("DEBUG: Trace added to show_has_attachment_var")
         
         self.chk_has_attachment = tk.Checkbutton(
@@ -2058,7 +2094,7 @@ class SettingsPanel(tk.Frame):
                          path = os.path.join("icons", new_icon)
                          if os.path.exists(path):
                              # Load using main_window's loader
-                             img = self.main_window.load_icon_white(path, size=(24, 24))
+                             img = self.main_window.load_icon_colored(path, size=(24, 24), color="#FFFFFF")
                              if img:
                                  # Keep reference to avoid GC
                                  setattr(icon_label, "image", img) 
@@ -2440,7 +2476,7 @@ class SettingsPanel(tk.Frame):
         )
         spin_days.pack(side="left", padx=2)
         # trace changes to update immediately
-        self.reminder_custom_days_var.trace_add("write", lambda *a: self.update_reminder_filters())
+        self.reminder_custom_days_var.trace("w", lambda *a: self.update_reminder_filters())
         
         tk.Label(f_custom, text="Days", bg=self.colors["bg_root"], fg="white", font=("Segoe UI", 9)).pack(side="left")
         
@@ -3569,14 +3605,25 @@ class SidebarWindow(tk.Tk):
             self.main_frame.pack_propagate(False)
             self.main_frame.pack(side="left", fill="y", expand=False)
             
-            # Open the panel alongside email list
-            self.settings_panel = SettingsPanel(self.content_wrapper, self, self.refresh_emails)
-            self.settings_panel.pack(side="left", fill="y")
-            self.settings_panel_open = True
-            
-            # Expand window by exactly +370px (Updated width)
-            new_width = self.expanded_width + self.settings_panel.panel_width
-            self.set_geometry(new_width)
+            try:
+                # Open the panel alongside email list
+                self.settings_panel = SettingsPanel(self.content_wrapper, self, self.refresh_emails)
+                self.settings_panel.pack(side="left", fill="y")
+                self.settings_panel_open = True
+                
+                # Expand window by exactly +370px (Updated width)
+                new_width = self.expanded_width + self.settings_panel.panel_width
+                self.set_geometry(new_width)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                messagebox.showerror("Settings Error", "Failed to open settings:\n{}".format(e))
+                
+                # Revert UI changes
+                self.main_frame.pack_propagate(True)
+                self.main_frame.config(width=0)
+                self.main_frame.pack(side="left", fill="both", expand=True)
+                self.settings_panel_open = False
 
     def toggle_help_panel(self):
         """Show or hide the help panel alongside the email list."""
@@ -4630,6 +4677,9 @@ class SidebarWindow(tk.Tk):
                     
                 card.bind("<Configure>", update_wraps)
 
+            # Ensure Reminders are also refreshed
+            self.refresh_reminders()
+
         except Exception as e:
             print("CRITICAL ERROR in refresh_emails: {}".format(e))
             import traceback
@@ -4756,24 +4806,21 @@ class SidebarWindow(tk.Tk):
                  bind_click(mf, m['entry_id'])
                  bind_click(subj, m['entry_id'])
 
-                 # Calendar Buttons Frame
+                 # Calendar Buttons Frame (Hidden initially)
                  c_actions = tk.Frame(mf, bg="#252526")
-                 c_actions.pack(side="right", padx=2)
+                 # c_actions.pack(side="right", padx=2) # Hidden
 
                  # Helper to create buttons (Inline reuse or call similar logic)
                  def make_cal_btn(parent, text, cmd, tip):
                      btn = tk.Label(parent, text=text, fg="#AAAAAA", bg="#252526", font=("Segoe UI", 10), cursor="hand2", padx=5)
-                     btn.pack(side="left", padx=1)
+                     btn.pack(side="right", padx=5) # Align right
                      btn.bind("<Button-1>", lambda e: cmd())
                      btn.bind("<Enter>", lambda e: btn.config(fg="white", bg="#444444"))
                      btn.bind("<Leave>", lambda e: btn.config(fg="#AAAAAA", bg="#252526"))
                      if tip: ToolTip(btn, tip)
                      return btn
 
-                 # Open Button
-                 make_cal_btn(c_actions, "📂", lambda eid=m['entry_id']: self.open_email(eid), "Open Meeting")
-
-                 # Dismiss Button (Checkmark)
+                 # Dismiss Button (Checkmark / Delete) - Far Right
                  def do_dismiss_cal(eid=m['entry_id'], w=mf):
                      # Confirm simple deletion/dismissal? User asked for "check box" logic.
                      # We'll just delete it for now as "Complete".
@@ -4785,8 +4832,10 @@ class SidebarWindow(tk.Tk):
                          
                  # Try to load PNG
                  btn_dismiss = None
+                     # Try to load PNG
+                 btn_dismiss = None
                  if os.path.exists("icons/Delete.png"): # Use Delete icon for dismissal
-                      img = self.load_icon_colored("icons/Delete.png", size=(16, 16), color="#AAAAAA")
+                      img = self.load_icon_colored("icons/Delete.png", size=(24, 24), color="#AAAAAA") # Larger 24x24
                       if img:
                           btn_dismiss = tk.Label(c_actions, image=img, bg="#252526", cursor="hand2", padx=5)
                           btn_dismiss.image = img
@@ -4794,9 +4843,36 @@ class SidebarWindow(tk.Tk):
                  if not btn_dismiss:
                       btn_dismiss = make_cal_btn(c_actions, u"✓", do_dismiss_cal, "Dismiss/Delete")
                  else:
-                      btn_dismiss.pack(side="left", padx=1)
+                      btn_dismiss.pack(side="right", padx=5)
                       btn_dismiss.bind("<Button-1>", lambda e: do_dismiss_cal())
                       if "Dismiss/Delete": ToolTip(btn_dismiss, "Dismiss/Delete")
+
+                 # Open Button (Re-add using make_cal_btn or custom) - Left of Dismiss
+                 make_cal_btn(c_actions, "📂", lambda eid=m['entry_id']: self.open_email(eid), "Open Meeting")
+                 
+                 # --- CALENDAR HOVER LOGIC ---
+                 def show_c_actions(e, fa=c_actions):
+                     if not fa.winfo_ismapped():
+                         fa.pack(side="top", fill="x", padx=2, pady=(2, 0)) # Expand below
+                 
+                 def hide_c_actions(e, c=mf, fa=c_actions):
+                     try:
+                         x, y = c.winfo_pointerxy()
+                         widget = c.winfo_containing(x, y)
+                         if widget:
+                             path = str(widget)
+                             c_path = str(c)
+                             if path.startswith(c_path): return
+                     except: pass
+                     
+                     if fa.winfo_ismapped():
+                         fa.pack_forget()
+
+                 # Bindings
+                 mf.bind("<Enter>", show_c_actions)
+                 mf.bind("<Leave>", hide_c_actions)
+                 subj.bind("<Enter>", show_c_actions)
+                 subj.bind("<Leave>", hide_c_actions)
 
         # 2. Outlook Tasks
         if self.reminder_show_flagged:
@@ -4809,41 +4885,26 @@ class SidebarWindow(tk.Tk):
                      tf.pack(fill="x", padx=2, pady=2)
                      
                      subj = tk.Label(tf, text=task['subject'], fg="white", bg="#2d2d2d", font=("Segoe UI", 9), anchor="w", justify="left", wraplength=self.expanded_width-40)
-                     subj.pack(side="left", fill="x", expand=True, padx=5)
+                     subj.pack(side="top", fill="x", expand=True, padx=5, pady=(0, 2))
                      
                      bind_click(tf, task['entry_id'])
                      bind_click(subj, task['entry_id'])
 
                      # Task Buttons Frame
                      t_actions = tk.Frame(tf, bg="#2d2d2d")
-                     t_actions.pack(side="right", padx=2)
+                     # t_actions.pack(side="right", padx=2) # Hidden
 
                      # Helper to create buttons
                      def make_task_btn(parent, text, cmd, tip):
                          btn = tk.Label(parent, text=text, fg="#AAAAAA", bg="#2d2d2d", font=("Segoe UI", 10), cursor="hand2", padx=5)
-                         btn.pack(side="left", padx=1)
+                         btn.pack(side="right", padx=5) # Align Right
                          btn.bind("<Button-1>", lambda e: cmd())
                          btn.bind("<Enter>", lambda e: btn.config(fg="white", bg="#444444"))
                          btn.bind("<Leave>", lambda e: btn.config(fg="#AAAAAA", bg="#2d2d2d"))
                          if tip: ToolTip(btn, tip)
                          return btn
 
-                     # Open Button (Folder icon or similar)
-                     btn_open = None
-                     if os.path.exists("icon2/open-task.png"):
-                          img = self.load_icon_colored("icon2/open-task.png", size=(16, 16), color="#AAAAAA")
-                          if img:
-                              btn_open = tk.Label(t_actions, image=img, bg="#2d2d2d", cursor="hand2", padx=5)
-                              btn_open.image = img
-                     
-                     if not btn_open:
-                          make_task_btn(t_actions, u"📂", lambda eid=task['entry_id']: self.open_email(eid), "Open Task")
-                     else:
-                          btn_open.pack(side="left", padx=1)
-                          btn_open.bind("<Button-1>", lambda e, eid=task['entry_id']: self.open_email(eid))
-                          ToolTip(btn_open, "Open Task")
-
-                     # Complete Button (Checkmark)
+                     # Complete Button (Checkmark) - Far Right
                      def do_complete(eid=task['entry_id'], w=tf):
                          success = self.outlook_client.mark_task_complete(eid)
                          if success:
@@ -4858,7 +4919,7 @@ class SidebarWindow(tk.Tk):
                      # Reuse 'Mark as Read' icon (often a check) or just unicode if PNG not suited
                      # 'icons/Mark as Read.png' exists.
                      if os.path.exists("icons/Mark as Read.png"):
-                          img = self.load_icon_colored("icons/Mark as Read.png", size=(16, 16), color="#AAAAAA")
+                          img = self.load_icon_colored("icons/Mark as Read.png", size=(24, 24), color="#AAAAAA") # Large 24x24
                           if img:
                               btn_complete = tk.Label(t_actions, image=img, bg="#2d2d2d", cursor="hand2", padx=5)
                               btn_complete.image = img # Keep ref
@@ -4866,9 +4927,47 @@ class SidebarWindow(tk.Tk):
                      if not btn_complete:
                           make_task_btn(t_actions, u"✓", do_complete, "Mark Complete")
                      else:
-                          btn_complete.pack(side="left", padx=1)
+                          btn_complete.pack(side="right", padx=5)
                           btn_complete.bind("<Button-1>", lambda e: do_complete())
                           ToolTip(btn_complete, "Mark Complete")
+
+                     # Open Button (Folder icon or similar) - Left of Complete
+                     btn_open = None
+                     if os.path.exists("icon2/open-task.png"):
+                          img = self.load_icon_colored("icon2/open-task.png", size=(24, 24), color="#AAAAAA") # Large 24x24
+                          if img:
+                              btn_open = tk.Label(t_actions, image=img, bg="#2d2d2d", cursor="hand2", padx=5)
+                              btn_open.image = img
+                     
+                     if not btn_open:
+                          make_task_btn(t_actions, u"📂", lambda eid=task['entry_id']: self.open_email(eid), "Open Task")
+                     else:
+                          btn_open.pack(side="right", padx=5)
+                          btn_open.bind("<Button-1>", lambda e, eid=task['entry_id']: self.open_email(eid))
+                          ToolTip(btn_open, "Open Task")
+                     
+                     # --- TASKS HOVER LOGIC ---
+                     def show_t_actions(e, fa=t_actions):
+                         if not fa.winfo_ismapped():
+                             fa.pack(side="top", fill="x", padx=2, pady=(2, 0))
+                     
+                     def hide_t_actions(e, c=tf, fa=t_actions):
+                         try:
+                             x, y = c.winfo_pointerxy()
+                             widget = c.winfo_containing(x, y)
+                             if widget:
+                                 path = str(widget)
+                                 c_path = str(c)
+                                 if path.startswith(c_path): return
+                         except: pass
+                         
+                         if fa.winfo_ismapped():
+                             fa.pack_forget()
+
+                     tf.bind("<Enter>", show_t_actions)
+                     tf.bind("<Leave>", hide_t_actions)
+                     subj.bind("<Enter>", show_t_actions)
+                     subj.bind("<Leave>", hide_t_actions)
 
         # 3. Flagged Emails
         if self.reminder_show_flagged:
@@ -4888,11 +4987,98 @@ class SidebarWindow(tk.Tk):
                      cf = tk.Frame(container, bg="#2d2d2d", highlightthickness=1, highlightbackground="#FF8C00", padx=5, pady=5)
                      cf.pack(fill="x", padx=2, pady=2)
                      
+                     # Subject Label (Now packed top)
                      subj = tk.Label(cf, text=email['subject'], fg="white", bg="#2d2d2d", font=("Segoe UI", 9), anchor="w", justify="left", wraplength=self.expanded_width-40)
-                     subj.pack(side="left", fill="x", expand=True, padx=5)
+                     subj.pack(side="top", fill="x", expand=True, padx=5, pady=(0, 2))
                      
                      bind_click(cf, email['entry_id'])
                      bind_click(subj, email['entry_id'])
+
+                     # Flag Actions Frame (Hidden initially)
+                     # Packed below subject
+                     f_actions = tk.Frame(cf, bg="#2d2d2d")
+                     # f_actions.pack(side="top", fill="x", padx=2) # Hide by default
+
+                     # Helper to create buttons
+                     def make_flag_btn(parent, text, cmd, tip):
+                         btn = tk.Label(parent, text=text, fg="#AAAAAA", bg="#2d2d2d", font=("Segoe UI", 10), cursor="hand2", padx=5)
+                         btn.pack(side="right", padx=5) # Pack right for alignment
+                         btn.bind("<Button-1>", lambda e: cmd())
+                         btn.bind("<Enter>", lambda e: btn.config(fg="white", bg="#444444"))
+                         btn.bind("<Leave>", lambda e: btn.config(fg="#AAAAAA", bg="#2d2d2d"))
+                         if tip: ToolTip(btn, tip)
+                         return btn
+
+                     # Unflag Button (Flag icon) - Moved to far right (first packed right)
+                     def do_unflag(eid=email['entry_id'], sid=email['store_id'], w=cf):
+                         success = self.outlook_client.unflag_email(eid, sid)
+                         if success:
+                             w.pack_forget()
+                         else:
+                             messagebox.showerror("Error", "Failed to unflag email.")
+                     
+                     btn_unflag = None
+                     if os.path.exists("icon2/flag.png"):
+                          img = self.load_icon_colored("icon2/flag.png", size=(24, 24), color="#FF8C00") # 50% larger (16->24)
+                          if img:
+                              btn_unflag = tk.Label(f_actions, image=img, bg="#2d2d2d", cursor="hand2", padx=5)
+                              btn_unflag.image = img
+                     
+                     if not btn_unflag:
+                          make_flag_btn(f_actions, u"⚑", do_unflag, "Unflag")
+                     else:
+                          # Pack Right
+                          btn_unflag.pack(side="right", padx=5)
+                          btn_unflag.bind("<Button-1>", lambda e: do_unflag())
+                          ToolTip(btn_unflag, "Unflag")
+
+                     # Open Button (Folder icon)
+                     btn_open = None
+                     if os.path.exists("icon2/open-email.png"):
+                          img = self.load_icon_colored("icon2/open-email.png", size=(24, 24), color="#AAAAAA") # 50% larger
+                          if img:
+                              btn_open = tk.Label(f_actions, image=img, bg="#2d2d2d", cursor="hand2", padx=5)
+                              btn_open.image = img
+                     
+                     if not btn_open:
+                          make_flag_btn(f_actions, u"📂", lambda eid=email['entry_id']: self.open_email(eid), "Open Email")
+                     else:
+                          # Pack Right (left/next to Unflag)
+                          btn_open.pack(side="right", padx=5)
+                          btn_open.bind("<Button-1>", lambda e, eid=email['entry_id']: self.open_email(eid))
+                          ToolTip(btn_open, "Open Email")
+
+                     # --- HOVER LOGIC ---
+                     def show_f_actions(e, fa=f_actions):
+                         if not fa.winfo_ismapped():
+                             fa.pack(side="top", fill="x", padx=2, pady=(2, 0)) # Pack creates accordion expansion below subject
+                     
+                     def hide_f_actions(e, c=cf, fa=f_actions):
+                         try:
+                             x, y = c.winfo_pointerxy()
+                             widget = c.winfo_containing(x, y)
+                             # Check if we are still inside 'cf' or any of its children (fa included)
+                             if widget:
+                                 path = str(widget)
+                                 c_path = str(c)
+                                 if path.startswith(c_path): # widget is child of cf
+                                     return
+                         except: pass
+                         
+                         if fa.winfo_ismapped():
+                             fa.pack_forget()
+
+                     # Bind Enter/Leave on container and subject
+                     cf.bind("<Enter>", show_f_actions)
+                     cf.bind("<Leave>", hide_f_actions)
+                     subj.bind("<Enter>", show_f_actions)
+                     # No direct leave on subj needed if it propagates or handled by containing check
+                     # But subj leave -> enters cf? Or enters void?
+                     # Let's be safe:
+                     subj.bind("<Leave>", hide_f_actions)
+                     
+                     # Also bind hover specifically for buttons area to prevent hiding?
+                     # No, because buttons are children of fa, which is child of cf. containing check covers it.
 
 
     def draw_pin_icon(self):
@@ -4936,6 +5122,9 @@ class SidebarWindow(tk.Tk):
             self.pin_tooltip.text = "Pin Window (Current: Auto-Collapse)"
         self.save_config()
         self.apply_state()
+        
+        # Force a check immediately to update pulse state
+        self.after(100, self._perform_check)
 
     def apply_state(self):
         """Applies the current state (Pinned/Expanded/Collapsed) to the window and AppBar."""
@@ -5331,12 +5520,16 @@ class SidebarWindow(tk.Tk):
             active_colors.append("#0078D4")
 
         # Priority 2: Meetings (Orange)
-        if due_status["calendar"] == "Today":
+        if due_status["calendar"] == "Today" and self.reminder_show_meetings and "Today" in self.reminder_meeting_dates:
             active_colors.append("#E68D49") # Soft Orange
             
         # Priority 3: Tasks (Green)
-        if due_status["tasks"] in ["Overdue", "Today"]:
-            active_colors.append("#28C745") # Bright Green
+        if self.reminder_show_tasks:
+            t_status = due_status["tasks"]
+            if t_status == "Overdue" and "Overdue" in self.reminder_due_filters:
+                active_colors.append("#28C745")
+            elif t_status == "Today" and "Today" in self.reminder_due_filters:
+                active_colors.append("#28C745")
             
         # Trigger Pulse if needed
         if active_colors and not self.is_pinned and not self.is_expanded:
@@ -5348,6 +5541,8 @@ class SidebarWindow(tk.Tk):
     def start_pulse(self, colors):
         """Starts the hot strip pulsing animation with a list of colors."""
         if self.is_pinned or self.is_expanded: return 
+        
+        print("DEBUG: start_pulse triggered. Colors={}".format(colors)) 
         
         # Ensure colors is a list
         if isinstance(colors, str): colors = [colors]
