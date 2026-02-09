@@ -1,28 +1,28 @@
 {
-    "dock_side": "Left",
-    "font_family": "Segoe UI",
-    "font_size": 9,
-    "poll_interval": 30,
+    "dock_side": "Left", 
+    "poll_interval": 30, 
+    "font_size": 9, 
+    "font_family": "Segoe UI", 
     "buttons": [
         {
-            "icon": "Mark as Read.png",
-            "action1": "Mark Read",
-            "folder": ""
-        },
+            "folder": "", 
+            "action1": "Mark Read", 
+            "icon": "Mark as Read.png"
+        }, 
         {
-            "icon": "Reply.png",
-            "action1": "Reply",
-            "folder": ""
-        },
+            "folder": "", 
+            "action1": "Reply", 
+            "icon": "Reply.png"
+        }, 
         {
-            "icon": "open.png",
-            "action1": "Open Email",
-            "folder": ""
-        },
+            "folder": "", 
+            "action1": "Open Email", 
+            "icon": "open.png"
+        }, 
         {
-            "icon": "Read & Delete.png",
-            "action1": "Read & Delete",
-            "folder": ""
+            "folder": "", 
+            "action1": "Read & Delete", 
+            "icon": "Read & Delete.png"
         }
     ]
 }

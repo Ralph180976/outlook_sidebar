@@ -1,5 +1,6 @@
 import json
 import os
+import io
 
 icons_map = {
     "Reply": "Reply.png",
@@ -7,7 +8,13 @@ icons_map = {
     "Delete": "Delete.png",
     "Flag": "Flag.png",
     "Move To...": "Move to Folder.png",
-    "Mark Read": "Mark as Read.png"
+    "Mark Read": "Mark as Read.png",
+    u"\u2713": "Delete.png", # Checkmark -> Delete (or Mark Read?)
+    u"\u2714": "Delete.png", # Heavy Checkmark
+    u"\u2610": "Mark as Read.png", # Ballot Box
+    u"\u2709": "open.png", # Envelope
+    u"\u21a9": "Reply.png", # Arrow
+    u"\u2197": "open.png" # Arrow Up Right
 }
 
 # Combo actions
@@ -16,15 +23,15 @@ combo_map = {
 }
 
 try:
-    if not os.path.exists("sidebar_config.json"):
+    if not os.path.exists("config.json"):
         print("Config not found.")
         exit()
 
-    with open('sidebar_config.json', 'r', encoding='utf-8') as f:
+    with io.open('config.json', 'r', encoding='utf-8') as f:
         data = json.load(f)
 
     changed = False
-    for btn in data.get('btn_config', []):
+    for btn in data.get('buttons', []):
         act1 = btn.get('action1', 'None')
         act2 = btn.get('action2', 'None')
         
@@ -43,11 +50,16 @@ try:
                 changed = True
 
     if changed:
-        with open('sidebar_config.json', 'w', encoding='utf-8') as f:
-            json.dump(data, f)
+        with io.open('config.json', 'w', encoding='utf-8') as f:
+            # json.dump in Py2 writes bytes if ensure_ascii=False, but io.open expects unicode.
+            # standard json.dump writes ascii by default which is safe.
+            # But if we want pretty indentation...
+            # Construct string first
+            s = json.dumps(data, indent=4, ensure_ascii=False)
+            f.write(s)
         print("PNG Migration successful.")
     else:
         print("No changes needed.")
 
 except Exception as e:
-    print(f"Migration error: {e}")
+    print("Migration error: {}".format(e))

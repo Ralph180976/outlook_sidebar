@@ -42,7 +42,7 @@ kernel32 = ctypes.windll.kernel32
 
 
 # --- Application Constants ---
-VERSION = "v1.3.0"
+VERSION = "v1.3.1"
 
 
 # --- Windows API Constants & Structures ---
@@ -1985,7 +1985,7 @@ class SettingsPanel(tk.Frame):
         self.rows_data = [] 
         self.action_options = ["None", "Mark Read", "Delete", "Read & Delete", "Flag", "Open Email", "Reply", "Move To..."]
         # Monochrome / Clean Unicode Icons AND Custom PNGs
-        unicode_icons = ["", "🗑️", "✉️", "⚑", "↩️", "📂", "↗", "✓", "✕", "⚠"]
+        unicode_icons = [u"", u"🗑️", u"✉️", u"⚑", u"↩️", u"📂", u"↗", u"✓", u"✕", u"⚠"]
         
         # Scan for PNGs
         png_icons = []
@@ -3796,29 +3796,53 @@ class SidebarWindow(tk.Tk):
     def _focus_window_by_hwnd(self, hwnd):
         """
         Brings a window to the foreground by its hwnd.
-        Handles minimized windows and SetForegroundWindow restrictions.
+        Uses multiple methods (SwitchToThisWindow, AttachThreadInput, SetWindowPos) to force focus.
         """
         if not hwnd:
             return False
         
         try:
-            # Check if minimized
+            # 1. Force Restore if Minimized
             if user32.IsIconic(hwnd):
-                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                win32gui.ShowWindow(hwnd, 9) # SW_RESTORE
             else:
-                win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+                win32gui.ShowWindow(hwnd, 5) # SW_SHOW
             
-            # SetForegroundWindow can fail if our process doesn't have focus
-            # Workaround: briefly set TOPMOST then remove it
+            # 2. Try SwitchToThisWindow (Undocumented but powerful - Alt-Tab equivalent)
             try:
-                win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0,
-                                      win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
-                win32gui.SetWindowPos(hwnd, win32con.HWND_NOTOPMOST, 0, 0, 0, 0,
-                                      win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
+                user32.SwitchToThisWindow(hwnd, True)
             except:
                 pass
-            
-            win32gui.SetForegroundWindow(hwnd)
+
+            # 3. AttachThreadInput Magic (The "Strong" Method)
+            # This allows us to inject into the thread queue of the target window to force foreground
+            try:
+                target_tid = user32.GetWindowThreadProcessId(hwnd, None)
+                current_tid = kernel32.GetCurrentThreadId()
+                
+                if target_tid != current_tid:
+                    # Attach
+                    user32.AttachThreadInput(current_tid, target_tid, True)
+                    try:
+                        # Force Foreground
+                        win32gui.SetForegroundWindow(hwnd)
+                        
+                        # Z-Order Trick: Top, then Not Top
+                        win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0, 0x0003) # SWP_NOMOVE | SWP_NOSIZE
+                        win32gui.SetWindowPos(hwnd, win32con.HWND_NOTOPMOST, 0, 0, 0, 0, 0x0003)
+                    finally:
+                        # Always Detach
+                        user32.AttachThreadInput(current_tid, target_tid, False)
+                else:
+                    # Same thread
+                    win32gui.SetForegroundWindow(hwnd)
+                    
+            except Exception as e:
+                print("Focus Magic Error: {}".format(e))
+                # Fallback to standard
+                try: win32gui.SetForegroundWindow(hwnd)
+                except: pass
+
             return True
         except Exception:
             return False
@@ -4032,13 +4056,17 @@ class SidebarWindow(tk.Tk):
                  
                  try:
                      inspector = item.GetInspector
-                     # Force Normal window state first, then Maximize?
-                     # inspector.WindowState = 1 # olNormalWindow
-                     # inspector.WindowState = 2 # olMaximized
                      inspector.Activate()
                      
-                     caption = inspector.Caption
-                     self.after(50, lambda: self._wait_and_focus(caption, attempt=1))
+                     # Force window usage if possible
+                     try:
+                        # Some versions of Outlook don't expose HWND on Inspector easily via OOM in Py2.7
+                        # But we can try to find it via the caption immediately.
+                        caption = inspector.Caption
+                        # Start polling for it
+                        self.after(50, lambda: self._wait_and_focus(caption, attempt=1))
+                     except:
+                        pass
                  except Exception as e:
                      print("Focus preparation error: {}".format(e))
              else:
@@ -4084,37 +4112,7 @@ class SidebarWindow(tk.Tk):
         if wins:
             target_hwnd = wins[0]
             # print("DEBUG: Found window {} for '{}'".format(hex(target_hwnd), title_fragment))
-            
-            try:
-                # 1. Force Restore if Minimized
-                if user32.IsIconic(target_hwnd):
-                    user32.ShowWindow(target_hwnd, 9) # SW_RESTORE
-                else:
-                    user32.ShowWindow(target_hwnd, 5) # SW_SHOW
-                
-                # 2. AttachThreadInput Magic
-                # Get the thread ID of the target window (Outlook)
-                target_tid = user32.GetWindowThreadProcessId(target_hwnd, None)
-                # Get our current thread ID
-                current_tid = kernel32.GetCurrentThreadId()
-                
-                if target_tid != current_tid:
-                    # Attach input processing
-                    user32.AttachThreadInput(current_tid, target_tid, True)
-                    
-                    # Bring to foreground (now allowed)
-                    win32gui.SetForegroundWindow(target_hwnd)
-                    win32gui.SetWindowPos(target_hwnd, win32con.HWND_TOPMOST, 0,0,0,0, 0x0003) # NOSIZE|NOMOVE
-                    win32gui.SetWindowPos(target_hwnd, win32con.HWND_NOTOPMOST, 0,0,0,0, 0x0003)
-                    
-                    # Detach
-                    user32.AttachThreadInput(current_tid, target_tid, False)
-                else:
-                    # Same thread (unlikely for COM out-of-proc, but possible)
-                    win32gui.SetForegroundWindow(target_hwnd)
-
-            except Exception as e:
-                print("Focus Magic Error: {}".format(e))
+            self._focus_window_by_hwnd(target_hwnd)
         else:
             self.after(100, lambda: self._wait_and_focus(title_fragment, attempt+1))
 
@@ -4205,433 +4203,441 @@ class SidebarWindow(tk.Tk):
          self.overlay_picker.pack(fill="both", expand=True)
 
     def refresh_emails(self):
-        # Update UI fonts for header elements
-        self.lbl_title.config(font=(self.font_family, 10, "bold"))
-        self.btn_settings.config(font=(self.font_family, 12))
-        self.btn_refresh.config(font=(self.font_family, 15))
-
-        # Clear existing
-        for widget in self.scroll_frame.scrollable_frame.winfo_children():
-            widget.destroy()
-
-        # Determine enabled accounts
-        accounts = [n for n, s in self.enabled_accounts.items() if s.get("email")] if self.enabled_accounts else None
-
-        emails, unread_count = self.outlook_client.get_inbox_items(
-            count=30, 
-            unread_only=not self.show_read,
-            account_names=accounts,
-            account_config=self.enabled_accounts
-        )
-        
-        # Update Header Count
         try:
-             self.lbl_email_header.config(text="Email - {}".format(unread_count))
-        except: pass
-        
-        # Fetch Category Colors
-        cat_map = self.outlook_client.get_category_map()
-        
-        for email in emails:
-            lbl_sender = None
-            lbl_subject = None
-            lbl_preview = None
-            
-            # Determine styling based on UnRead status
-            is_unread = email.get('unread', False)
-            bg_color = "#2d2d2d"
-            # Blue border for unread, grey for read
-            border_color = "#007ACC" if is_unread else "#555555"
-            border_width = 2 if is_unread else 1
-            
-            # Create Card
-            card = tk.Frame(
-                self.scroll_frame.scrollable_frame, 
-                bg=bg_color, 
-                highlightbackground=border_color, 
-                highlightthickness=border_width,
-                padx=5, pady=5
+            # Update UI fonts for header elements
+            self.lbl_title.config(font=(self.font_family, 10, "bold"))
+            self.btn_settings.config(font=(self.font_family, 12))
+            self.btn_refresh.config(font=(self.font_family, 15))
+
+            # Clear existing
+            for widget in self.scroll_frame.scrollable_frame.winfo_children():
+                widget.destroy()
+
+            # Determine enabled accounts
+            accounts = [n for n, s in self.enabled_accounts.items() if s.get("email")] if self.enabled_accounts else None
+
+            emails, unread_count = self.outlook_client.get_inbox_items(
+                count=30, 
+                unread_only=not self.show_read,
+                account_names=accounts,
+                account_config=self.enabled_accounts
             )
-            card.pack(fill="x", expand=True, padx=2, pady=2)
             
-            # --- Badge System (Follow-up Indicators) ---
-            badge_text = ""
-            badge_bg = "#555555" # Default
+            # Update Header Count
+            try:
+                 self.lbl_email_header.config(text="Email - {}".format(unread_count))
+            except: pass
             
-            if email.get('flag_status', 0) != 0:
-                due = email.get('due_date')
-                now_dt = datetime.now()
-                received = email.get('received')
+            # Fetch Category Colors
+            cat_map = self.outlook_client.get_category_map()
+            
+            for email in emails:
+                lbl_sender = None
+                lbl_subject = None
+                lbl_preview = None
                 
-                # Check for 4501 "No Date"
-                is_real_due = False
-                if due:
-                    try:
-                        # Extract date part for comparison
-                        due_short = due.replace(hour=0, minute=0, second=0, microsecond=0)
-                        now_short = now_dt.replace(hour=0, minute=0, second=0, microsecond=0)
-                        
-                        if due_short.year < 3000: # Not the 4501 placeholder
-                            is_real_due = True
-                            diff = (due_short - now_short).days
+                # Determine styling based on UnRead status
+                is_unread = email.get('unread', False)
+                bg_color = "#2d2d2d"
+                # Blue border for unread, grey for read
+                border_color = "#007ACC" if is_unread else "#555555"
+                border_width = 2 if is_unread else 1
+                
+                # Create Card
+                card = tk.Frame(
+                    self.scroll_frame.scrollable_frame, 
+                    bg=bg_color, 
+                    highlightbackground=border_color, 
+                    highlightthickness=border_width,
+                    padx=5, pady=5
+                )
+                card.pack(fill="x", expand=True, padx=2, pady=2)
+                
+                # --- Badge System (Follow-up Indicators) ---
+                badge_text = ""
+                badge_bg = "#555555" # Default
+                
+                if email.get('flag_status', 0) != 0:
+                    due = email.get('due_date')
+                    now_dt = datetime.now()
+                    received = email.get('received')
+                    
+                    # Check for 4501 "No Date"
+                    is_real_due = False
+                    if due:
+                        try:
+                            # Extract date part for comparison
+                            due_short = due.replace(hour=0, minute=0, second=0, microsecond=0)
+                            now_short = now_dt.replace(hour=0, minute=0, second=0, microsecond=0)
                             
-                            if diff < 0:
-                                badge_text = "OVERDUE"
-                                badge_bg = "#D83B01" # Dark Red/Orange
-                            elif diff == 0:
-                                badge_text = "DUE TODAY"
-                                badge_bg = "#FF8C00" # Orange
-                            elif diff == 1:
-                                badge_text = "TOMORROW"
-                                badge_bg = "#0078D4" # Blue
-                            elif diff < 7:
-                                badge_text = due_short.strftime("%a").upper()
-                                badge_bg = "#00B7C3" # Teal
+                            if due_short.year < 3000: # Not the 4501 placeholder
+                                is_real_due = True
+                                diff = (due_short - now_short).days
+                                
+                                if diff < 0:
+                                    badge_text = "OVERDUE"
+                                    badge_bg = "#D83B01" # Dark Red/Orange
+                                elif diff == 0:
+                                    badge_text = "DUE TODAY"
+                                    badge_bg = "#FF8C00" # Orange
+                                elif diff == 1:
+                                    badge_text = "TOMORROW"
+                                    badge_bg = "#0078D4" # Blue
+                                elif diff < 7:
+                                    badge_text = due_short.strftime("%a").upper()
+                                    badge_bg = "#00B7C3" # Teal
+                                else:
+                                    badge_text = due_short.strftime("%d %b").upper()
+                                    badge_bg = "#666666"
+                        except:
+                            pass
+
+                    if not is_real_due and received:
+                        # Show "Flagged X days ago"
+                        try:
+                            diff = (now_dt.astimezone() - received.astimezone()).days
+                            if diff == 0:
+                                badge_text = "FLAGGED TODAY"
                             else:
-                                badge_text = due_short.strftime("%d %b").upper()
-                                badge_bg = "#666666"
-                    except:
-                        pass
+                                badge_text = "FLAGGED {}D".format(diff)
+                            badge_bg = "#8E8E8E"
+                        except:
+                            pass
 
-                if not is_real_due and received:
-                    # Show "Flagged X days ago"
-                    try:
-                        diff = (now_dt.astimezone() - received.astimezone()).days
-                        if diff == 0:
-                            badge_text = "FLAGGED TODAY"
-                        else:
-                            badge_text = "FLAGGED {}D".format(diff)
-                        badge_bg = "#8E8E8E"
-                    except:
-                        pass
+                header_frame = tk.Frame(card, bg=bg_color)
+                header_frame.pack(fill="x")
 
-            header_frame = tk.Frame(card, bg=bg_color)
-            header_frame.pack(fill="x")
-
-            # Sender
-            if self.email_show_sender:
-                sender_text = email['sender']
-                if is_unread:
-                    sender_text = "● " + sender_text # Add indicator dot
-                    
-                lbl_sender = tk.Label(
-                    header_frame, 
-                    text=sender_text, 
-                    fg="white", 
-                    bg=bg_color, 
-                    font=(self.font_family, self.font_size, "bold"),
-                    anchor="w"
-                )
-                lbl_sender.pack(side="left", fill="x", expand=True)
-
-
-            # Attachment indicator (only show if setting is enabled)
-            if email.get('has_attachments', False) and self.show_has_attachment:
-                lbl_attachment = tk.Label(
-                    header_frame, 
-                    text="@", 
-                    fg="#60CDFF", 
-                    bg=bg_color, 
-                    font=(self.font_family, self.font_size + 1, "bold"),
-                )
-                lbl_attachment.pack(side="right", padx=(4, 2))
-
-            # Importance Indicator (High/Low)
-            importance_val = email.get('importance', 1) # 0=Low, 1=Normal, 2=High
-            if importance_val != 1:
-                imp_text = "!"
-                # High = Red-ish, Low = Grey
-                imp_fg = "#FF5555" if importance_val == 2 else "#AAAAAA" 
-                
-                lbl_importance = tk.Label(
-                    header_frame, 
-                    text=imp_text, 
-                    fg=imp_fg, 
-                    bg=bg_color, 
-                    font=(self.font_family, self.font_size + 1, "bold"),
-                )
-                lbl_importance.pack(side="right", padx=(0, 2))
-
-            # Categories Indicators
-            categories_str = email.get('categories', "")
-            if categories_str:
-                # Split and show badges
-                # Categories can be comma or semicolon separated
-                cats = re.split(r'[;,]', categories_str)
-                for cat in cats:
-                    cat = cat.strip()
-                    if not cat: continue
-                for cat in cats:
-                    cat = cat.strip()
-                    if not cat: continue
-                    
-                    # Lookup color
-                    badge_bg = cat_map.get(cat, "#444444")
-                    # Determine text color based on brightness? Usually white/offwhite is fine for these dark/saturated colors.
-                    # Dark Yellow/Peach might need black text, but stick to white/grey for now.
-                    if badge_bg in ["#FFF768", "#F0E16C", "#EAC389"]: # Light colors
-                        badge_fg = "#222222"
-                    else:
-                        badge_fg = "#FFFFFF"
-
-                    # Just the color block
-                    lbl_cat = tk.Frame(
+                # Sender
+                if self.email_show_sender:
+                    sender_text = email['sender']
+                    if is_unread:
+                        sender_text = u"● " + sender_text # Add indicator dot
+                        
+                    lbl_sender = tk.Label(
                         header_frame, 
-                        bg=badge_bg, 
-                        width=10,
-                        height=10
+                        text=sender_text, 
+                        fg="white", 
+                        bg=bg_color, 
+                        font=(self.font_family, self.font_size, "bold"),
+                        anchor="w"
                     )
-                    lbl_cat.pack(side="right", padx=1, pady=2)
-                    
-                    # Tooltip for the name
-                    ToolTip(lbl_cat, cat)
+                    lbl_sender.pack(side="left", fill="x", expand=True)
 
-            if badge_text:
-                lbl_badge = tk.Label(
-                    header_frame, 
-                    text=badge_text, 
-                    fg="white", 
-                    bg=badge_bg, 
-                    font=(self.font_family, self.font_size - 2, "bold"),
-                    padx=6, pady=2
-                )
-                lbl_badge.pack(side="right", padx=2)
+
+                # Attachment indicator (only show if setting is enabled)
+                if email.get('has_attachments', False) and self.show_has_attachment:
+                    lbl_attachment = tk.Label(
+                        header_frame, 
+                        text="@", 
+                        fg="#60CDFF", 
+                        bg=bg_color, 
+                        font=(self.font_family, self.font_size + 1, "bold"),
+                    )
+                    lbl_attachment.pack(side="right", padx=(4, 2))
+
+                # Importance Indicator (High/Low)
+                importance_val = email.get('importance', 1) # 0=Low, 1=Normal, 2=High
+                if importance_val != 1:
+                    imp_text = "!"
+                    # High = Red-ish, Low = Grey
+                    imp_fg = "#FF5555" if importance_val == 2 else "#AAAAAA" 
+                    
+                    lbl_importance = tk.Label(
+                        header_frame, 
+                        text=imp_text, 
+                        fg=imp_fg, 
+                        bg=bg_color, 
+                        font=(self.font_family, self.font_size + 1, "bold"),
+                    )
+                    lbl_importance.pack(side="right", padx=(0, 2))
+
+                # Categories Indicators
+                categories_str = email.get('categories', "")
+                if categories_str:
+                    # Split and show badges
+                    # Categories can be comma or semicolon separated
+                    cats = re.split(r'[;,]', categories_str)
+                    for cat in cats:
+                        cat = cat.strip()
+                        if not cat: continue
+                    for cat in cats:
+                        cat = cat.strip()
+                        if not cat: continue
+                        
+                        # Lookup color
+                        badge_bg = cat_map.get(cat, "#444444")
+                        if badge_bg in ["#FFF768", "#F0E16C", "#EAC389"]: # Light colors
+                            badge_fg = "#222222"
+                        else:
+                            badge_fg = "#FFFFFF"
+
+                        # Just the color block
+                        lbl_cat = tk.Frame(
+                            header_frame, 
+                            bg=badge_bg, 
+                            width=10,
+                            height=10
+                        )
+                        lbl_cat.pack(side="right", padx=1, pady=2)
+                        
+                        # Tooltip for the name
+                        ToolTip(lbl_cat, cat)
+
+                if badge_text:
+                    lbl_badge = tk.Label(
+                        header_frame, 
+                        text=badge_text, 
+                        fg="white", 
+                        bg=badge_bg, 
+                        font=(self.font_family, self.font_size - 2, "bold"),
+                        padx=6, pady=2
+                    )
+                    lbl_badge.pack(side="right", padx=2)
+                    
+                # Subject
+                if self.email_show_subject:
+                    lbl_subject = tk.Label(
+                        card, 
+                        text=email['subject'], 
+                        fg="#cccccc", 
+                        bg=bg_color, 
+                        font=(self.font_family, self.font_size),
+                        anchor="w",
+                        justify="left",
+                        wraplength=self.expanded_width - 40 
+                    )
+                    lbl_subject.pack(fill="x")
                 
-            # Subject
-            if self.email_show_subject:
-                lbl_subject = tk.Label(
-                    card, 
-                    text=email['subject'], 
-                    fg="#cccccc", 
-                    bg=bg_color, 
-                    font=(self.font_family, self.font_size),
-                    anchor="w",
-                    justify="left",
-                    wraplength=self.expanded_width - 40 
-                )
-                lbl_subject.pack(fill="x")
-            
-            # Preview (Body)
-            # Create if either Permanent Show OR Hover Show is enabled
-            lbl_preview = None
-            if self.email_show_body or self.show_hover_content:
-                try:
+                # Preview (Body)
+                # Create if either Permanent Show OR Hover Show is enabled
+                lbl_preview = None
+                # Capture current body lines setting for this card
+                try: 
                     lines = int(self.email_body_lines)
-                except:
+                except: 
                     lines = 2
                     
-                lbl_preview = tk.Text(
-                    card, 
-                    height=lines,
-                    bg=bg_color, 
-                    fg="#999999", 
-                    font=(self.font_family, self.font_size - 1),
-                    bd=0,
-                    highlightthickness=0,
-                    wrap="word",
-                    cursor="arrow"
-                )
-                # Get preview text or fallback
-                # Use 'body' key which contains the truncated preview text from get_inbox_items
-                preview_text = email.get('body', '').strip() 
-                if not preview_text:
-                    preview_text = "(No preview available)"
+                if self.email_show_body or self.show_hover_content:
+                    lbl_preview = tk.Text(
+                        card, 
+                        height=lines,
+                        bg=bg_color, 
+                        fg="#999999", 
+                        font=(self.font_family, self.font_size - 1),
+                        bd=0,
+                        highlightthickness=0,
+                        wrap="word",
+                        cursor="arrow"
+                    )
+                    # Get preview text or fallback
+                    preview_text = email.get('body', '').strip() 
+                    if not preview_text:
+                        preview_text = "(No preview available)"
+                    
+                    lbl_preview.insert("1.0", preview_text)
+                    lbl_preview.config(state="disabled") # Read-only
+                    
+                    # Check if we should initially pack it (Show Body = True)
+                    if self.email_show_body:
+                         lbl_preview.pack(fill="x")
                 
-                lbl_preview.insert("1.0", preview_text)
-                lbl_preview.config(state="disabled") # Read-only
+                # --- Action Frame (Buttons) ---
+                # Rename locally to frame_buttons to match references
+                frame_buttons = tk.Frame(card, bg=bg_color)
                 
-                # Check if we should initially pack it (Show Body = True)
-                if self.email_show_body:
-                     lbl_preview.pack(fill="x")
-            
-            # --- Action Frame (Buttons) ---
-            # Rename locally to frame_buttons to match references
-            frame_buttons = tk.Frame(card, bg=bg_color)
-            
-            # Populate buttons first (so they exist for binding)
-            # Filter for valid buttons (Must have Icon AND Action)
-            valid_buttons = [
-                conf for conf in self.btn_config 
-                if conf.get("icon") and conf.get("action1") != "None"
-            ]
+                # Populate buttons first (so they exist for binding)
+                # Filter for valid buttons (Must have Icon AND Action)
+                valid_buttons = [
+                    conf for conf in self.btn_config 
+                    if conf.get("icon") and conf.get("action1") != "None"
+                ]
 
-            for conf in valid_buttons:
-                icon = conf.get("icon", "🔘")
-                
-                is_png = icon.lower().endswith(".png")
-                btn_image = None
-                
-                if is_png:
-                    if icon in self.image_cache:
-                        btn_image = self.image_cache[icon]
+                for conf in valid_buttons:
+                    icon = conf.get("icon", "🔘")
+                    
+                    is_png = icon.lower().endswith(".png")
+                    btn_image = None
+                    
+                    if is_png:
+                        if icon in self.image_cache:
+                            btn_image = self.image_cache[icon]
+                        else:
+                            path = os.path.join("icons", icon)
+                            if os.path.exists(path):
+                                btn_image = self.load_icon_white(path, size=(24, 24))
+                                if btn_image:
+                                    self.image_cache[icon] = btn_image
+                    
+                    if btn_image:
+                        btn = tk.Label(
+                            frame_buttons, 
+                            image=btn_image, 
+                            bg=bg_color,
+                            padx=10, pady=5,
+                            cursor="hand2"
+                        )
                     else:
-                        path = os.path.join("icons", icon)
-                        if os.path.exists(path):
-                            btn_image = self.load_icon_white(path, size=(24, 24))
-                            if btn_image:
-                                self.image_cache[icon] = btn_image
-                
-                if btn_image:
-                    btn = tk.Label(
-                        frame_buttons, 
-                        image=btn_image, 
-                        bg=bg_color,
-                        padx=10, pady=5,
-                        cursor="hand2"
-                    )
-                else:
-                    btn = tk.Label(
-                        frame_buttons, 
-                        text=icon, 
-                        fg="white", 
-                        bg=bg_color,
-                        font=("Segoe UI", 12),
-                        padx=10, pady=5,
-                        cursor="hand2"
-                    )
-                
-                if len(valid_buttons) == 1:
-                    btn.pack(side="left", expand=True, fill="y", ipadx=20)
-                else:
-                    btn.pack(side="left", expand=True, fill="both")
-                
-                # Button Styling Bindings
-                btn.bind("<Enter>", lambda e, b=btn: b.config(bg="#444444"))
-                btn.bind("<Leave>", lambda e, b=btn, bg=bg_color: b.config(bg=bg))
-                
-                # Tooltip logic
-                act1 = conf.get("action1", "")
-                act2 = conf.get("action2", "None")
-                tip_text = "{} & {}".format(act1, act2) if act2 != "None" else act1
-                ToolTip(btn, tip_text)
-                
-                # Bind Action
-                btn.bind("<Button-1>", lambda e, c=conf, em=email: self.handle_custom_action(c, em))
+                        btn = tk.Label(
+                            frame_buttons, 
+                            text=icon, 
+                            fg="white", 
+                            bg=bg_color,
+                            font=("Segoe UI", 12),
+                            padx=10, pady=5,
+                            cursor="hand2"
+                        )
+                    
+                    if len(valid_buttons) == 1:
+                        btn.pack(side="left", expand=True, fill="y", ipadx=20)
+                    else:
+                        btn.pack(side="left", expand=True, fill="both")
+                    
+                    # Button Styling Bindings
+                    btn.bind("<Enter>", lambda e, b=btn: b.config(bg="#444444"))
+                    btn.bind("<Leave>", lambda e, b=btn, bg=bg_color: b.config(bg=bg))
+                    
+                    # Tooltip logic
+                    act1 = conf.get("action1", "")
+                    act2 = conf.get("action2", "None")
+                    tip_text = "{} & {}".format(act1, act2) if act2 != "None" else act1
+                    ToolTip(btn, tip_text)
+                    
+                    # Bind Action
+                    btn.bind("<Button-1>", lambda e, c=conf, em=email: self.handle_custom_action(c, em))
 
-            # --- Logic for Buttons Visibility ---
-            if self.buttons_on_hover:
-                # Start hidden
-                frame_buttons.pack_forget()
-            else:
-                # Always show
-                frame_buttons.pack(fill="x", expand=True, padx=2, pady=(0, 2))
-
-
-            # --- HOVER BINDINGS (Content & Buttons) ---
-            # Define common show/hide helpers with DEFAULT ARGS to capture loop variables correctly
-            def show_hover_elements(e, lp=lbl_preview, fb=frame_buttons):
-                # 1. Show Body Preview if enabled and not permanent
-                if self.show_hover_content and not self.email_show_body and lp:
-                     if not lp.winfo_ismapped():
-                         lp.config(height=25) 
-                         lp.pack(fill="x", padx=5, pady=(0, 2)) 
-                
-                # 2. Show Buttons if enabled
+                # --- Logic for Buttons Visibility ---
                 if self.buttons_on_hover:
-                     if not fb.winfo_ismapped():
-                          fb.pack(fill="x", expand=True, padx=2, pady=(0, 2))
-            
-            def hide_hover_elements(e, lp=lbl_preview, fb=frame_buttons):
-                # 1. Hide Body Preview
-                if self.show_hover_content and not self.email_show_body and lp:
-                     if lp.winfo_ismapped():
-                          lp.pack_forget()
-                
-                # 2. Hide Buttons
-                if self.buttons_on_hover:
-                     if fb.winfo_ismapped():
-                          fb.pack_forget()
+                    # Start hidden
+                    frame_buttons.pack_forget()
+                else:
+                    # Always show
+                    frame_buttons.pack(fill="x", expand=True, padx=2, pady=(0, 2))
 
-            
-            # Robust Hide Logic using winfo_containing
-            def robust_hide(e, c=card, lp=lbl_preview, fb=frame_buttons):
-                # Cancel pending show
-                if hasattr(c, "_show_timer") and c._show_timer:
-                    c.after_cancel(c._show_timer)
-                    c._show_timer = None
-                
-                try:
-                    x, y = c.winfo_pointerxy()
-                    widget = c.winfo_containing(x, y)
-                    # Stay shown if mouse is over card or any of its descendants
-                    if not widget or (widget != c and not str(widget).startswith(str(c))):
-                        hide_hover_elements(e, lp, fb)
-                except:
-                    pass # Safety
-            
-            def safe_show(e, c=card, lp=lbl_preview, fb=frame_buttons):
-                 # Delay show to prevent flashing (Debounce)
-                 if hasattr(c, "_show_timer") and c._show_timer:
-                     c.after_cancel(c._show_timer)
-                 c._show_timer = c.after(250, lambda: show_hover_elements(e, lp, fb))
 
-            # Apply Bindings
-            if (self.show_hover_content and not self.email_show_body) or self.buttons_on_hover:
-                card.bind("<Enter>", safe_show)
-                card.bind("<Leave>", robust_hide)
+                # --- HOVER BINDINGS (Content & Buttons) ---
+                # Define common show/hide helpers with DEFAULT ARGS to capture loop variables correctly
+                # We also capture 'lines' from the scope to ensure correct height
+                def show_hover_elements(e, lp=lbl_preview, fb=frame_buttons, h=lines):
+                    # 1. Show Body Preview if enabled and not permanent
+                    if self.show_hover_content and not self.email_show_body and lp:
+                         if not lp.winfo_ismapped():
+                             lp.config(height=h) 
+                             lp.pack(fill="x", padx=5, pady=(0, 2)) 
+                    
+                    # 2. Show Buttons if enabled
+                    if self.buttons_on_hover:
+                         if not fb.winfo_ismapped():
+                              fb.pack(fill="x", expand=True, padx=2, pady=(0, 2))
                 
-                # Bind children to prevent flickering
+                def hide_hover_elements(e, lp=lbl_preview, fb=frame_buttons):
+                    # 1. Hide Body Preview
+                    if self.show_hover_content and not self.email_show_body and lp:
+                         if lp.winfo_ismapped():
+                              lp.pack_forget()
+                    
+                    # 2. Hide Buttons
+                    if self.buttons_on_hover:
+                         if fb.winfo_ismapped():
+                              fb.pack_forget()
+
+                
+                # Robust Hide Logic using winfo_containing
+                def robust_hide(e, c=card, lp=lbl_preview, fb=frame_buttons):
+                    # Cancel pending show
+                    if hasattr(c, "_show_timer") and c._show_timer:
+                        c.after_cancel(c._show_timer)
+                        c._show_timer = None
+                    
+                    try:
+                        x, y = c.winfo_pointerxy()
+                        widget = c.winfo_containing(x, y)
+                        # Stay shown if mouse is over card or any of its descendants
+                        if not widget or (widget != c and not str(widget).startswith(str(c))):
+                            hide_hover_elements(e, lp, fb)
+                    except:
+                        pass # Safety
+                
+                def safe_show(e, c=card, lp=lbl_preview, fb=frame_buttons):
+                     # Delay show to prevent flashing (Debounce)
+                     if hasattr(c, "_show_timer") and c._show_timer:
+                         c.after_cancel(c._show_timer)
+                     c._show_timer = c.after(250, lambda: show_hover_elements(e, lp, fb))
+
+                # Apply Bindings
+                if (self.show_hover_content and not self.email_show_body) or self.buttons_on_hover:
+                    card.bind("<Enter>", safe_show)
+                    card.bind("<Leave>", robust_hide)
+                    
+                    # Bind children to prevent flickering
+                    for child in card.winfo_children():
+                        child.bind("<Enter>", safe_show)
+                        child.bind("<Leave>", robust_hide)
+                
+                # Standard Click (Open Email) logic for card
+                # --- CLICK LOGIC (Open Email) ---
+                def on_card_click(e, eid=email['entry_id'], w=card):
+                    self.open_email(eid, source_widget=w)
+
+                # Apply Click Bindings
+                if self.email_double_click: 
+                     card.bind("<Double-Button-1>", on_card_click)
+                     card.bind("<Button-1>", lambda e, c=card: c.focus_set())
+                else:
+                     card.bind("<Button-1>", on_card_click)
+                
+                # Bind Children (Robustly)
                 for child in card.winfo_children():
-                    child.bind("<Enter>", safe_show)
-                    child.bind("<Leave>", robust_hide)
-            
-            # Standard Click (Open Email) logic for card
-            # --- CLICK LOGIC (Open Email) ---
-            def on_card_click(e, eid=email['entry_id'], w=card):
-                self.open_email(eid, source_widget=w)
+                     # Don't bind click to buttons (they have their own actions)
+                     if child != frame_buttons and getattr(child, "master", None) != frame_buttons:
+                        if self.email_double_click: 
+                            child.bind("<Double-Button-1>", on_card_click)
+                        else:
+                            child.bind("<Button-1>", on_card_click)
+                     # Preview text click -> Open Email
+                     if child == lbl_preview:
+                          if self.email_double_click: 
+                              child.bind("<Double-Button-1>", on_card_click)
+                          else:
+                              child.bind("<Button-1>", on_card_click)
 
-            # Apply Click Bindings
-            if self.email_double_click: 
-                 card.bind("<Double-Button-1>", on_card_click)
-                 card.bind("<Button-1>", lambda e, c=card: c.focus_set())
-            else:
-                 card.bind("<Button-1>", on_card_click)
-            
-            # Bind Children (Robustly)
-            for child in card.winfo_children():
-                 # Don't bind click to buttons (they have their own actions)
-                 if child != frame_buttons and getattr(child, "master", None) != frame_buttons:
-                    if self.email_double_click: 
-                        child.bind("<Double-Button-1>", on_card_click)
-                    else:
-                        child.bind("<Button-1>", on_card_click)
-                 # Preview text click -> Open Email
-                 if child == lbl_preview:
-                      if self.email_double_click: 
-                          child.bind("<Double-Button-1>", on_card_click)
-                      else:
-                          child.bind("<Button-1>", on_card_click)
-
-            
-            if self.email_double_click: 
-                  # Logic handled by bind_click helper inside loop (Wait, bind_click isn't shown here)
-                  # Assuming bind_click handles double click check or we need to add it.
-                  # The loop continues...
-                 card.bind("<Double-Button-1>", on_card_click)
-                 if lbl_sender: lbl_sender.bind("<Double-Button-1>", on_card_click)
-                 if lbl_subject: lbl_subject.bind("<Double-Button-1>", on_card_click)
-                 if lbl_preview: lbl_preview.bind("<Double-Button-1>", on_card_click)
-                 
-                 # Optional: Single click handles focus or selection
-                 card.bind("<Button-1>", lambda e: card.focus_set())
-            else:
-                 # Standard Single Click
-                 card.bind("<Button-1>", on_card_click)
-                 if lbl_sender: lbl_sender.bind("<Button-1>", on_card_click)
-                 if lbl_subject: lbl_subject.bind("<Button-1>", on_card_click)
-                 if lbl_preview: lbl_preview.bind("<Button-1>", on_card_click) 
-            
-            # Dynamic wrapping for both labels
-            # Dynamic wrapping for both labels
-            def update_wraps(e, s=lbl_subject, p=lbl_preview):
-                width = e.width - 20
-                if s:
-                    s.config(wraplength=width)
-                # Only wrap if it's a Label (Text widgets handle wrapping internally)
-                if p and isinstance(p, tk.Label):
-                    p.config(wraplength=width)
                 
-            card.bind("<Configure>", update_wraps)
+                if self.email_double_click: 
+                      # Logic handled by bind_click helper inside loop (Wait, bind_click isn't shown here)
+                      # Assuming bind_click handles double click check or we need to add it.
+                      # The loop continues...
+                     card.bind("<Double-Button-1>", on_card_click)
+                     if lbl_sender: lbl_sender.bind("<Double-Button-1>", on_card_click)
+                     if lbl_subject: lbl_subject.bind("<Double-Button-1>", on_card_click)
+                     if lbl_preview: lbl_preview.bind("<Double-Button-1>", on_card_click)
+                     
+                     # Optional: Single click handles focus or selection
+                     card.bind("<Button-1>", lambda e: card.focus_set())
+                else:
+                     # Standard Single Click
+                     card.bind("<Button-1>", on_card_click)
+                     if lbl_sender: lbl_sender.bind("<Button-1>", on_card_click)
+                     if lbl_subject: lbl_subject.bind("<Button-1>", on_card_click)
+                     if lbl_preview: lbl_preview.bind("<Button-1>", on_card_click) 
+                
+                # Dynamic wrapping for both labels
+                def update_wraps(e, s=lbl_subject, p=lbl_preview):
+                    width = e.width - 20
+                    if s:
+                        s.config(wraplength=width)
+                    # Only wrap if it's a Label (Text widgets handle wrapping internally)
+                    if p and isinstance(p, tk.Label):
+                        p.config(wraplength=width)
+                    
+                card.bind("<Configure>", update_wraps)
+
+        except Exception as e:
+            print("CRITICAL ERROR in refresh_emails: {}".format(e))
+            import traceback
+            traceback.print_exc()
+            # Try to show error to user if possible
+            try:
+                messagebox.showerror("Sidebar Error", "Error refreshing emails:\\n{}".format(e))
+            except: pass
 
 
     def refresh_reminders(self):
@@ -4777,7 +4783,20 @@ class SidebarWindow(tk.Tk):
                      else:
                          messagebox.showerror("Error", "Failed to dismiss meeting.")
                          
-                 make_cal_btn(c_actions, "✓", do_dismiss_cal, "Dismiss/Delete")
+                 # Try to load PNG
+                 btn_dismiss = None
+                 if os.path.exists("icons/Delete.png"): # Use Delete icon for dismissal
+                      img = self.load_icon_colored("icons/Delete.png", size=(16, 16), color="#AAAAAA")
+                      if img:
+                          btn_dismiss = tk.Label(c_actions, image=img, bg="#252526", cursor="hand2", padx=5)
+                          btn_dismiss.image = img
+                 
+                 if not btn_dismiss:
+                      btn_dismiss = make_cal_btn(c_actions, u"✓", do_dismiss_cal, "Dismiss/Delete")
+                 else:
+                      btn_dismiss.pack(side="left", padx=1)
+                      btn_dismiss.bind("<Button-1>", lambda e: do_dismiss_cal())
+                      if "Dismiss/Delete": ToolTip(btn_dismiss, "Dismiss/Delete")
 
         # 2. Outlook Tasks
         if self.reminder_show_flagged:
@@ -4810,7 +4829,19 @@ class SidebarWindow(tk.Tk):
                          return btn
 
                      # Open Button (Folder icon or similar)
-                     make_task_btn(t_actions, "📂", lambda eid=task['entry_id']: self.open_email(eid), "Open Task")
+                     btn_open = None
+                     if os.path.exists("icon2/open-task.png"):
+                          img = self.load_icon_colored("icon2/open-task.png", size=(16, 16), color="#AAAAAA")
+                          if img:
+                              btn_open = tk.Label(t_actions, image=img, bg="#2d2d2d", cursor="hand2", padx=5)
+                              btn_open.image = img
+                     
+                     if not btn_open:
+                          make_task_btn(t_actions, u"📂", lambda eid=task['entry_id']: self.open_email(eid), "Open Task")
+                     else:
+                          btn_open.pack(side="left", padx=1)
+                          btn_open.bind("<Button-1>", lambda e, eid=task['entry_id']: self.open_email(eid))
+                          ToolTip(btn_open, "Open Task")
 
                      # Complete Button (Checkmark)
                      def do_complete(eid=task['entry_id'], w=tf):
@@ -4821,8 +4852,23 @@ class SidebarWindow(tk.Tk):
                              # message?
                          else:
                              messagebox.showerror("Error", "Failed to mark task complete.")
-                             
-                     make_task_btn(t_actions, "✓", do_complete, "Mark Complete")
+                     
+                     # Try PNG for complete
+                     btn_complete = None
+                     # Reuse 'Mark as Read' icon (often a check) or just unicode if PNG not suited
+                     # 'icons/Mark as Read.png' exists.
+                     if os.path.exists("icons/Mark as Read.png"):
+                          img = self.load_icon_colored("icons/Mark as Read.png", size=(16, 16), color="#AAAAAA")
+                          if img:
+                              btn_complete = tk.Label(t_actions, image=img, bg="#2d2d2d", cursor="hand2", padx=5)
+                              btn_complete.image = img # Keep ref
+                     
+                     if not btn_complete:
+                          make_task_btn(t_actions, u"✓", do_complete, "Mark Complete")
+                     else:
+                          btn_complete.pack(side="left", padx=1)
+                          btn_complete.bind("<Button-1>", lambda e: do_complete())
+                          ToolTip(btn_complete, "Mark Complete")
 
         # 3. Flagged Emails
         if self.reminder_show_flagged:
@@ -4850,11 +4896,23 @@ class SidebarWindow(tk.Tk):
 
 
     def draw_pin_icon(self):
-        self.btn_pin.delete("all")
-        color = "#007ACC" if self.is_pinned else "#AAAAAA"
-        # Draw a simple pin shape
-        self.btn_pin.create_oval(10, 5, 20, 15, fill=color, outline="")
-        self.btn_pin.create_line(15, 15, 15, 25, fill=color, width=2)
+        # Determine active icon based on state
+        if isinstance(self.btn_pin, tk.Label):
+             # If using Label with Images
+             if self.is_pinned:
+                 if hasattr(self, 'icon_pin_active'):
+                     self.btn_pin.config(image=self.icon_pin_active)
+             else:
+                 if hasattr(self, 'icon_pin_inactive'):
+                     self.btn_pin.config(image=self.icon_pin_inactive)
+        
+        elif isinstance(self.btn_pin, tk.Canvas):
+            # If using Canvas drawing
+            self.btn_pin.delete("all")
+            color = "#007ACC" if self.is_pinned else "#AAAAAA"
+            # Draw a simple pin shape
+            self.btn_pin.create_oval(10, 5, 20, 15, fill=color, outline="")
+            self.btn_pin.create_line(15, 15, 15, 25, fill=color, width=2)
 
     def toggle_pin(self):
         self.is_pinned = not self.is_pinned
@@ -5136,6 +5194,108 @@ class SidebarWindow(tk.Tk):
     def start_polling(self):
         """Starts the background polling loop."""
         self.check_updates()
+        self.check_fullscreen_app()
+
+    def check_fullscreen_app(self):
+        """Checks if a full-screen application is active on the current monitor and helps sidebar get out of the way."""
+        try:
+            # 1. Get Foreground Window
+            hwnd_active = user32.GetForegroundWindow()
+            if not hwnd_active:
+                self.after(2000, self.check_fullscreen_app)
+                return
+
+            # 2. Get Class Name (Ignore Shell/Desktop)
+            buff = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(hwnd_active, buff, 256)
+            cls = buff.value
+            
+            on_same_monitor = False # Default
+            
+            # Ignore self and shell
+            if cls in ["Progman", "WorkerW", "Shell_TrayWnd", "ImmersiveLauncher"] or hwnd_active == self.winfo_id():
+                 # Not a "real" app we care about
+                 # If we were suppressing, maybe we should restore? 
+                 # Actually, if we are on Desktop, we probably want to Restore if we auto-collapsed.
+                 pass
+            else:
+                # 3. Get Window Rect
+                rect = wintypes.RECT()
+                user32.GetWindowRect(hwnd_active, ctypes.byref(rect))
+                fw = rect.right - rect.left
+                fh = rect.bottom - rect.top
+                
+                # 4. Get Current Monitor Metrics for Sidebar
+                metrics = self.get_monitor_metrics()
+                mx, my, mw, mh = metrics['monitor']
+                
+                # 5. Check Intersection/Monitor
+                # Does the active window center fall onto our monitor?
+                fcx = (rect.left + rect.right) // 2
+                fcy = (rect.top + rect.bottom) // 2
+                
+                on_same_monitor = (mx <= fcx <= mx + mw) and (my <= fcy <= my + mh)
+                
+                if on_same_monitor:
+                    # 6. Check Dimensions (Allow small variance)
+                    # Is it basically full monitor size?
+                    is_fullscreen = (abs(fw - mw) < 20) and (abs(fh - mh) < 20)
+                    
+                    # print("DEBUG: Window '{}' Class: {} Size: {}x{} Monitor: {}x{} Fullscreen: {}".format(win32gui.GetWindowText(hwnd_active), cls, fw, fh, mw, mh, is_fullscreen))
+
+                    if is_fullscreen:
+                        # ACTIVE FULLSCREEN DETECTED
+                        if self.is_pinned and not getattr(self, "was_pinned_before_fs", False):
+                            # Auto-Collapse
+                            print("DEBUG: Fullscreen App Detected ({}) - Auto Collapsing".format(cls))
+                            self.was_pinned_before_fs = True
+                            self.is_pinned = False
+                            
+                            # Update Tooltip/Icon manually since we are bypassing toggle_pin
+                            if hasattr(self, 'pin_tooltip'):
+                                self.pin_tooltip.text = "Pin Window (Current: Auto-Collapse)"
+                            self.draw_pin_icon() 
+                            
+                            self.save_config() # Optional: Persist? Maybe not if it's temporary state.
+                            self.apply_state()
+                    
+                    else:
+                        # Not fullscreen, but on same monitor
+                        # Restore if we auto-collapsed
+                        if getattr(self, "was_pinned_before_fs", False):
+                            # print("DEBUG: Fullscreen ended - Restoring Pin")
+                            self.is_pinned = True
+                            self.was_pinned_before_fs = False
+                            
+                            if hasattr(self, 'pin_tooltip'):
+                                self.pin_tooltip.text = "Unpin Window (Current: Pinned)"
+                            self.draw_pin_icon()
+                            
+                            self.save_config()
+                            self.apply_state()
+            
+            # If we switched to a different monitor (or desktop focus), we also might want to restore?
+            # E.g. User Alt-Tabs to an app on secondary monitor. Sidebar on Primary should probably restore?
+            # Current logic only restores if the active window is on SAME monitor and NOT fullscreen.
+            # If active window is on OTHER monitor, 'on_same_monitor' is False.
+            # We should probably restore if the user leaves the fullscreen app too.
+             
+            if not on_same_monitor and getattr(self, "was_pinned_before_fs", False):
+                 # Focus moved away from the fullscreen app on this monitor
+                 # Restore
+                 # print("DEBUG: Focus moved monitor - Restoring Pin")
+                 self.is_pinned = True
+                 self.was_pinned_before_fs = False
+                 if hasattr(self, 'pin_tooltip'):
+                     self.pin_tooltip.text = "Unpin Window (Current: Pinned)"
+                 self.draw_pin_icon()
+                 self.save_config()
+                 self.apply_state()
+
+        except Exception as e:
+            print("FS Check Error: {}".format(e))
+            
+        self.after(1000, self.check_fullscreen_app)
 
     def check_updates(self):
         """Threaded (or scheduled) update check."""
