@@ -3243,8 +3243,6 @@ class HelpPanel(tk.Frame):
             "Quick Create Settings.png")
             
     def open_account_selection(self):
-        
-    def open_account_selection(self):
         """Opens the account selection dialog."""
         accounts = self.main_window.outlook_client.get_accounts()
         if not accounts:

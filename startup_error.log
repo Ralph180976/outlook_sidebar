@@ -1,9 +1,19 @@
-Startup Error: 'ascii' codec can't decode byte 0xe2 in position 0: ordinal not in range(128)
+Startup Error: [Errno 9] Bad file descriptor
 Traceback (most recent call last):
-  File "sidebar_main.py", line 5359, in <module>
-    app = SidebarWindow()
-  File "sidebar_main.py", line 3343, in __init__
-    self.refresh_emails()
-  File "sidebar_main.py", line 4093, in refresh_emails
-    sender_text = "● " + sender_text # Add indicator dot
-UnicodeDecodeError: 'ascii' codec can't decode byte 0xe2 in position 0: ordinal not in range(128)
+  File "c:\Dev\Outlook_Sidebar\sidebar_main.py", line 5590, in <module>
+    app.mainloop()
+  File "C:\Python27\lib\lib-tk\Tkinter.py", line 1135, in mainloop
+    self.tk.mainloop(n)
+  File "C:\Python27\lib\lib-tk\Tkinter.py", line 1551, in __call__
+    self.widget._report_exception()
+  File "C:\Python27\lib\lib-tk\Tkinter.py", line 1303, in _report_exception
+    root.report_callback_exception(exc, val, tb)
+  File "C:\Python27\lib\lib-tk\Tkinter.py", line 1906, in report_callback_exception
+    traceback.print_exception(exc, val, tb)
+  File "C:\Python27\lib\traceback.py", line 125, in print_exception
+    print_tb(tb, limit, file)
+  File "C:\Python27\lib\traceback.py", line 70, in print_tb
+    if line: _print(file, '    ' + line.strip())
+  File "C:\Python27\lib\traceback.py", line 13, in _print
+    file.write(str+terminator)
+IOError: [Errno 9] Bad file descriptor
