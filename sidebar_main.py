@@ -409,8 +409,8 @@ class SidebarWindow(tk.Tk):
         else:
             self.btn_share = tk.Label(self.header, text="ðŸ”—", bg=self.colors["bg_header"], fg=self.colors["fg_dim"], font=(self.font_family, 15), cursor="hand2")
         self.btn_share.pack(side="right", padx=5)
-        # No action yet, just tooltip
-        ToolTip(self.btn_share, "Sharing not available yet")
+        self.btn_share.bind("<Button-1>", lambda e: self.open_share_dialog())
+        ToolTip(self.btn_share, "Share InboxBar")
 
         # Content Area - Using PanedWindow for draggable resizing
         # Replaces grid_container
@@ -613,6 +613,11 @@ class SidebarWindow(tk.Tk):
                 self.main_frame.config(width=0)
                 self.main_frame.pack(side="left", fill="both", expand=True)
                 self.settings_panel_open = False
+
+    def open_share_dialog(self):
+        """Open the Share dialog to email the InboxBar installer."""
+        from sidebar.ui.dialogs.share import ShareDialog
+        ShareDialog(self.winfo_toplevel(), self.outlook_client)
 
     def toggle_help_panel(self):
         """Show or hide the help panel alongside the email list."""
@@ -1854,7 +1859,7 @@ class SidebarWindow(tk.Tk):
         # Icon Cache for this refresh cycle
         icon_cache = {}
         def get_cached_icon(path, color, size=(24,24)):
-            key = (path, color)
+            key = (path, color, size)
             if key not in icon_cache:
                 if os.path.exists(path):
                     icon_cache[key] = self.load_icon_colored(path, size=size, color=color)
@@ -1885,62 +1890,74 @@ class SidebarWindow(tk.Tk):
                  except:
                      time_str = "??"
                      
-                 tk.Label(mf, text=time_str, fg=self.colors["fg_dim"], bg=self.colors["bg_card"], font=("Segoe UI", 9)).pack(side="left")
-                 subj = tk.Label(mf, text=m['subject'], fg=self.colors["fg_primary"], bg=self.colors["bg_card"], font=("Segoe UI", 9, "bold"))
-                 subj.pack(side="left", padx=5)
-                 
-                 bind_click(mf, m['entry_id'])
-                 bind_click(subj, m['entry_id'])
-
-                 # Calendar Buttons Frame (Hidden initially)
+                 # --- Calendar Buttons Frame (pack RIGHT first so it reserves space) ---
                  c_actions = tk.Frame(mf, bg=self.colors["bg_card"])
-                 # c_actions.pack(side="right", padx=2) # Hidden
 
-                 # Helper to create buttons (Inline reuse or call similar logic)
                  def make_cal_btn(parent, text, cmd, tip):
-                     btn = tk.Label(parent, text=text, fg=self.colors["fg_dim"], bg=self.colors["bg_card"], font=("Segoe UI", 10), cursor="hand2", padx=5)
-                     btn.pack(side="right", padx=5) # Align right
+                     btn = tk.Label(parent, text=text, fg=self.colors["fg_dim"], bg=self.colors["bg_card"], font=("Segoe UI", 10), cursor="hand2", padx=3)
+                     btn.pack(side="right", padx=2)
                      btn.bind("<Button-1>", lambda e: cmd())
                      btn.bind("<Enter>", lambda e: btn.config(fg=self.colors["fg_primary"], bg=self.colors["bg_card_hover"]))
                      btn.bind("<Leave>", lambda e: btn.config(fg=self.colors["fg_dim"], bg=self.colors["bg_card"]))
                      if tip: ToolTip(btn, tip)
                      return btn
 
-                 # Dismiss Button (Checkmark / Delete) - Far Right
                  def do_dismiss_cal(eid=m['entry_id'], w=mf):
-                     # Confirm simple deletion/dismissal? User asked for "check box" logic.
-                     # We'll just delete it for now as "Complete".
                      success = self.outlook_client.dismiss_calendar_item(eid)
                      if success:
                          w.pack_forget()
                      else:
                          messagebox.showerror("Error", "Failed to dismiss meeting.")
-                         
-                 # Try to load PNG
+
                  btn_dismiss = None
-                     # Try to load PNG
-                 btn_dismiss = None
-                 if os.path.exists("icons/Delete.png"): # Use Delete icon for dismissal
-                      img = get_cached_icon("icons/Delete.png", color=self.colors["fg_dim"]) # Larger 24x24
+                 if os.path.exists("icon2/tick-box.png"):
+                      img = get_cached_icon("icon2/tick-box.png", color=self.colors["fg_dim"])
                       if img:
-                          btn_dismiss = tk.Label(c_actions, image=img, bg=self.colors["bg_card"], cursor="hand2", padx=5)
+                          btn_dismiss = tk.Label(c_actions, image=img, bg=self.colors["bg_card"], cursor="hand2", padx=3)
                           btn_dismiss.image = img
-                 
+
                  if not btn_dismiss:
                       btn_dismiss = make_cal_btn(c_actions, u"âœ“", do_dismiss_cal, "Dismiss/Delete")
                  else:
-                      btn_dismiss.pack(side="right", padx=5)
+                      btn_dismiss.pack(side="right", padx=2)
                       btn_dismiss.bind("<Button-1>", lambda e: do_dismiss_cal())
-                      if "Dismiss/Delete": ToolTip(btn_dismiss, "Dismiss/Delete")
+                      ToolTip(btn_dismiss, "Dismiss/Delete")
 
-                 # Open Button (Re-add using make_cal_btn or custom) - Left of Dismiss
-                 make_cal_btn(c_actions, "ðŸ“‚", lambda eid=m['entry_id']: self.open_email(eid), "Open Meeting")
+                 # Open Meeting Button - use PNG icon
+                 btn_open_cal = None
+                 if os.path.exists("icon2/open-task.png"):
+                      img = get_cached_icon("icon2/open-task.png", color=self.colors["fg_dim"], size=(20,20))
+                      if img:
+                          btn_open_cal = tk.Label(c_actions, image=img, bg=self.colors["bg_card"], cursor="hand2", padx=3)
+                          btn_open_cal.image = img
                  
-                 # --- CALENDAR HOVER LOGIC ---
+                 if not btn_open_cal:
+                      make_cal_btn(c_actions, "Open", lambda eid=m['entry_id']: self.open_email(eid), "Open Meeting")
+                 else:
+                      btn_open_cal.pack(side="right", padx=2)
+                      btn_open_cal.bind("<Button-1>", lambda e, eid=m['entry_id']: self.open_email(eid))
+                      btn_open_cal.bind("<Enter>", lambda e, b=btn_open_cal: b.config(bg=self.colors["bg_card_hover"]))
+                      btn_open_cal.bind("<Leave>", lambda e, b=btn_open_cal: b.config(bg=self.colors["bg_card"]))
+                      ToolTip(btn_open_cal, "Open Meeting")
+
+                 # Pack buttons frame RIGHT first, before labels
+                 c_actions.pack(side="right", padx=2)
+
+                 # Now pack labels LEFT (remaining space after buttons)
+                 tk.Label(mf, text=time_str, fg=self.colors["fg_dim"], bg=self.colors["bg_card"], font=("Segoe UI", 9)).pack(side="left")
+                 subj = tk.Label(mf, text=m['subject'], fg=self.colors["fg_primary"], bg=self.colors["bg_card"], font=("Segoe UI", 9, "bold"), anchor="w", wraplength=self.expanded_width - 130)
+                 subj.pack(side="left", padx=5)
+
+                 bind_click(mf, m['entry_id'])
+                 bind_click(subj, m['entry_id'])
+
+                 # Start hidden, show on hover
+                 c_actions.pack_forget()
+
                  def show_c_actions(e, fa=c_actions):
                      if not fa.winfo_ismapped():
-                         fa.pack(side="top", fill="x", padx=2, pady=(2, 0)) # Expand below
-                 
+                         fa.pack(side="right", padx=2)
+
                  def hide_c_actions(e, c=mf, fa=c_actions):
                      try:
                          x, y = c.winfo_pointerxy()
@@ -1950,11 +1967,9 @@ class SidebarWindow(tk.Tk):
                              c_path = str(c)
                              if path.startswith(c_path): return
                      except: pass
-                     
                      if fa.winfo_ismapped():
                          fa.pack_forget()
 
-                 # Bindings
                  mf.bind("<Enter>", show_c_actions)
                  mf.bind("<Leave>", hide_c_actions)
                  subj.bind("<Enter>", show_c_actions)
@@ -1978,36 +1993,9 @@ class SidebarWindow(tk.Tk):
                      tf = tk.Frame(container, bg=self.colors["bg_card"], highlightthickness=1, highlightbackground=border_color, padx=5, pady=5)
                      tf.pack(fill="x", padx=2, pady=2)
                      
-                     # Task Date
-                     try:
-                         t_date_str = ""
-                         if task.get('due'):
-                             t_dt = task['due']
-                             t_now = datetime.now()
-                             t_is_today = t_dt.date() == t_now.date()
-                             t_is_tomorrow = t_dt.date() == (t_now.date() + timedelta(days=1))
-                             
-                             if t_is_today:
-                                 t_date_str = "Today"
-                             elif t_is_tomorrow:
-                                 t_date_str = "Tomorrow"
-                             else:
-                                 t_date_str = t_dt.strftime("%a %d")
-                         
-                         if t_date_str:
-                             date_fg = "#FF6B6B" if t_overdue else self.colors["fg_dim"]
-                             tk.Label(tf, text=t_date_str, fg=date_fg, bg=self.colors["bg_card"], font=("Segoe UI", 9)).pack(side="left")
-                     except: pass
-
-                     subj = tk.Label(tf, text=task['subject'], fg=self.colors["fg_primary"], bg=self.colors["bg_card"], font=("Segoe UI", 9), anchor="w", justify="left", wraplength=self.expanded_width-80)
-                     subj.pack(side="left", fill="x", expand=True, padx=5, pady=(0, 2))
-                     
-                     bind_click(tf, task['entry_id'])
-                     bind_click(subj, task['entry_id'])
-
-                     # Task Buttons Frame
+                     # Task Buttons Frame (pack RIGHT first so it reserves space)
                      t_actions = tk.Frame(tf, bg=self.colors["bg_card"])
-                     # t_actions.pack(side="right", padx=2) # Hidden
+
 
                      # Helper to create buttons
                      def make_task_btn(parent, text, cmd, tip):
@@ -2031,8 +2019,8 @@ class SidebarWindow(tk.Tk):
                      
                      # Try PNG for complete
                      btn_complete = None
-                     if os.path.exists("icons/Mark as Read.png"):
-                          img = get_cached_icon("icons/Mark as Read.png", color=self.colors["fg_dim"])
+                     if os.path.exists("icon2/tick-box.png"):
+                          img = get_cached_icon("icon2/tick-box.png", color=self.colors["fg_dim"])
                           if img:
                               btn_complete = tk.Label(t_actions, image=img, bg=self.colors["bg_card"], cursor="hand2", padx=5)
                               btn_complete.image = img # Keep ref
@@ -2047,7 +2035,7 @@ class SidebarWindow(tk.Tk):
                      # Open Button (Folder icon or similar) - Left of Complete
                      btn_open = None
                      if os.path.exists("icon2/open-task.png"):
-                          img = get_cached_icon("icon2/open-task.png", color=self.colors["fg_dim"])
+                          img = get_cached_icon("icon2/open-task.png", color=self.colors["fg_dim"], size=(20,20))
                           if img:
                               btn_open = tk.Label(t_actions, image=img, bg=self.colors["bg_card"], cursor="hand2", padx=5)
                               btn_open.image = img
@@ -2059,11 +2047,44 @@ class SidebarWindow(tk.Tk):
                           btn_open.bind("<Button-1>", lambda e, eid=task['entry_id']: self.open_email(eid))
                           ToolTip(btn_open, "Open Task")
                      
-                     # --- TASKS HOVER LOGIC ---
+
+                     # Pack task buttons frame RIGHT first
+                     t_actions.pack(side="right", padx=2)
+
+                     # Task Date
+                     try:
+                         t_date_str = ""
+                         if task.get('due'):
+                             t_dt = task['due']
+                             t_now = datetime.now()
+                             t_is_today = t_dt.date() == t_now.date()
+                             t_is_tomorrow = t_dt.date() == (t_now.date() + timedelta(days=1))
+                             
+                             if t_is_today:
+                                 t_date_str = "Today"
+                             elif t_is_tomorrow:
+                                 t_date_str = "Tomorrow"
+                             else:
+                                 t_date_str = t_dt.strftime("%a %d")
+                         
+                         if t_date_str:
+                             date_fg = "#FF6B6B" if t_overdue else self.colors["fg_dim"]
+                             tk.Label(tf, text=t_date_str, fg=date_fg, bg=self.colors["bg_card"], font=("Segoe UI", 9)).pack(side="left")
+                     except: pass
+
+                     subj = tk.Label(tf, text=task['subject'], fg=self.colors["fg_primary"], bg=self.colors["bg_card"], font=("Segoe UI", 9), anchor="w", justify="left", wraplength=self.expanded_width-130)
+                     subj.pack(side="left", padx=5, pady=(0, 2))
+
+                     bind_click(tf, task['entry_id'])
+                     bind_click(subj, task['entry_id'])
+
+                     # Start hidden, show on hover
+                     t_actions.pack_forget()
+
                      def show_t_actions(e, fa=t_actions):
                          if not fa.winfo_ismapped():
-                             fa.pack(side="top", fill="x", padx=2, pady=(2, 0))
-                     
+                             fa.pack(side="right", padx=2)
+
                      def hide_t_actions(e, c=tf, fa=t_actions):
                          try:
                              x, y = c.winfo_pointerxy()
@@ -2073,7 +2094,6 @@ class SidebarWindow(tk.Tk):
                                  c_path = str(c)
                                  if path.startswith(c_path): return
                          except: pass
-                         
                          if fa.winfo_ismapped():
                              fa.pack_forget()
 
@@ -2147,8 +2167,8 @@ class SidebarWindow(tk.Tk):
 
                      # Open Button (Folder icon)
                      btn_open = None
-                     if os.path.exists("icon2/open-email.png"):
-                          img = get_cached_icon("icon2/open-email.png", color=self.colors["fg_dim"])
+                     if os.path.exists("icon2/open-task.png"):
+                          img = get_cached_icon("icon2/open-task.png", color=self.colors["fg_dim"], size=(20,20))
                           if img:
                               btn_open = tk.Label(f_actions, image=img, bg=self.colors["bg_card"], cursor="hand2", padx=5)
                               btn_open.image = img

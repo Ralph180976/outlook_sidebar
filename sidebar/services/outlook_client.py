@@ -622,6 +622,20 @@ class OutlookClient:
             print("Open error: {}".format(e))
             return False
 
+    def send_email_with_attachment(self, recipient, subject, body, attachment_path):
+        """Send an email with a file attachment via Outlook."""
+        try:
+            mail = self.outlook.CreateItem(0)  # olMailItem
+            mail.To = recipient
+            mail.Subject = subject
+            mail.Body = body
+            mail.Attachments.Add(attachment_path)
+            mail.Send()
+            return True
+        except Exception as e:
+            print("Error sending email: {}".format(e))
+            return False
+
     def create_email(self):
         try:
             mail = self.outlook.CreateItem(0) # olMailItem
