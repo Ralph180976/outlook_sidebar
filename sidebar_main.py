@@ -190,6 +190,7 @@ class SidebarWindow(tk.Tk):
         
         # Image Cache (to keep references alive)
         self.image_cache = {}
+        self.dismissed_calendar_ids = set()  # Track dismissed calendar items (session only)
 
         # --- Window Setup ---
         self.overrideredirect(True)  # Frameless
@@ -1390,14 +1391,24 @@ class SidebarWindow(tk.Tk):
 
                 # Attachment indicator (only show if setting is enabled)
                 if email.get('has_attachments', False) and self.show_has_attachment:
-                    lbl_attachment = tk.Label(
-                        header_frame, 
-                        text="@", 
-                        fg=self.colors.get("accent", "#60CDFF"), 
-                        bg=bg_color, 
-                        font=(self.font_family, self.font_size + 1, "bold"),
-                    )
+                    attach_icon_path = "icon2/@.png"
+                    attach_img = None
+                    if os.path.exists(attach_icon_path):
+                        attach_img = self.load_icon_colored(attach_icon_path, size=(14, 14), color=self.colors.get("accent", "#60CDFF"))
+                    if attach_img:
+                        lbl_attachment = tk.Label(header_frame, image=attach_img, bg=bg_color)
+                        lbl_attachment.image = attach_img
+                    else:
+                        lbl_attachment = tk.Label(
+                            header_frame, 
+                            text="@", 
+                            fg=self.colors.get("accent", "#60CDFF"), 
+                            bg=bg_color, 
+                            font=(self.font_family, self.font_size + 1, "bold"),
+                        )
                     lbl_attachment.pack(side="right", padx=(4, 2))
+                    ToolTip(lbl_attachment, "Has Attachments")
+
 
                 # Importance Indicator (High/Low)
                 importance_val = email.get('importance', 1) # 0=Low, 1=Normal, 2=High
@@ -1414,6 +1425,18 @@ class SidebarWindow(tk.Tk):
                         font=(self.font_family, self.font_size + 1, "bold"),
                     )
                     lbl_importance.pack(side="right", padx=(0, 2))
+
+
+                # Flag Indicator (small icon in header corner)
+                if email.get('flag_status', 0) != 0:
+                    flag_icon_path = "icon2/flag.png"
+                    if os.path.exists(flag_icon_path):
+                        flag_img = self.load_icon_colored(flag_icon_path, size=(14, 14), color="#FF8C00")
+                        if flag_img:
+                            lbl_flag_icon = tk.Label(header_frame, image=flag_img, bg=bg_color)
+                            lbl_flag_icon.image = flag_img
+                            lbl_flag_icon.pack(side="right", padx=(2, 2))
+                            ToolTip(lbl_flag_icon, "Flagged")
 
                 # Categories Indicators
                 categories_str = email.get('categories', "")
@@ -1585,6 +1608,9 @@ class SidebarWindow(tk.Tk):
                     act1 = conf.get("action1", "")
                     act2 = conf.get("action2", "None")
                     tip_text = "{} & {}".format(act1, act2) if act2 != "None" else act1
+                    # Show 'Un-flag' tooltip if email is already flagged
+                    if act1 == "Flag" and email.get('flag_status', 0) != 0:
+                        tip_text = tip_text.replace('Flag', 'Un-flag')
                     ToolTip(btn, tip_text)
                     
                     # Bind Action
@@ -1869,6 +1895,9 @@ class SidebarWindow(tk.Tk):
 
         if meetings:
             tk.Label(container, text="CALENDAR", fg="#60CDFF", bg=self.colors["bg_root"], font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=5, pady=(5, 2))
+            # Filter out dismissed items
+            meetings = [m for m in meetings if m.get('entry_id') not in self.dismissed_calendar_ids]
+
             for m in meetings:
                  mf = tk.Frame(container, bg=self.colors["bg_card"], padx=5, pady=5)
                  mf.pack(fill="x", padx=2, pady=1)
@@ -1903,11 +1932,8 @@ class SidebarWindow(tk.Tk):
                      return btn
 
                  def do_dismiss_cal(eid=m['entry_id'], w=mf):
-                     success = self.outlook_client.dismiss_calendar_item(eid)
-                     if success:
-                         w.pack_forget()
-                     else:
-                         messagebox.showerror("Error", "Failed to dismiss meeting.")
+                     self.dismissed_calendar_ids.add(eid)
+                     w.pack_forget()
 
                  btn_dismiss = None
                  if os.path.exists("icon2/tick-box.png"):
@@ -1917,11 +1943,11 @@ class SidebarWindow(tk.Tk):
                           btn_dismiss.image = img
 
                  if not btn_dismiss:
-                      btn_dismiss = make_cal_btn(c_actions, u"âœ“", do_dismiss_cal, "Dismiss/Delete")
+                      btn_dismiss = make_cal_btn(c_actions, u"âœ“", do_dismiss_cal, "Dismiss")
                  else:
                       btn_dismiss.pack(side="right", padx=2)
-                      btn_dismiss.bind("<Button-1>", lambda e: do_dismiss_cal())
-                      ToolTip(btn_dismiss, "Dismiss/Delete")
+                      btn_dismiss.bind("<Button-1>", lambda e, _f=do_dismiss_cal: _f())
+                      ToolTip(btn_dismiss, "Dismiss")
 
                  # Open Meeting Button - use PNG icon
                  btn_open_cal = None
@@ -2029,7 +2055,7 @@ class SidebarWindow(tk.Tk):
                           make_task_btn(t_actions, u"âœ“", do_complete, "Mark Complete")
                      else:
                           btn_complete.pack(side="right", padx=5)
-                          btn_complete.bind("<Button-1>", lambda e: do_complete())
+                          btn_complete.bind("<Button-1>", lambda e, _f=do_complete: _f())
                           ToolTip(btn_complete, "Mark Complete")
 
                      # Open Button (Folder icon or similar) - Left of Complete
@@ -2136,7 +2162,7 @@ class SidebarWindow(tk.Tk):
                      def make_flag_btn(parent, text, cmd, tip):
                          btn = tk.Label(parent, text=text, fg=self.colors["fg_dim"], bg=self.colors["bg_card"], font=("Segoe UI", 10), cursor="hand2", padx=5)
                          btn.pack(side="right", padx=5) # Pack right for alignment
-                         btn.bind("<Button-1>", lambda e: cmd())
+                         btn.bind("<Button-1>", lambda e, _c=cmd: _c())
                          btn.bind("<Enter>", lambda e: btn.config(fg=self.colors["fg_primary"], bg=self.colors["bg_card_hover"]))
                          btn.bind("<Leave>", lambda e: btn.config(fg=self.colors["fg_dim"], bg=self.colors["bg_card"]))
                          if tip: ToolTip(btn, tip)
@@ -2147,6 +2173,7 @@ class SidebarWindow(tk.Tk):
                          success = self.outlook_client.unflag_email(eid, sid)
                          if success:
                              w.pack_forget()
+                             self.refresh_emails()  # Update email list to remove flag indicator
                          else:
                              messagebox.showerror("Error", "Failed to unflag email.")
                      
@@ -2162,7 +2189,7 @@ class SidebarWindow(tk.Tk):
                      else:
                           # Pack Right
                           btn_unflag.pack(side="right", padx=5)
-                          btn_unflag.bind("<Button-1>", lambda e: do_unflag())
+                          btn_unflag.bind("<Button-1>", lambda e, _f=do_unflag: _f())
                           ToolTip(btn_unflag, "Unflag")
 
                      # Open Button (Folder icon)

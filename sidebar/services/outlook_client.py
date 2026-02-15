@@ -434,6 +434,10 @@ class OutlookClient:
             table.Columns.Add("FlagStatus")
             try: table.Columns.Add("MessageClass")
             except: pass
+            try: table.Columns.Add("http://schemas.microsoft.com/mapi/proptag/0x0E1B000B")  # PR_HASATTACH - real attachments only
+            except: pass
+            try: table.Columns.Add("Importance")
+            except: pass
             
             items = []
             c = 0
@@ -443,10 +447,12 @@ class OutlookClient:
                     if not row: break
                     
                     vals = row.GetValues()
-                    # EntryID=0, Subject=1, Sender=2, Recv=3, UnRead=4, Flag=5, Class=6
+                    # EntryID=0, Subject=1, Sender=2, Recv=3, UnRead=4, Flag=5, Class=6, HasAttach=7, Importance=8
                     
                     # Filter out Non-Mail items if possible (e.g. Meeting Requests/Responses often clog inbox)
                     msg_class = vals[6] if len(vals) > 6 else "IPM.Note"
+                    has_attach = vals[7] if len(vals) > 7 else False
+                    importance = vals[8] if len(vals) > 8 else 1
                     
                     items.append({
                         "entry_id": vals[0],
@@ -455,6 +461,8 @@ class OutlookClient:
                         "received_dt": vals[3],
                         "unread": vals[4],
                         "flag_status": vals[5],
+                        "has_attachments": bool(has_attach),
+                        "importance": importance,
                         "preview": "",
                         "is_meeting_request": "IPM.Schedule" in str(msg_class),
                         "store_id": store.StoreID, # Needed for actions
@@ -594,10 +602,15 @@ class OutlookClient:
                 item = self.namespace.GetItemFromID(entry_id, store_id)
             else:
                 item = self.namespace.GetItemFromID(entry_id)
-            item.FlagStatus = 0 # Complete/Clear
+            # Use ClearTaskFlag to properly remove the flag (matches email card behavior)
+            if item.IsMarkedAsTask:
+                item.ClearTaskFlag()
+            item.FlagStatus = 0  # olNoFlag - belt and braces
             item.Save()
             return True
-        except: return False
+        except Exception as e:
+            print("Unflag error: {}".format(e))
+            return False
 
     def delete_email(self, entry_id, store_id=None):
         try:

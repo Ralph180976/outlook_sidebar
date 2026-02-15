@@ -4,7 +4,7 @@ import os
 from PIL import Image
 
 # --- Application Constants ---
-VERSION = "v1.3.6" # Reminder button layout fix & icon updates
+VERSION = "v1.3.7" # Dismiss, flag/unflag & attachment icon fixes
 
 # --- Image Resampling Mode ---
 try:
