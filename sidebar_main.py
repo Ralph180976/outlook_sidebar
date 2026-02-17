@@ -1276,12 +1276,7 @@ class SidebarWindow(tk.Tk):
             # Determine enabled accounts
             accounts = [n for n, s in self.enabled_accounts.items() if s.get("email")] if self.enabled_accounts else None
 
-            # DEBUG LOGGING
-            try:
-                with open("debug_refresh.log", "a") as f:
-                    f.write("refresh_emails: enabled_accounts={}\n".format(self.enabled_accounts))
-                    f.write("refresh_emails: accounts list={}\n".format(accounts))
-            except: pass
+
 
             emails, unread_count = self.outlook_client.get_inbox_items(
 
@@ -2959,6 +2954,17 @@ class SidebarWindow(tk.Tk):
                 self.email_body_lines = config.get("email_body_lines", 2)
         except Exception as e:
             print("Error loading config: {}".format(e))
+        
+        # Auto-enable all accounts on fresh install (no config file yet)
+        if not self.enabled_accounts:
+            try:
+                available = self.outlook_client.get_accounts()
+                if available:
+                    for acc in available:
+                        self.enabled_accounts[acc] = {"email": True, "calendar": True, "tasks": True}
+                    self.save_config()
+            except:
+                pass
 
     def save_config(self):
         app_dir = self.get_app_data_dir()

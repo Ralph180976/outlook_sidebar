@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.9" # Fix pulse indicators + PyInstaller icon paths
+VERSION = "v1.3.10" # Fix fresh install emails + share autocomplete
 
 # --- Image Resampling Mode ---
 try:

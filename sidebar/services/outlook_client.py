@@ -446,12 +446,7 @@ class OutlookClient:
         restrict_str = " AND ".join(restricts) if restricts else ""
         
         try:
-            # DEBUG LOG
-            with open("debug_fetch.log", "a") as f:
-                f.write("Fetch: Folder='{}', Restrict='{}'\n".format(folder.Name, restrict_str))
-
             # Table approach for safety and speed
-
             table = folder.GetTable(restrict_str) if restrict_str else folder.GetTable()
             table.Sort("ReceivedTime", True)
             
@@ -503,18 +498,12 @@ class OutlookClient:
                     })
                     c += 1
                 except Exception as row_err:
-                    with open("debug_fetch.log", "a") as f:
-                        f.write("Fetch Row Error: {}\n".format(row_err))
+                    print("Fetch row error: {}".format(row_err))
                     continue
                 
-            with open("debug_fetch.log", "a") as f:
-                f.write("Fetch: Retrieved {} items from '{}'\n".format(len(items), folder.Name))
             return items
         except Exception as e:
-            import traceback
-            with open("debug_fetch.log", "a") as f:
-                f.write("Fetch EXCEPTION: {}\n".format(e))
-                f.write(traceback.format_exc())
+            print("Fetch error: {}".format(e))
             return []
 
     def get_folder_list(self, account_name=None):
@@ -728,6 +717,92 @@ class OutlookClient:
                  except: continue
         except: pass
         return False
+
+    def search_contacts(self, query, max_results=8):
+        """Search Outlook Contacts and GAL for matching names/emails.
+        
+        Returns list of dicts: [{"name": "...", "email": "..."}, ...]
+        """
+        if not query or len(query) < 2:
+            return []
+        
+        if not self.namespace:
+            if not self.connect():
+                return []
+        
+        results = []
+        seen_emails = set()
+        query_lower = query.lower()
+        
+        # 1. Search default Contacts folder (fast, Table API)
+        try:
+            for store in self.namespace.Stores:
+                try:
+                    contacts_folder = store.GetDefaultFolder(10)  # olFolderContacts
+                    table = contacts_folder.GetTable()
+                    table.Columns.RemoveAll()
+                    table.Columns.Add("FullName")
+                    table.Columns.Add("Email1Address")
+                    
+                    while not table.EndOfTable and len(results) < max_results:
+                        row = table.GetNextRow()
+                        if not row: break
+                        vals = row.GetValues()
+                        name = vals[0] or ""
+                        email = vals[1] or ""
+                        
+                        if not email:
+                            continue
+                        
+                        # Match on name or email
+                        if query_lower in name.lower() or query_lower in email.lower():
+                            email_lower = email.lower()
+                            if email_lower not in seen_emails:
+                                seen_emails.add(email_lower)
+                                results.append({"name": name, "email": email})
+                except:
+                    continue
+        except:
+            pass
+        
+        # 2. Search GAL (Global Address List) if available
+        if len(results) < max_results:
+            try:
+                for addr_list in self.namespace.AddressLists:
+                    if addr_list.AddressListType == 1:  # olExchangeGlobalAddressList
+                        entries = addr_list.AddressEntries
+                        count = 0
+                        for entry in entries:
+                            if len(results) >= max_results:
+                                break
+                            count += 1
+                            if count > 500:  # Safety limit for large GALs
+                                break
+                            try:
+                                name = entry.Name or ""
+                                if query_lower not in name.lower():
+                                    continue
+                                # Get SMTP address
+                                email = ""
+                                try:
+                                    eu = entry.GetExchangeUser()
+                                    if eu:
+                                        email = eu.PrimarySmtpAddress or ""
+                                except:
+                                    pass
+                                
+                                if email:
+                                    email_lower = email.lower()
+                                    if email_lower not in seen_emails:
+                                        seen_emails.add(email_lower)
+                                        results.append({"name": name, "email": email})
+                            except:
+                                continue
+                        break  # Only search the first GAL
+            except:
+                pass
+        
+        return results[:max_results]
 
     def get_category_map(self):
         """Returns a dict {CategoryName: ColorIndex}."""
