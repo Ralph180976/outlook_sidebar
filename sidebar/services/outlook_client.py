@@ -741,6 +741,78 @@ class OutlookClient:
         except: pass
         return cat_map
 
+    def get_pulse_status(self, account_names=None):
+        """Returns a lightweight status dict for the pulse indicator.
+        
+        Returns: {"calendar": "Today"|None, "tasks": "Overdue"|"Today"|None}
+        """
+        result = {"calendar": None, "tasks": None}
+        
+        if not self.namespace:
+            if not self.connect():
+                return result
+        
+        now = datetime.now()
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow = today + timedelta(days=1)
+        
+        # Check calendar — any items today?
+        try:
+            s_str = today.strftime('%d/%m/%Y %H:%M')
+            e_str = tomorrow.strftime('%d/%m/%Y %H:%M')
+            
+            for store in self._get_enabled_stores(account_names):
+                try:
+                    cal = store.GetDefaultFolder(9)
+                    items = cal.Items
+                    items.Sort("[Start]")
+                    items.IncludeRecurrences = True
+                    restrict = "[Start] >= '{}' AND [Start] <= '{}'".format(s_str, e_str)
+                    filtered = items.Restrict(restrict)
+                    # Just check if any exist
+                    if filtered.Count > 0:
+                        result["calendar"] = "Today"
+                        break
+                except:
+                    continue
+        except:
+            pass
+        
+        # Check tasks — any overdue or due today?
+        try:
+            for store in self._get_enabled_stores(account_names):
+                try:
+                    tasks_folder = store.GetDefaultFolder(13)
+                    
+                    # Check overdue first (higher priority)
+                    overdue_q = "[Complete] = False AND [DueDate] < '{}'".format(
+                        today.strftime('%d/%m/%Y %H:%M'))
+                    try:
+                        table = tasks_folder.GetTable(overdue_q)
+                        if not table.EndOfTable:
+                            result["tasks"] = "Overdue"
+                            break
+                    except:
+                        pass
+                    
+                    # Check today
+                    today_q = "[Complete] = False AND [DueDate] >= '{}' AND [DueDate] < '{}'".format(
+                        today.strftime('%d/%m/%Y %H:%M'),
+                        tomorrow.strftime('%d/%m/%Y %H:%M'))
+                    try:
+                        table = tasks_folder.GetTable(today_q)
+                        if not table.EndOfTable:
+                            result["tasks"] = "Today"
+                            break
+                    except:
+                        pass
+                except:
+                    continue
+        except:
+            pass
+        
+        return result
+
     def get_due_status(self, due_date):
         """Helper to return Today/Tomorrow/Overdue status string."""
         if not due_date: return None

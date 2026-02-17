@@ -2685,7 +2685,7 @@ class SidebarWindow(tk.Tk):
         
         # 2. Gather Statuses for Pulse
         unread_count = self.outlook_client.get_unread_count(accounts, self.enabled_accounts)
-        due_status = self.outlook_client.get_due_status(accounts) # Returns dict
+        due_status = self.outlook_client.get_pulse_status(accounts)
 
         active_colors = []
         

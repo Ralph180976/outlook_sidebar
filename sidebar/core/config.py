@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.8" # Fix PyInstaller icon paths + Settings crash on fresh install
+VERSION = "v1.3.9" # Fix pulse indicators + PyInstaller icon paths
 
 # --- Image Resampling Mode ---
 try:
