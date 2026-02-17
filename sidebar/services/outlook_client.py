@@ -442,6 +442,11 @@ class OutlookClient:
 
         if unread_only:
             restricts.append("[UnRead] = True")
+        else:
+            # When showing all emails (including read), limit scan to recent items
+            # to avoid scanning entire inbox for users with thousands of emails
+            cutoff = (datetime.now() - timedelta(days=7)).strftime('%d/%m/%Y %H:%M')
+            restricts.append("[ReceivedTime] >= '{}'".format(cutoff))
         
         restrict_str = " AND ".join(restricts) if restricts else ""
         

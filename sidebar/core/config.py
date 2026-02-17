@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.10" # Fix fresh install emails + share autocomplete
+VERSION = "v1.3.11" # Limit include-read scan to 7 days
 
 # --- Image Resampling Mode ---
 try:
