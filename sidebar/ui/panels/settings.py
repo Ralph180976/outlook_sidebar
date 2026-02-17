@@ -2,6 +2,7 @@
 from sidebar.core.compat import tk, ttk, messagebox
 import os
 import glob
+from sidebar.core.config import resource_path
 from PIL import Image, ImageTk
 
 from sidebar.ui.widgets.base import ScrollableFrame, ToolTip
@@ -99,11 +100,11 @@ class SettingsPanel(tk.Frame):
         self.option_add('*TCombobox*Listbox.selectForeground', 'white')
 
         # Red Cross Close
-        if os.path.exists("icon2/close-window.png"):
+        if os.path.exists(resource_path("icon2/close-window.png")):
              try:
                 # Match Footer: 30x30, Red (#FF4444)
                 # Use main_window's loader if available
-                img = self.main_window.load_icon_colored("icon2/close-window.png", size=(30, 30), color="#FF4444")
+                img = self.main_window.load_icon_colored(resource_path("icon2/close-window.png"), size=(30, 30), color="#FF4444")
                 if img:
                     self.close_icon = img # Keep ref
                     btn_close = tk.Label(header, image=self.close_icon, bg=self.colors["bg_root"], cursor="hand2")
@@ -434,8 +435,8 @@ class SettingsPanel(tk.Frame):
         
         # Scan for PNGs
         png_icons = []
-        if os.path.exists("icons"):
-            for file in glob.glob("icons/*.png"):
+        if os.path.exists(resource_path("icons")):
+            for file in glob.glob(resource_path("icons/*.png")):
                 png_icons.append(os.path.basename(file))
         
         self.icons = unicode_icons + png_icons
@@ -533,7 +534,7 @@ class SettingsPanel(tk.Frame):
                 if new_icon:
                      # Check if PNG or Unicode
                      if new_icon.lower().endswith(".png"):
-                         path = os.path.join("icons", new_icon)
+                         path = resource_path(os.path.join("icons", new_icon))
                          if os.path.exists(path):
                              # Load using main_window's loader
                              img = self.main_window.load_icon_colored(path, size=(24, 24), color="#FFFFFF")

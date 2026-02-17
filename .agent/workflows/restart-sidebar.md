@@ -20,6 +20,6 @@ py -3 sidebar_main.py
 
 ## Notes
 - Always use `py -3` on this system (not `python`) because the default Python is 2.7
-- The sidebar runs from `c:\Dev\Outlook_Sidebar\sidebar_main.py`
+- The sidebar runs from `sidebar_main.py` in the project root
 - Version number is defined in `sidebar_main.py` at line ~27 as `VERSION = "vX.Y.Z"`
 - **AUTO-RUN PERMISSION**: The AI assistant has explicit permission to run this workflow automatically at its discretion to ensure the application state is current.

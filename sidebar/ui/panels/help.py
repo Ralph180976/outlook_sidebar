@@ -3,7 +3,7 @@ from sidebar.core.compat import tk, ttk, messagebox
 from PIL import Image, ImageTk
 import os
 
-from sidebar.core.config import RESAMPLE_MODE
+from sidebar.core.config import RESAMPLE_MODE, resource_path
 from sidebar.ui.widgets.base import ScrollableFrame, ToolTip
 from sidebar.ui.panels.account_settings import AccountSelectionDialog
 
@@ -66,7 +66,7 @@ class HelpPanel(tk.Frame):
             
             # Image Loading
             if image_path:
-                 full_path = os.path.join("images", image_path)
+                 full_path = resource_path(os.path.join("images", image_path))
                  if os.path.exists(full_path):
                      try:
                          # Load + Resize

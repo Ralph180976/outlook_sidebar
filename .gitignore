@@ -1,6 +1,37 @@
+# Python
 __pycache__/
 *.pyc
+*.pyo
+
+# Build output
 *.spec
 build/
 dist/
+dist_package/
+
+# Shared assets (junctions to OneDrive)
+icon2/
+icons/
+images/
+
+# Config & logs
 sidebar_config.json
+*.log
+boot_debug*.txt
+fix_verification.txt
+debug_output.txt
+full_code.txt
+
+# Windows shortcuts
+*.lnk
+
+# Backups
+backup_*/
+
+# Installer
+InboxBar_Installer.zip
+
+# Compiled
+*.pyc
+sidebar_main.pyc
+sidebar_main.py.bak

@@ -1,4 +1,3 @@
-
 import win32com.client
 
 try:
@@ -7,21 +6,21 @@ try:
     
     print("--- Polling Stores ---")
     for store in namespace.Stores:
-        print(f"Store: {store.DisplayName} (Type: {store.ExchangeStoreType})")
+        print("Store: {} (Type: {})".format(store.DisplayName, store.ExchangeStoreType))
         
         try:
             # Try to get Inbox (6)
             inbox = store.GetDefaultFolder(6)
-            print(f"  - Inbox: {inbox.Name} (Path: {inbox.FolderPath})")
+            print("  - Inbox: {} (Path: {})".format(inbox.Name, inbox.FolderPath))
         except Exception as e:
-            print(f"  - Inbox N/A: {e}")
+            print("  - Inbox N/A: {}".format(e))
             
         try:
              # Try to get Calendar (9)
             calendar = store.GetDefaultFolder(9)
-            print(f"  - Calendar: {calendar.Name} (Path: {calendar.FolderPath})")
+            print("  - Calendar: {} (Path: {})".format(calendar.Name, calendar.FolderPath))
         except Exception as e:
-            print(f"  - Calendar N/A: {e}")
+            print("  - Calendar N/A: {}".format(e))
             
 except Exception as e:
-    print(f"Error: {e}")
+    print("Error: {}".format(e))

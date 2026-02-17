@@ -3,8 +3,23 @@ import sys
 import os
 from PIL import Image
 
+# --- Resource Path Resolution (PyInstaller Support) ---
+def resource_path(relative_path):
+    """Resolve a relative path to an absolute path.
+    
+    When running as a PyInstaller bundle, files are extracted to sys._MEIPASS.
+    When running normally, uses the script's directory as the base.
+    """
+    if getattr(sys, 'frozen', False):
+        # Running as compiled exe (PyInstaller)
+        base_path = sys._MEIPASS
+    else:
+        # Running as script — use the project root (parent of sidebar/)
+        base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(base_path, relative_path)
+
 # --- Application Constants ---
-VERSION = "v1.3.7" # Dismiss, flag/unflag & attachment icon fixes
+VERSION = "v1.3.8" # Fix PyInstaller icon paths + Settings crash on fresh install
 
 # --- Image Resampling Mode ---
 try:

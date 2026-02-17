@@ -34,6 +34,29 @@ class OutlookClient:
             self.namespace = None
             return False
 
+    def reconnect(self):
+        """Force a full COM reconnection (e.g. after network change)."""
+        print("COM reconnect: forcing full reconnection...")
+        self.outlook = None
+        self.namespace = None
+        success = self.connect()
+        if success:
+            self.check_latest_time()
+            print("COM reconnect: success")
+        else:
+            print("COM reconnect: failed")
+        return success
+
+    def _is_connection_healthy(self):
+        """Quick probe to check if COM connection is still alive."""
+        if not self.namespace:
+            return False
+        try:
+            _ = self.namespace.Stores.Count
+            return True
+        except:
+            return False
+
     def get_accounts(self):
         """Returns list of account names."""
         accounts = []
@@ -94,6 +117,11 @@ class OutlookClient:
         for attempt in range(2):
             if not self.namespace:
                 if not self.connect(): return False
+
+            # Detect stale COM connection (e.g. after network change)
+            if not self._is_connection_healthy():
+                print("COM connection stale in check_new_mail, reconnecting...")
+                if not self.reconnect(): return False
 
             try:
                 found_new = False
@@ -332,6 +360,11 @@ class OutlookClient:
         for attempt in range(2):
             if not self.namespace:
                 if not self.connect(): return [], 0
+
+            # Detect stale COM connection (e.g. after network change)
+            if not self._is_connection_healthy():
+                print("COM connection stale in get_inbox_items, reconnecting...")
+                if not self.reconnect(): return [], 0
 
             try:
                 all_items = []

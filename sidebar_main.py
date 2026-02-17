@@ -35,7 +35,8 @@ MONITORENUMPROC = ctypes.WINFUNCTYPE(     ctypes.c_int,      wintypes.HMONITOR, 
 from sidebar.core.config import (
     VERSION, RESAMPLE_MODE, DEFAULT_MIN_WIDTH, 
     DEFAULT_HOT_STRIP_WIDTH, DEFAULT_EXPANDED_WIDTH, 
-    DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE
+    DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE,
+    resource_path
 )
 from sidebar.core.theme import COLOR_PALETTES, OL_CAT_COLORS
 from sidebar.core.appbar import AppBarManager, MONITORINFO, ABE_LEFT, ABE_RIGHT, ABE_TOP, ABE_BOTTOM 
@@ -175,6 +176,8 @@ class SidebarWindow(tk.Tk):
         self.buttons_on_hover = False
         self.buttons_on_hover = True
         self.email_double_click = True
+        self.show_hover_content = False
+        self.quick_create_actions = ["New Email"]
         
         self.help_panel = None
         self.help_panel_open = False
@@ -235,10 +238,10 @@ class SidebarWindow(tk.Tk):
         
         # 1. Outlook Button (Rightmost)
         # 1. Outlook Button (Rightmost)
-        if os.path.exists("icon2/email.png"):
+        if os.path.exists(resource_path("icon2/email.png")):
              # Email: 32x32 (Color: White)
              try:
-                img = self.load_icon_colored("icon2/email.png", size=(32, 32), color="#FFFFFF" if self.current_theme == "Dark" else "#000000")
+                img = self.load_icon_colored(resource_path("icon2/email.png"), size=(32, 32), color="#FFFFFF" if self.current_theme == "Dark" else "#000000")
                 self.image_cache["outlook_footer"] = img
                 self.btn_outlook = tk.Label(self.footer, image=img, bg=self.colors["bg_header"], cursor="hand2")
                 self.btn_outlook.pack(side="right", padx=(5, 10), pady=5)
@@ -249,10 +252,10 @@ class SidebarWindow(tk.Tk):
 
         # 0. Close Button (Leftmost)
         # Use existing icon logic
-        if os.path.exists("icon2/close-window.png"):
+        if os.path.exists(resource_path("icon2/close-window.png")):
              try:
                 # Close: 30x30, Red (#E81123 is standard Windows close red, or just Red)
-                img = self.load_icon_colored("icon2/close-window.png", size=(30, 30), color="#FF4444")
+                img = self.load_icon_colored(resource_path("icon2/close-window.png"), size=(30, 30), color="#FF4444")
                 if img:
                     self.image_cache["close_footer"] = img
                     self.btn_close = tk.Label(self.footer, image=img, bg=self.colors["bg_header"], cursor="hand2")
@@ -275,10 +278,10 @@ class SidebarWindow(tk.Tk):
                  
         # 2. Calendar Button (Next to Outlook)
         # 2. Calendar Button (Next to Outlook)
-        if os.path.exists("icon2/calendar.png"):
+        if os.path.exists(resource_path("icon2/calendar.png")):
              # Calendar: Reduced to 28x28 (Color: White)
              try:
-                img = self.load_icon_colored("icon2/calendar.png", size=(28, 28), color="#FFFFFF" if self.current_theme == "Dark" else "#000000")
+                img = self.load_icon_colored(resource_path("icon2/calendar.png"), size=(28, 28), color="#FFFFFF" if self.current_theme == "Dark" else "#000000")
                 self.image_cache["calendar_footer"] = img
                 self.btn_calendar = tk.Label(self.footer, image=img, bg=self.colors["bg_header"], cursor="hand2")
                 self.btn_calendar.pack(side="right", padx=5, pady=5)
@@ -288,10 +291,10 @@ class SidebarWindow(tk.Tk):
                 print("Error loading Calendar icon: {}".format(e))
 
         # Quick Create Button (Plus)
-        if os.path.exists("icon2/plus.png"):
+        if os.path.exists(resource_path("icon2/plus.png")):
              try:
                 # Initial placeholder - update_quick_create_icon will set the correct one
-                img = self.load_icon_colored("icon2/plus.png", size=(26, 26), color="#555555") 
+                img = self.load_icon_colored(resource_path("icon2/plus.png"), size=(26, 26), color="#555555") 
                 self.image_cache["quick_create"] = img
                 self.btn_quick_create = tk.Label(self.footer, image=img, bg=self.colors["bg_header"], cursor="hand2")
                 self.btn_quick_create.pack(side="right", padx=5, pady=5)
@@ -322,17 +325,17 @@ class SidebarWindow(tk.Tk):
 
         # Pin Button / Logo (Custom Canvas)
         # Pin Button / Logo
-        if os.path.exists("icon2/pin1.png"):
+        if os.path.exists(resource_path("icon2/pin1.png")):
              try:
                  # Pin: 24x24 (Leave). Use pin1 for both.
                  # Active (Pinned) = White (#FFFFFF)
                  # Inactive (Unpinned) = Grey (#888888)
                  
                   # 1. Active State (Pinned) = Primary (White/Black)
-                  self.icon_pin_active = self.load_icon_colored("icon2/pin1.png", size=(24, 24), color=self.colors["fg_primary"])
+                  self.icon_pin_active = self.load_icon_colored(resource_path("icon2/pin1.png"), size=(24, 24), color=self.colors["fg_primary"])
                   
                   # 2. Inactive State (Unpinned) = Vertical/Dim
-                  self.icon_pin_inactive = self.load_icon_colored("icon2/pin1.png", size=(24, 24), color=self.colors["fg_dim"])
+                  self.icon_pin_inactive = self.load_icon_colored(resource_path("icon2/pin1.png"), size=(24, 24), color=self.colors["fg_dim"])
 
                   # Default to Active initially (since defaults to is_pinned=True)
                   # toggle_pin will handle updates
@@ -355,10 +358,10 @@ class SidebarWindow(tk.Tk):
         self.pin_tooltip = ToolTip(self.btn_pin, "Pin Window Open")
         
         # Custom Settings Button (Cog)
-        if os.path.exists("icon2/spanner.png"):
+        if os.path.exists(resource_path("icon2/spanner.png")):
             # Settings: 22x22 (Color: White)
             try:
-                img = self.load_icon_colored("icon2/spanner.png", size=(22, 22), color=self.colors["fg_primary"])
+                img = self.load_icon_colored(resource_path("icon2/spanner.png"), size=(22, 22), color=self.colors["fg_primary"])
                 self.image_cache["settings_header"] = img
                 self.btn_settings = tk.Label(self.header, image=img, bg=self.colors["bg_header"], cursor="hand2")
         
@@ -379,10 +382,10 @@ class SidebarWindow(tk.Tk):
 
         # Refresh Button
         # Refresh Button
-        if os.path.exists("icon2/refresh.png"):
+        if os.path.exists(resource_path("icon2/refresh.png")):
             # Refresh: 22x22 (Color: White)
             try:
-                img = self.load_icon_colored("icon2/refresh.png", size=(22, 22), color=self.colors["fg_primary"])
+                img = self.load_icon_colored(resource_path("icon2/refresh.png"), size=(22, 22), color=self.colors["fg_primary"])
                 self.image_cache["sync_header"] = img
                 self.btn_refresh = tk.Label(self.header, image=img, bg=self.colors["bg_header"], cursor="hand2")
             except Exception as e:
@@ -398,10 +401,10 @@ class SidebarWindow(tk.Tk):
 
         # Share Button
         # Share Button
-        if os.path.exists("icon2/share.png"):
+        if os.path.exists(resource_path("icon2/share.png")):
             # Share: 20x20 (Color: White)
             try:
-                img = self.load_icon_colored("icon2/share.png", size=(20, 20), color=self.colors["fg_primary"])
+                img = self.load_icon_colored(resource_path("icon2/share.png"), size=(20, 20), color=self.colors["fg_primary"])
                 self.image_cache["share_header"] = img
                 self.btn_share = tk.Label(self.header, image=img, bg=self.colors["bg_header"], cursor="hand2")
             except Exception as e:
@@ -1391,7 +1394,7 @@ class SidebarWindow(tk.Tk):
 
                 # Attachment indicator (only show if setting is enabled)
                 if email.get('has_attachments', False) and self.show_has_attachment:
-                    attach_icon_path = "icon2/@.png"
+                    attach_icon_path = resource_path("icon2/@.png")
                     attach_img = None
                     if os.path.exists(attach_icon_path):
                         attach_img = self.load_icon_colored(attach_icon_path, size=(14, 14), color=self.colors.get("accent", "#60CDFF"))
@@ -1429,7 +1432,7 @@ class SidebarWindow(tk.Tk):
 
                 # Flag Indicator (small icon in header corner)
                 if email.get('flag_status', 0) != 0:
-                    flag_icon_path = "icon2/flag.png"
+                    flag_icon_path = resource_path("icon2/flag.png")
                     if os.path.exists(flag_icon_path):
                         flag_img = self.load_icon_colored(flag_icon_path, size=(14, 14), color="#FF8C00")
                         if flag_img:
@@ -1569,7 +1572,7 @@ class SidebarWindow(tk.Tk):
                     btn_image = None
                     
                     if is_png:
-                        path = os.path.join("icons", icon) 
+                        path = resource_path(os.path.join("icons", icon)) 
                         
                         # Let's try to map "white" to a color that works for the theme
                         btn_color = self.colors.get("fg_text", "#FFFFFF")
@@ -1936,8 +1939,8 @@ class SidebarWindow(tk.Tk):
                      w.pack_forget()
 
                  btn_dismiss = None
-                 if os.path.exists("icon2/tick-box.png"):
-                      img = get_cached_icon("icon2/tick-box.png", color=self.colors["fg_dim"])
+                 if os.path.exists(resource_path("icon2/tick-box.png")):
+                      img = get_cached_icon(resource_path("icon2/tick-box.png"), color=self.colors["fg_dim"])
                       if img:
                           btn_dismiss = tk.Label(c_actions, image=img, bg=self.colors["bg_card"], cursor="hand2", padx=3)
                           btn_dismiss.image = img
@@ -1951,8 +1954,8 @@ class SidebarWindow(tk.Tk):
 
                  # Open Meeting Button - use PNG icon
                  btn_open_cal = None
-                 if os.path.exists("icon2/open-task.png"):
-                      img = get_cached_icon("icon2/open-task.png", color=self.colors["fg_dim"], size=(20,20))
+                 if os.path.exists(resource_path("icon2/open-task.png")):
+                      img = get_cached_icon(resource_path("icon2/open-task.png"), color=self.colors["fg_dim"], size=(20,20))
                       if img:
                           btn_open_cal = tk.Label(c_actions, image=img, bg=self.colors["bg_card"], cursor="hand2", padx=3)
                           btn_open_cal.image = img
@@ -2045,8 +2048,8 @@ class SidebarWindow(tk.Tk):
                      
                      # Try PNG for complete
                      btn_complete = None
-                     if os.path.exists("icon2/tick-box.png"):
-                          img = get_cached_icon("icon2/tick-box.png", color=self.colors["fg_dim"])
+                     if os.path.exists(resource_path("icon2/tick-box.png")):
+                          img = get_cached_icon(resource_path("icon2/tick-box.png"), color=self.colors["fg_dim"])
                           if img:
                               btn_complete = tk.Label(t_actions, image=img, bg=self.colors["bg_card"], cursor="hand2", padx=5)
                               btn_complete.image = img # Keep ref
@@ -2060,8 +2063,8 @@ class SidebarWindow(tk.Tk):
 
                      # Open Button (Folder icon or similar) - Left of Complete
                      btn_open = None
-                     if os.path.exists("icon2/open-task.png"):
-                          img = get_cached_icon("icon2/open-task.png", color=self.colors["fg_dim"], size=(20,20))
+                     if os.path.exists(resource_path("icon2/open-task.png")):
+                          img = get_cached_icon(resource_path("icon2/open-task.png"), color=self.colors["fg_dim"], size=(20,20))
                           if img:
                               btn_open = tk.Label(t_actions, image=img, bg=self.colors["bg_card"], cursor="hand2", padx=5)
                               btn_open.image = img
@@ -2178,8 +2181,8 @@ class SidebarWindow(tk.Tk):
                              messagebox.showerror("Error", "Failed to unflag email.")
                      
                      btn_unflag = None
-                     if os.path.exists("icon2/flag.png"):
-                          img = get_cached_icon("icon2/flag.png", color="#FF8C00")
+                     if os.path.exists(resource_path("icon2/flag.png")):
+                          img = get_cached_icon(resource_path("icon2/flag.png"), color="#FF8C00")
                           if img:
                               btn_unflag = tk.Label(f_actions, image=img, bg=self.colors["bg_card"], cursor="hand2", padx=5)
                               btn_unflag.image = img
@@ -2194,8 +2197,8 @@ class SidebarWindow(tk.Tk):
 
                      # Open Button (Folder icon)
                      btn_open = None
-                     if os.path.exists("icon2/open-task.png"):
-                          img = get_cached_icon("icon2/open-task.png", color=self.colors["fg_dim"], size=(20,20))
+                     if os.path.exists(resource_path("icon2/open-task.png")):
+                          img = get_cached_icon(resource_path("icon2/open-task.png"), color=self.colors["fg_dim"], size=(20,20))
                           if img:
                               btn_open = tk.Label(f_actions, image=img, bg=self.colors["bg_card"], cursor="hand2", padx=5)
                               btn_open.image = img
@@ -2663,6 +2666,17 @@ class SidebarWindow(tk.Tk):
         if self.enabled_accounts:
             accounts = list(self.enabled_accounts.keys())
 
+        # Safety net: Force a full refresh every 5 minutes regardless
+        # This ensures emails recover even if check_new_mail fails silently
+        if not hasattr(self, '_last_forced_refresh'):
+            self._last_forced_refresh = time.time()
+        
+        if time.time() - self._last_forced_refresh > 300:
+            self._last_forced_refresh = time.time()
+            print("DEBUG: Forced periodic refresh (5 min safety net)")
+            self.refresh_emails()
+            return
+
         # 1. Check New Mail (For Refreshing List)
         has_new = self.outlook_client.check_new_mail(accounts)
         if has_new:
@@ -2995,7 +3009,12 @@ class SidebarWindow(tk.Tk):
             "email_body_lines": self.email_body_lines,
             
             # Quick Create
-            "quick_create_actions": self.quick_create_actions
+            "quick_create_actions": self.quick_create_actions,
+            
+            # Email interaction settings
+            "show_hover_content": self.show_hover_content,
+            "show_read": self.show_read,
+            "show_has_attachment": self.show_has_attachment
         }
         try:
             with open(config_path, "w") as f:
@@ -3052,8 +3071,8 @@ class SidebarWindow(tk.Tk):
         # Update Icon
         try:
             # 26x26 Size
-            if os.path.exists("icon2/plus.png"):
-                img = self.load_icon_colored("icon2/plus.png", size=(26, 26), color=color)
+            if os.path.exists(resource_path("icon2/plus.png")):
+                img = self.load_icon_colored(resource_path("icon2/plus.png"), size=(26, 26), color=color)
                 self.image_cache["quick_create"] = img
                 self.btn_quick_create.configure(image=img)
         except: pass
@@ -3104,8 +3123,8 @@ class SidebarWindow(tk.Tk):
             
             # Settings
             self.btn_settings.config(bg=c["bg_header"], fg=c["fg_dim"])
-            if os.path.exists("icon2/spanner.png"):
-                 img = self.load_icon_colored("icon2/spanner.png", size=(22, 22), color=c["fg_primary"])
+            if os.path.exists(resource_path("icon2/spanner.png")):
+                 img = self.load_icon_colored(resource_path("icon2/spanner.png"), size=(22, 22), color=c["fg_primary"])
                  if img:
                      self.image_cache["settings_header"] = img
                      self.btn_settings.config(image=img)
@@ -3117,8 +3136,8 @@ class SidebarWindow(tk.Tk):
             
             # Refresh
             self.btn_refresh.config(bg=c["bg_header"], fg=c["fg_dim"])
-            if os.path.exists("icon2/refresh.png"):
-                 img = self.load_icon_colored("icon2/refresh.png", size=(22, 22), color=c["fg_primary"])
+            if os.path.exists(resource_path("icon2/refresh.png")):
+                 img = self.load_icon_colored(resource_path("icon2/refresh.png"), size=(22, 22), color=c["fg_primary"])
                  if img:
                      self.image_cache["sync_header"] = img
                      self.btn_refresh.config(image=img)
@@ -3127,8 +3146,8 @@ class SidebarWindow(tk.Tk):
 
             # Share
             self.btn_share.config(bg=c["bg_header"], fg=c["fg_dim"])
-            if os.path.exists("icon2/share.png"):
-                 img = self.load_icon_colored("icon2/share.png", size=(20, 20), color=c["fg_primary"])
+            if os.path.exists(resource_path("icon2/share.png")):
+                 img = self.load_icon_colored(resource_path("icon2/share.png"), size=(20, 20), color=c["fg_primary"])
                  if img:
                      self.image_cache["share_header"] = img
                      self.btn_share.config(image=img)
@@ -3136,9 +3155,9 @@ class SidebarWindow(tk.Tk):
                      self.btn_share.config(image='', text="ðŸ”—")
             
             # Pin
-            if os.path.exists("icon2/pin1.png"):
-                 self.icon_pin_active = self.load_icon_colored("icon2/pin1.png", size=(24, 24), color=c["fg_primary"])
-                 self.icon_pin_inactive = self.load_icon_colored("icon2/pin1.png", size=(24, 24), color=c["fg_dim"])
+            if os.path.exists(resource_path("icon2/pin1.png")):
+                 self.icon_pin_active = self.load_icon_colored(resource_path("icon2/pin1.png"), size=(24, 24), color=c["fg_primary"])
+                 self.icon_pin_inactive = self.load_icon_colored(resource_path("icon2/pin1.png"), size=(24, 24), color=c["fg_dim"])
             self.draw_pin_icon()
                  
         except Exception as e:
@@ -3151,16 +3170,16 @@ class SidebarWindow(tk.Tk):
             
             # Outlook
             self.btn_outlook.config(bg=c["bg_header"])
-            if os.path.exists("icon2/email.png"):
-                 img = self.load_icon_colored("icon2/email.png", size=(32, 32), color=c["fg_primary"])
+            if os.path.exists(resource_path("icon2/email.png")):
+                 img = self.load_icon_colored(resource_path("icon2/email.png"), size=(32, 32), color=c["fg_primary"])
                  if img:
                      self.image_cache["outlook_footer"] = img
                      self.btn_outlook.config(image=img)
                  
             # Calendar
             self.btn_calendar.config(bg=c["bg_header"])
-            if os.path.exists("icon2/calendar.png"):
-                 img = self.load_icon_colored("icon2/calendar.png", size=(28, 28), color=c["fg_primary"])
+            if os.path.exists(resource_path("icon2/calendar.png")):
+                 img = self.load_icon_colored(resource_path("icon2/calendar.png"), size=(28, 28), color=c["fg_primary"])
                  if img:
                      self.image_cache["calendar_footer"] = img
                      self.btn_calendar.config(image=img)

@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
-import os
 import re
 from sidebar.core.compat import tk, messagebox
 from sidebar.core.config import VERSION
 
+# OneDrive direct download link for InboxBar installer
+DOWNLOAD_URL = "https://1drv.ms/u/c/4aff08b047e14317/IQDcvbURHB01SKL1N_CG3i41AaMPi1rLeZAINjdmxVb9JW0?e=lAjsoq"
+
 
 class ShareDialog(tk.Toplevel):
-    """Dialog to share InboxBar via email with the installer zip attached."""
+    """Dialog to share InboxBar via email with a download link."""
 
     def __init__(self, parent, outlook_client):
         tk.Toplevel.__init__(self, parent)
@@ -58,7 +60,7 @@ class ShareDialog(tk.Toplevel):
 
         tk.Label(
             content,
-            text="Enter their email address to send the installer:",
+            text="Enter their email address to send a download link:",
             fg=self.colors["fg_dim"],
             bg=self.colors["bg_root"],
             font=("Segoe UI", 9),
@@ -132,38 +134,36 @@ class ShareDialog(tk.Toplevel):
             )
             return
 
-        # Find the zip file
-        zip_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "InboxBar_Installer.zip")
-        zip_path = os.path.normpath(zip_path)
-
-        if not os.path.exists(zip_path):
-            messagebox.showerror(
-                "File Not Found",
-                "Could not find InboxBar_Installer.zip.\nExpected at: {}".format(zip_path),
-            )
-            return
-
-        # Build email
+        # Build email with download link (no attachment)
         subject = "Try InboxBar - Outlook Sidebar ({})".format(VERSION)
         body = (
             "Hi,\n\n"
             "I'd like to share InboxBar with you - a streamlined sidebar for Outlook "
             "that keeps you updated without the clutter of the full Outlook window.\n\n"
+            "Download the installer here:\n"
+            "{}\n\n"
             "To install:\n"
-            "1. Extract the attached zip file to a folder\n"
+            "1. Download and extract the zip file to a folder\n"
             "2. Double-click Setup.bat\n"
             "3. Launch InboxBar from your desktop\n\n"
             "Requirements: Windows 10/11 + Microsoft Outlook (Classic)\n\n"
             "Enjoy!"
-        )
+        ).format(DOWNLOAD_URL)
 
-        # Send
-        success = self.outlook_client.send_email_with_attachment(
-            email, subject, body, zip_path
-        )
+        # Send email without attachment
+        try:
+            mail = self.outlook_client.outlook.CreateItem(0)  # olMailItem
+            mail.To = email
+            mail.Subject = subject
+            mail.Body = body
+            mail.Send()
+            success = True
+        except Exception as e:
+            print("Share email error: {}".format(e))
+            success = False
 
         if success:
-            messagebox.showinfo("Sent!", "InboxBar installer sent to {}".format(email))
+            messagebox.showinfo("Sent!", "InboxBar download link sent to {}".format(email))
             self.destroy()
         else:
             messagebox.showerror(
