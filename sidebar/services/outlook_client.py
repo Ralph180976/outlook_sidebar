@@ -2,6 +2,7 @@
 import win32com.client
 from datetime import datetime, timedelta
 import pythoncom
+import os
 
 # Import theme constants from core
 from sidebar.core.theme import OL_CAT_COLORS
@@ -410,9 +411,21 @@ class OutlookClient:
                 return all_items[:count], total_unread_count
                 
             except Exception as e:
+                self._log_debug("Inbox error: {}".format(e))
                 print("Inbox error: {}".format(e))
                 
         return [], 0
+
+    def _log_debug(self, msg):
+        """Log debug messages to AppData for troubleshooting frozen builds."""
+        try:
+            app_data = os.path.join(os.environ.get("LOCALAPPDATA", "."), "InboxBar")
+            if not os.path.exists(app_data):
+                os.makedirs(app_data)
+            with open(os.path.join(app_data, "debug_outlook.log"), "a") as f:
+                f.write("{} - {}\n".format(datetime.now(), msg))
+        except:
+            pass
 
     def _fetch_items_from_inbox_folder(self, folder, count, unread_only, only_flagged, due_filters, store):
         """Helper to fetch items from a single inbox folder."""
@@ -441,16 +454,20 @@ class OutlookClient:
                     restricts.append("({})".format(combined_date_query))
 
         if unread_only:
-            restricts.append("[UnRead] = True")
+            # Use DASL for safer unread filtering (avoids some Table API bugs with [UnRead])
+            restricts.append("@SQL=\"urn:schemas:httpmail:read\" = 0")
         else:
-            # When showing all emails (including read), limit scan to recent items
-            # to avoid scanning entire inbox for users with thousands of emails
-            cutoff = (datetime.now() - timedelta(days=7)).strftime('%d/%m/%Y %H:%M')
-            restricts.append("[ReceivedTime] >= '{}'".format(cutoff))
+            # Use DASL for safer date format (US format MM/DD/YYYY) to avoid locale issues
+            # Limit scan to recent 7 days
+            cutoff = (datetime.now() - timedelta(days=7)).strftime('%m/%d/%Y %H:%M')
+            restricts.append("@SQL=\"urn:schemas:httpmail:datereceived\" >= '{}'".format(cutoff))
         
         restrict_str = " AND ".join(restricts) if restricts else ""
         
         try:
+            # Log the restriction string for debugging
+            # self._log_debug("Fetch from {}: Restrict='{}'".format(folder.Name, restrict_str))
+            
             # Table approach for safety and speed
             table = folder.GetTable(restrict_str) if restrict_str else folder.GetTable()
             table.Sort("ReceivedTime", True)
@@ -503,12 +520,12 @@ class OutlookClient:
                     })
                     c += 1
                 except Exception as row_err:
-                    print("Fetch row error: {}".format(row_err))
+                    self._log_debug("Fetch row error: {}".format(row_err))
                     continue
                 
             return items
         except Exception as e:
-            print("Fetch error: {}".format(e))
+            self._log_debug("Fetch error ({}): {}".format(folder.Name, e))
             return []
 
     def get_folder_list(self, account_name=None):

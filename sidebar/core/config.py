@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.11" # Limit include-read scan to 7 days
+VERSION = "v1.3.12" # Robust fetch: DASL filters + AppData logging
 
 # --- Image Resampling Mode ---
 try:
