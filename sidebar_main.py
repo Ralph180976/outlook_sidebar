@@ -1,4 +1,43 @@
 ﻿# -*- coding: utf-8 -*-
+import ctypes
+from ctypes import wintypes
+
+# --- DPI Awareness (must run BEFORE tkinter creates any windows) ---
+def set_dpi_awareness():
+    try:
+        user32 = ctypes.windll.user32
+    except:
+        return # Non-Windows or other issue
+
+    # Prefer Per-Monitor v2 on Win10+ (best coordinate correctness across mixed-DPI monitors)
+    try:
+        # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
+        user32.SetProcessDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+        user32.SetProcessDpiAwarenessContext.restype = ctypes.c_int # BOOL
+        
+        ctx = ctypes.c_void_p(-4)
+        if user32.SetProcessDpiAwarenessContext(ctx):
+            return
+    except Exception:
+        pass 
+
+    # Fallback: Win 8.1+ system DPI aware
+    try:
+        shcore = ctypes.windll.shcore
+        # PROCESS_SYSTEM_DPI_AWARE = 1
+        shcore.SetProcessDpiAwareness(1)
+        return
+    except Exception:
+        pass
+
+    # Last resort: Vista+ system DPI aware
+    try:
+        user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+set_dpi_awareness()
+
 try:
     # Python 2
     import Tkinter as tk
@@ -219,6 +258,10 @@ class SidebarWindow(tk.Tk):
         self.hwnd = temp_hwnd
 
         self.appbar = AppBarManager(self.hwnd)
+        try:
+             self.appbar.hook_wndproc()
+        except Exception as e:
+             print("Failed to hook WndProc: {}".format(e))
         
         # --- UI Components ---
         # Container frame that holds main content and settings panel side by side
@@ -2414,75 +2457,32 @@ class SidebarWindow(tk.Tk):
         """
     def get_monitor_metrics(self):
         """
-        Uses EnumDisplayMonitors to find the monitor closest to the window center.
+        Uses MonitorFromWindow to find the monitor containing the window.
         Returns check-safe dictionary with 'monitor' and 'work' tuples (x,y,w,h).
         """
-        if hasattr(self, 'hwnd') and self.hwnd:
-            hwnd = self.hwnd
-        else:
-            hwnd = self.winfo_id()
-            try:
-                hwnd = ctypes.windll.user32.GetParent(hwnd) or hwnd
-            except: pass
-            
-        # Get Window Rect center
         try:
-             wr = wintypes.RECT()
-             user32.GetWindowRect(hwnd, ctypes.byref(wr))
-             cx = (wr.left + wr.right) // 2
-             cy = (wr.top + wr.bottom) // 2
-        except:
-             # Fallback to screen center if window not visible
-             cx = self.winfo_screenwidth() // 2
-             cy = self.winfo_screenheight() // 2
-             
-        monitors = []
-
-        def callback(hMonitor, hdcMonitor, lprcMonitor, dwData):
+            user32 = ctypes.windll.user32
+            if hasattr(self, 'hwnd') and self.hwnd:
+                hwnd = self.hwnd
+            else:
+                hwnd = self.winfo_id()
+            
+            # MONITOR_DEFAULTTONEAREST = 2
+            hMonitor = user32.MonitorFromWindow(hwnd, 2)
+            
             mi = MONITORINFO()
             mi.cbSize = ctypes.sizeof(MONITORINFO)
+            
             if user32.GetMonitorInfoW(hMonitor, ctypes.byref(mi)):
                 r = mi.rcMonitor
                 w = mi.rcWork
-                monitors.append({
-                    'm_rect': (r.left, r.top, r.right, r.bottom),
-                    'w_rect': (w.left, w.top, w.right, w.bottom)
-                })
-            return True
+                return {
+                    "monitor": (r.left, r.top, r.right - r.left, r.bottom - r.top),
+                    "work":    (w.left, w.top, w.right - w.left, w.bottom - w.top),
+                }
+        except Exception as e:
+            print("Error in get_monitor_metrics: {}".format(e))
 
-        MONITORENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.ULONG, wintypes.HDC, ctypes.POINTER(wintypes.RECT), wintypes.LPARAM)
-        user32.EnumDisplayMonitors(None, None, MONITORENUMPROC(callback), 0)
-        
-        best_mon = None
-        min_dist = float('inf')
-        
-        for m in monitors:
-            # Check if center is inside
-            ml, mt, mr, mb = m['m_rect']
-            if ml <= cx <= mr and mt <= cy <= mb:
-                best_mon = m
-                break
-            
-            # Distance to center
-            # Simple Manhattan distance from monitor center to window center
-            mcx = (ml + mr) // 2
-            mcy = (mt + mb) // 2
-            dist = abs(cx - mcx) + abs(cy - mcy)
-            if dist < min_dist:
-                min_dist = dist
-                best_mon = m
-                
-        if not best_mon and monitors:
-             best_mon = monitors[0] # Fallback to primary
-             
-        if best_mon:
-             ml, mt, mr, mb = best_mon['m_rect']
-             wl, wt, wr, wb = best_mon['w_rect']
-             return {
-                 'monitor': (ml, mt, mr - ml, mb - mt),
-                 'work': (wl, wt, wr - wl, wb - wt)
-             }
-             
         # Ultimate fallback
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()

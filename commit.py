@@ -19,7 +19,7 @@ import subprocess
 import sys
 import os
 
-VERSION_FILE = "sidebar_main.py"
+VERSION_FILE = "sidebar/core/config.py"
 VERSION_PATTERN = r'VERSION\s*=\s*["\']v?(\d+)\.(\d+)\.(\d+)["\']'
 
 def get_current_version():

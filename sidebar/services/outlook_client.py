@@ -419,7 +419,7 @@ class OutlookClient:
     def _log_debug(self, msg):
         """Log debug messages to AppData for troubleshooting frozen builds."""
         try:
-            app_data = os.path.join(os.environ.get("LOCALAPPDATA", "."), "InboxBar")
+            app_data = os.path.join(os.environ.get("LOCALAPPDATA", "."), "OutlookSidebar")
             if not os.path.exists(app_data):
                 os.makedirs(app_data)
             with open(os.path.join(app_data, "debug_outlook.log"), "a") as f:
