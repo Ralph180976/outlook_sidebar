@@ -77,6 +77,7 @@ from sidebar.core.config import (
     DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE,
     resource_path
 )
+from sidebar.core.config_manager import ConfigManager
 from sidebar.core.theme import COLOR_PALETTES, OL_CAT_COLORS
 from sidebar.core.appbar import AppBarManager, MONITORINFO, ABE_LEFT, ABE_RIGHT, ABE_TOP, ABE_BOTTOM 
 from sidebar.services.outlook_client import OutlookClient
@@ -84,25 +85,28 @@ from sidebar.ui.widgets.base import ScrollableFrame, RoundedFrame, ToolTip
 from sidebar.ui.panels.settings import SettingsPanel
 from sidebar.ui.panels.help import HelpPanel
 from sidebar.ui.panels.account_settings import AccountSelectionDialog, AccountSelectionUI, FolderPickerFrame
+from sidebar.ui.panels.account_settings import AccountSelectionDialog, AccountSelectionUI, FolderPickerFrame
 from sidebar.ui.dialogs.feedback import FeedbackDialog
+from sidebar.ui.widgets.toolbar import SidebarToolbar
 
 class SidebarWindow(tk.Tk):
     def __init__(self):
         tk.Tk.__init__(self)
 
-        # --- Configuration ---
-        self.min_width = 300  
-        self.hot_strip_width = 16 # Customized
-        self.expanded_width = 300
-        self.is_pinned = True
-        self.is_expanded = False
-        self.dock_side = "Left" # "Left" or "Right"
-        self.font_family = "Segoe UI"
-        self.font_size = 9
+        # --- Configuration Manager ---
+        self.config = ConfigManager()
+        
+        # Shortcuts for compatibility during refactor (properties wrapping config)
+        # Or just use self.config.x directly.
         
         # --- Theme & Colors ---
-        self.current_theme = "Dark" # Default
-        
+        try:
+            self.current_theme = self.config.theme
+            self.font_family = self.config.font_family
+        except Exception as e:
+            print("ERROR: Failed to access theme: {}".format(e))
+            self.current_theme = "Light"
+
         self.palettes = {
             "Dark": {
                 "bg_root": "#333333",
@@ -130,32 +134,15 @@ class SidebarWindow(tk.Tk):
                 "fg_text": "#000000", # Alias
                 "fg_secondary": "#333333",
                 "fg_dim": "#666666",
-                "accent": "#007ACC",
+                "accent": "#3AADE5",
                 "divider": "#D0D0D0",
                 "scroll_bg": "#E8E8E8",
                 "input_bg": "#FFFFFF",
                 "card_border": "#E5E5E5"
             }
         }
-        self.colors = self.palettes[self.current_theme]
+        self.colors = self.palettes.get(self.current_theme, self.palettes["Light"])
 
-
-
-        self.poll_interval = 30 # seconds
-        self.show_read = False
-        self.show_has_attachment = False  # Filter for emails with attachments
-        self.only_flagged = False
-        self.include_read_flagged = True
-        self.include_read_flagged = True
-        self.flag_date_filter = "Anytime"
-        
-        # Email Content Settings
-        self.email_show_sender = True
-        self.email_show_subject = True
-        self.email_show_body = False
-        self.email_body_lines = 2
-        
-        self.hover_delay = 500 # ms
         self._hover_timer = None
         self._collapse_timer = None
         
@@ -165,37 +152,7 @@ class SidebarWindow(tk.Tk):
         self.settings_panel_width = 370
         
         # Window Mode State
-        self.window_mode = "dual"  # "single" (just emails) or "dual" (emails + reminder list)
-        self.split_sash_pos = 0 # 0 means auto/default
-        
-        # Reminder Filter State
-        self.reminder_show_flagged = True  # Default ON
-        self.reminder_due_filters = ["No Date"]  # List of selected due date filters
-        self.reminder_show_categorized = True
-        self.reminder_categories = []  # List of selected categories
-        
-        # Importance
-        self.reminder_show_importance = True # Master toggle
-        self.reminder_high_importance = False
-        self.reminder_normal_importance = False
-        self.reminder_low_importance = False
-        
-        # Meetings
-        self.reminder_show_meetings = True # Master toggle
-        self.reminder_pending_meetings = True
-        self.reminder_accepted_meetings = True # Default ON
-        self.reminder_declined_meetings = True # Changed to True as per user intent "Might want to know"
-        self.reminder_meeting_dates = ["Today", "Tomorrow"]
-        self.reminder_meeting_states = ["Accepted", "Tentative", "Appointments", "Received/Unknown"]
-        self.reminder_custom_days = 30
-
-        
-        # Tasks
-        self.reminder_show_tasks = True # Master toggle
-        self.reminder_tasks = True
-        self.reminder_todo = True
-        self.reminder_has_reminder = True
-        self.reminder_task_dates = ["Overdue", "Today", "Tomorrow"]
+        # self.split_sash_pos = 0 # Now in self.config
         
         # Pulse Animation State
         self.pulsing = False
@@ -205,30 +162,16 @@ class SidebarWindow(tk.Tk):
         self.base_color = "#007ACC"
         self.pulse_color = "#99D9EA" # Lighter cyan/blue for the bar
         
-        # Custom Buttons State
-        self.btn_count = 2
-        # Default config structure update
-        self.btn_config = [
-            {"label": "Trash", "icon": "âœ•", "action1": "Mark Read", "action2": "Delete", "folder": ""}, 
-            {"label": "Reply", "icon": "â†©", "action1": "Reply", "action2": "None", "folder": ""}
-        ]
-        self.buttons_on_hover = False
-        self.buttons_on_hover = True
-        self.email_double_click = True
-        self.show_hover_content = False
-        self.quick_create_actions = ["New Email"]
+        # self.show_hover_content = False # Now in self.config
+        # self.quick_create_actions = ["New Email"] # Now in self.config
         
         self.help_panel = None
         self.help_panel_open = False
         
-        # Account Settings
-        self.enabled_accounts = {} # {"Name": {"email": True, "calendar": True}}
-        
-        # Load Config
-        self.load_config()
-
-        # --- Outlook Client ---
-        self.outlook_client = OutlookClient()
+        try:
+            self.outlook_client = OutlookClient()
+        except Exception as e:
+            print("ERROR: OutlookClient init failed: {}".format(e))
         
         # Image Cache (to keep references alive)
         self.image_cache = {}
@@ -237,7 +180,7 @@ class SidebarWindow(tk.Tk):
         # --- Window Setup ---
         self.overrideredirect(True)  # Frameless
         self.wm_attributes("-topmost", True)
-        self.config(bg=self.colors["bg_root"])
+        self.config_window_visuals()
 
         # Get Screen Dimensions (will be updated in apply_state)
         self.monitor_x = 0
@@ -276,89 +219,14 @@ class SidebarWindow(tk.Tk):
         self.footer = tk.Frame(self.main_frame, bg=self.colors["bg_header"], height=40)
         self.footer.pack(fill="x", side="bottom")
         
-        # Footer Buttons
-        # Pack order: Rightmost first.
-        
-        # 1. Outlook Button (Rightmost)
-        # 1. Outlook Button (Rightmost)
-        if os.path.exists(resource_path("icon2/email.png")):
-             # Email: 32x32 (Color: White)
-             try:
-                img = self.load_icon_colored(resource_path("icon2/email.png"), size=(32, 32), color="#FFFFFF" if self.current_theme == "Dark" else "#000000")
-                self.image_cache["outlook_footer"] = img
-                self.btn_outlook = tk.Label(self.footer, image=img, bg=self.colors["bg_header"], cursor="hand2")
-                self.btn_outlook.pack(side="right", padx=(5, 10), pady=5)
-                self.btn_outlook.bind("<Button-1>", lambda e: self.open_outlook_app())
-                ToolTip(self.btn_outlook, "Open Outlook")
-             except Exception as e:
-                print("Error loading Outlook icon: {}".format(e))
-
-        # 0. Close Button (Leftmost)
-        # Use existing icon logic
-        if os.path.exists(resource_path("icon2/close-window.png")):
-             try:
-                # Close: 30x30, Red (#E81123 is standard Windows close red, or just Red)
-                img = self.load_icon_colored(resource_path("icon2/close-window.png"), size=(30, 30), color="#FF4444")
-                if img:
-                    self.image_cache["close_footer"] = img
-                    self.btn_close = tk.Label(self.footer, image=img, bg=self.colors["bg_header"], cursor="hand2")
-                else: 
-                     raise Exception("Load failed")
-             except Exception as e:
-                print("Error loading Close icon: {}".format(e))
-                self.btn_close = tk.Label(self.footer, text="âœ•", bg=self.colors["bg_header"], fg=self.colors["fg_dim"], font=("Arial", 12), cursor="hand2")
-        else:
-            self.btn_close = tk.Label(self.footer, text="âœ•", bg=self.colors["bg_header"], fg=self.colors["fg_dim"], font=("Arial", 12), cursor="hand2")
-            
-        self.btn_close.pack(side="left", padx=10, pady=5)
-        self.btn_close.bind("<Button-1>", lambda e: self.quit_application())
-        ToolTip(self.btn_close, "Close Application")
-        
-        # Version Label
-        self.lbl_version = tk.Label(self.footer, text=VERSION, bg=self.colors["bg_header"], fg=self.colors["fg_dim"], font=("Segoe UI", 8))
-        self.lbl_version.pack(side="left", padx=5, pady=5)
-        ToolTip(self.lbl_version, "App Version: {}".format(VERSION))
-                 
-        # 2. Calendar Button (Next to Outlook)
-        # 2. Calendar Button (Next to Outlook)
-        if os.path.exists(resource_path("icon2/calendar.png")):
-             # Calendar: Reduced to 28x28 (Color: White)
-             try:
-                img = self.load_icon_colored(resource_path("icon2/calendar.png"), size=(28, 28), color="#FFFFFF" if self.current_theme == "Dark" else "#000000")
-                self.image_cache["calendar_footer"] = img
-                self.btn_calendar = tk.Label(self.footer, image=img, bg=self.colors["bg_header"], cursor="hand2")
-                self.btn_calendar.pack(side="right", padx=5, pady=5)
-                self.btn_calendar.bind("<Button-1>", lambda e: self.open_calendar_app())
-                ToolTip(self.btn_calendar, "Open Calendar")
-             except Exception as e:
-                print("Error loading Calendar icon: {}".format(e))
-
-        # Quick Create Button (Plus)
-        if os.path.exists(resource_path("icon2/plus.png")):
-             try:
-                # Initial placeholder - update_quick_create_icon will set the correct one
-                img = self.load_icon_colored(resource_path("icon2/plus.png"), size=(26, 26), color="#555555") 
-                self.image_cache["quick_create"] = img
-                self.btn_quick_create = tk.Label(self.footer, image=img, bg=self.colors["bg_header"], cursor="hand2")
-                self.btn_quick_create.pack(side="right", padx=5, pady=5)
-                self.btn_quick_create.bind("<Button-1>", lambda e: self.handle_quick_create())
-                ToolTip(self.btn_quick_create, "Quick Create")
-                
-                # Apply initial state
-                self.update_quick_create_icon()
-             except Exception as e:
-                print("Error loading Quick Create icon: {}".format(e))
-
         # Header
         self.header = tk.Frame(self.main_frame, bg=self.colors["bg_header"], height=40)
         self.header.pack(fill="x", side="top")
         
-        # Header Dragging
         self.header.bind("<Button-1>", self.start_window_drag)
         self.header.bind("<B1-Motion>", self.on_window_drag)
         self.header.bind("<ButtonRelease-1>", self.stop_window_drag)
         
-        # Title
         # Title
         self.lbl_title = tk.Label(self.header, text="InboxBar", bg=self.colors["bg_header"], fg=self.colors["fg_primary"], font=(self.font_family, 10, "bold"))
         self.lbl_title.pack(side="left", padx=10)
@@ -367,97 +235,39 @@ class SidebarWindow(tk.Tk):
         self.lbl_title.bind("<ButtonRelease-1>", self.stop_window_drag)
 
         # Pin Button / Logo (Custom Canvas)
-        # Pin Button / Logo
-        if os.path.exists(resource_path("icon2/pin1.png")):
-             try:
-                 # Pin: 24x24 (Leave). Use pin1 for both.
-                 # Active (Pinned) = White (#FFFFFF)
-                 # Inactive (Unpinned) = Grey (#888888)
-                 
-                  # 1. Active State (Pinned) = Primary (White/Black)
-                  self.icon_pin_active = self.load_icon_colored(resource_path("icon2/pin1.png"), size=(24, 24), color=self.colors["fg_primary"])
-                  
-                  # 2. Inactive State (Unpinned) = Vertical/Dim
-                  self.icon_pin_inactive = self.load_icon_colored(resource_path("icon2/pin1.png"), size=(24, 24), color=self.colors["fg_dim"])
-
-                  # Default to Active initially (since defaults to is_pinned=True)
-                  # toggle_pin will handle updates
-                  self.btn_pin = tk.Label(self.header, image=self.icon_pin_active, bg=self.colors["bg_header"], cursor="hand2")
-             except Exception as e:
-                  print("Error loading Pin icon: {}".format(e))
-                  # Fallback to canvas if fails
-                  self.btn_pin = tk.Canvas(self.header, width=30, height=30, bg=self.colors["bg_header"], highlightthickness=0)
-                  self.draw_pin_icon()
-                  print("Error loading Pin icon: {}".format(e))
-                  # Fallback to canvas if fails
-                  self.btn_pin = tk.Canvas(self.header, width=30, height=30, bg=self.colors["bg_header"], highlightthickness=0)
-                  self.draw_pin_icon() 
-        else:
-             self.btn_pin = tk.Canvas(self.header, width=30, height=30, bg=self.colors["bg_header"], highlightthickness=0)
-             self.draw_pin_icon()
-             
-        self.btn_pin.pack(side="right", padx=5, pady=5)
-        self.btn_pin.bind("<Button-1>", lambda e: self.toggle_pin())
-        self.pin_tooltip = ToolTip(self.btn_pin, "Pin Window Open")
+        # Initialize Toolbar
+        # ------------------
+        callbacks = {
+            "settings": self.open_settings,
+            "help": self.toggle_help_panel,
+            "refresh": self.refresh_emails,
+            "share": self.open_share_dialog,
+            "close": self.quit_application,
+            "quick_create": self.handle_quick_create,
+            "calendar": self.open_calendar_app,
+            "outlook": self.open_outlook_app,
+            "toggle_pin": self.toggle_pin
+        }
         
-        # Custom Settings Button (Cog)
-        if os.path.exists(resource_path("icon2/spanner.png")):
-            # Settings: 22x22 (Color: White)
-            try:
-                img = self.load_icon_colored(resource_path("icon2/spanner.png"), size=(22, 22), color=self.colors["fg_primary"])
-                self.image_cache["settings_header"] = img
-                self.btn_settings = tk.Label(self.header, image=img, bg=self.colors["bg_header"], cursor="hand2")
-        
+        self.toolbar = SidebarToolbar(
+            self.header, self.footer, callbacks, 
+            self.load_icon_colored, resource_path, self.config
+        )
+        self.toolbar.create_header_buttons(self.colors)
+        self.toolbar.create_footer_buttons(self.colors, version_text=VERSION)
 
-            except Exception as e:
-                 print("Error loading Spanner icon: {}".format(e))
-                 self.btn_settings = tk.Label(self.header, text="âš™", bg=self.colors["bg_header"], fg=self.colors["fg_dim"], font=(self.font_family, 12), cursor="hand2")
-        else:
-            self.btn_settings = tk.Label(self.header, text="âš™", bg=self.colors["bg_header"], fg=self.colors["fg_dim"], font=(self.font_family, 12), cursor="hand2")
-        self.btn_settings.pack(side="right", padx=5)
-        self.btn_settings.bind("<Button-1>", lambda e: self.open_settings())
-
-        # Help Button (?)
-        self.btn_help = tk.Label(self.header, text="?", bg=self.colors["bg_header"], fg=self.colors["fg_dim"], font=("Segoe UI", 14, "bold"), cursor="hand2")
-        self.btn_help.pack(side="right", padx=(5, 5), pady=5)
-        self.btn_help.bind("<Button-1>", lambda e: self.toggle_help_panel())
-        ToolTip(self.btn_help, "Instructions")
-
-        # Refresh Button
-        # Refresh Button
-        if os.path.exists(resource_path("icon2/refresh.png")):
-            # Refresh: 22x22 (Color: White)
-            try:
-                img = self.load_icon_colored(resource_path("icon2/refresh.png"), size=(22, 22), color=self.colors["fg_primary"])
-                self.image_cache["sync_header"] = img
-                self.btn_refresh = tk.Label(self.header, image=img, bg=self.colors["bg_header"], cursor="hand2")
-            except Exception as e:
-                 print("Error loading Refresh icon: {}".format(e))
-                 self.btn_refresh = tk.Label(self.header, text="â†»", bg=self.colors["bg_header"], fg=self.colors["fg_dim"], font=(self.font_family, 15), cursor="hand2")
-        else:
-            self.btn_refresh = tk.Label(self.header, text="â†»", bg=self.colors["bg_header"], fg=self.colors["fg_dim"], font=(self.font_family, 15), cursor="hand2")
-        self.btn_refresh.pack(side="right", padx=5)
-        self.btn_refresh.bind("<Button-1>", lambda e: self.refresh_emails())
-        
-        ToolTip(self.btn_settings, "Settings")
-        ToolTip(self.btn_refresh, "Refresh Email List")
-
-        # Share Button
-        # Share Button
-        if os.path.exists(resource_path("icon2/share.png")):
-            # Share: 20x20 (Color: White)
-            try:
-                img = self.load_icon_colored(resource_path("icon2/share.png"), size=(20, 20), color=self.colors["fg_primary"])
-                self.image_cache["share_header"] = img
-                self.btn_share = tk.Label(self.header, image=img, bg=self.colors["bg_header"], cursor="hand2")
-            except Exception as e:
-                 print("Error loading Share icon: {}".format(e))
-                 self.btn_share = tk.Label(self.header, text="ðŸ”—", bg=self.colors["bg_header"], fg=self.colors["fg_dim"], font=(self.font_family, 15), cursor="hand2")
-        else:
-            self.btn_share = tk.Label(self.header, text="ðŸ”—", bg=self.colors["bg_header"], fg=self.colors["fg_dim"], font=(self.font_family, 15), cursor="hand2")
-        self.btn_share.pack(side="right", padx=5)
-        self.btn_share.bind("<Button-1>", lambda e: self.open_share_dialog())
-        ToolTip(self.btn_share, "Share InboxBar")
+        # Proxies for external access (if any legacy code tries to access buttons directly)
+        # Ideally we remove these, but for safety in Phase 2 we can alias them
+        self.btn_pin = self.toolbar.btn_pin
+        self.btn_settings = self.toolbar.btn_settings
+        self.btn_help = self.toolbar.btn_help
+        self.btn_refresh = self.toolbar.btn_refresh
+        self.btn_share = self.toolbar.btn_share
+        self.btn_outlook = self.toolbar.btn_outlook
+        self.btn_calendar = self.toolbar.btn_calendar
+        self.btn_quick_create = self.toolbar.btn_quick_create
+        self.btn_close = self.toolbar.btn_close
+        self.lbl_version = self.toolbar.lbl_version
 
         # Content Area - Using PanedWindow for draggable resizing
         # Replaces grid_container
@@ -492,9 +302,9 @@ class SidebarWindow(tk.Tk):
         self.after(300, set_initial_sash)
         
         # Email section header (Created once, kept in pane_emails)
-        email_header = tk.Frame(self.pane_emails, bg=self.colors["bg_card"], height=26)
-        email_header.pack(fill="x", side="top")
-        email_header.pack_propagate(False)  # Maintain fixed height
+        self.email_header = tk.Frame(self.pane_emails, bg=self.colors["bg_card"], height=26)
+        self.email_header.pack(fill="x", side="top")
+        self.email_header.pack_propagate(False)  # Maintain fixed height
         
         # Email List Container (Scrollable) - Will be filled in refresh_emails
         self.email_list_frame = tk.Frame(self.pane_emails, bg=self.colors["bg_root"])
@@ -505,7 +315,7 @@ class SidebarWindow(tk.Tk):
         # ------------------
         
         self.lbl_email_header = tk.Label(
-            email_header, text="Email", 
+            self.email_header, text="Email", 
             bg=self.colors["bg_card"], fg=self.colors["fg_text"],
             font=("Segoe UI", 9, "bold"), anchor="w"
         )
@@ -542,10 +352,10 @@ class SidebarWindow(tk.Tk):
              draw_u.polygon([(4, 15), (16, 15), (10, 7)], fill="white")
              self.icon_arrow_up = ImageTk.PhotoImage(img_up)
              
-             self.btn_account_toggle = tk.Label(email_header, image=self.icon_arrow_down, bg=self.colors["bg_card"], cursor="hand2")
+             self.btn_account_toggle = tk.Label(self.email_header, image=self.icon_arrow_down, bg=self.colors["bg_card"], cursor="hand2")
         except Exception as e:
              print("Error generating arrow icons: {}".format(e))
-             self.btn_account_toggle = tk.Label(email_header, text="â–¼", bg=self.colors["bg_card"], fg=self.colors["fg_text"], cursor="hand2")
+             self.btn_account_toggle = tk.Label(self.email_header, text="â–¼", bg=self.colors["bg_card"], fg=self.colors["fg_text"], cursor="hand2")
              
         self.btn_account_toggle.pack(side="right", padx=5)
         self.btn_account_toggle.bind("<Button-1>", lambda e: self.toggle_account_selection())
@@ -562,11 +372,11 @@ class SidebarWindow(tk.Tk):
         # Note: We already added pane_reminders to PanedWindow
         
         # Header inside pane_reminders (for consistency with email pane)
-        r_header = tk.Frame(self.pane_reminders, bg=self.colors["bg_card"], height=20)
-        r_header.pack(fill="x", side="top")
-        r_header.pack_propagate(False)
+        self.r_header = tk.Frame(self.pane_reminders, bg=self.colors["bg_card"], height=20)
+        self.r_header.pack(fill="x", side="top")
+        self.r_header.pack_propagate(False)
         
-        tk.Label(r_header, text="Flagged/Reminders", 
+        self.lbl_reminder_header = tk.Label(self.r_header, text="Flagged/Reminders", 
                  bg=self.colors["bg_card"], fg=self.colors["fg_dim"], font=(self.font_family, 9, "bold")
         ).pack(side="left", padx=10, pady=3)
 
@@ -602,6 +412,11 @@ class SidebarWindow(tk.Tk):
         # Start Background Polling
         self.start_polling()
 
+    def config_window_visuals(self):
+        """Configures window visual properties (e.g. transparency)."""
+        # Placeholder restored after accidental deletion
+        pass
+
     def quit_application(self):
         """Terminates the application."""
         self.destroy()
@@ -633,7 +448,7 @@ class SidebarWindow(tk.Tk):
             self.main_frame.pack(side="left", fill="both", expand=True)
             
             # Restore original width
-            self.set_geometry(self.expanded_width)
+            self.set_geometry(self.config.width)
         else:
             # Freeze main_frame at its current width before expanding
             current_width = self.main_frame.winfo_width()
@@ -648,7 +463,7 @@ class SidebarWindow(tk.Tk):
                 self.settings_panel_open = True
                 
                 # Expand window by exactly +370px (Updated width)
-                new_width = self.expanded_width + self.settings_panel.panel_width
+                new_width = self.config.width + self.settings_panel.panel_width
                 self.set_geometry(new_width)
             except Exception as e:
                 import traceback
@@ -686,7 +501,7 @@ class SidebarWindow(tk.Tk):
             self.main_frame.pack(side="left", fill="both", expand=True)
             
             # Restore original width
-            self.set_geometry(self.expanded_width)
+            self.set_geometry(self.config.width)
         else:
             # Freeze main_frame
             current_width = self.main_frame.winfo_width()
@@ -700,7 +515,7 @@ class SidebarWindow(tk.Tk):
             self.help_panel_open = True
             
             # Expand window
-            new_width = self.expanded_width + self.help_panel.panel_width
+            new_width = self.config.width + self.help_panel.panel_width
             self.set_geometry(new_width)
         
     def load_icon_colored(self, path, size=None, color="#BFBFBF", is_rgb_tuple=False):
@@ -992,103 +807,14 @@ class SidebarWindow(tk.Tk):
         """Opens/Focuses the Outlook Calendar."""
         self._show_outlook_folder(9)  # 9 = olFolderCalendar
         
-    def load_config(self):
-        try:
-            with open("sidebar_config.json", "r") as f:
-                data = json.load(f)
-                self.expanded_width = data.get("width", 300)
-                self.is_pinned = data.get("pinned", True)
-                self.dock_side = data.get("dock_side", "Left")
-                self.font_family = data.get("font_family", "Segoe UI")
-                self.font_size = data.get("font_size", 9)
-                self.poll_interval = data.get("poll_interval", 30)
-                self.btn_count = data.get("btn_count", 2)
-                self.btn_config = data.get("btn_config", [
-                    {"label": "Trash", "icon": "âœ•", "action1": "Mark Read", "action2": "Delete", "folder": ""}, 
-                    {"label": "Reply", "icon": "â†©", "action1": "Reply", "action2": "None", "folder": ""}
-                ])
-                self.show_read = data.get("show_read", False)
-                self.show_has_attachment = data.get("show_has_attachment", False)
-                self.only_flagged = data.get("only_flagged", False)
-                self.include_read_flagged = data.get("include_read_flagged", True)
-                self.flag_date_filter = data.get("flag_date_filter", "Anytime")
-                self.window_mode = data.get("window_mode", "single")
-                self.enabled_accounts = data.get("enabled_accounts", {})
-                # Reminder filters
-                self.reminder_show_flagged = data.get("reminder_show_flagged", True)
-                self.reminder_due_filter = data.get("reminder_due_filter", "Anytime")
-                self.reminder_show_categorized = data.get("reminder_show_categorized", False)
-                self.reminder_categories = data.get("reminder_categories", [])
-                self.reminder_high_importance = data.get("reminder_high_importance", False)
-                self.reminder_normal_importance = data.get("reminder_normal_importance", False)
-                self.reminder_low_importance = data.get("reminder_low_importance", False)
-                self.reminder_pending_meetings = data.get("reminder_pending_meetings", False)
-                self.reminder_accepted_meetings = data.get("reminder_accepted_meetings", True)
-                self.reminder_declined_meetings = data.get("reminder_declined_meetings", False)
-                self.reminder_meeting_states = data.get("reminder_meeting_states", ["Accepted", "Tentative", "Appointments", "Received/Unknown"])
-                self.reminder_tasks = data.get("reminder_tasks", False)
+        
+    # Legacy load_config/save_config removed. 
+    # They are now handled by ConfigManager (self.config).
 
-                self.reminder_todo = data.get("reminder_todo", False)
-                self.reminder_has_reminder = data.get("reminder_has_reminder", False)
-                self.reminder_task_dates = data.get("reminder_task_dates", ["Overdue", "Today", "Tomorrow"])
-                self.buttons_on_hover = data.get("buttons_on_hover", False)
-
-                self.email_double_click = data.get("email_double_click", False)
-        except (FileNotFoundError, ValueError, IndexError):
-            # If config is missing or corrupt, auto-enable all discovered accounts
-            try:
-                available = self.outlook_client.get_accounts()
-                if available:
-                    for acc in available:
-                        self.enabled_accounts[acc] = {"email": True, "calendar": True, "tasks": True}
-                    self.save_config()
-            except:
-                pass
-
-    def save_config(self):
-        data = {
-            "width": self.expanded_width,
-            "pinned": self.is_pinned,
-            "dock_side": self.dock_side,
-            "font_family": self.font_family,
-            "font_size": self.font_size,
-            "poll_interval": self.poll_interval,
-            "btn_count": self.btn_count,
-            "btn_config": self.btn_config,
-            "show_read": self.show_read,
-            "show_has_attachment": self.show_has_attachment,
-            "only_flagged": self.only_flagged,
-            "include_read_flagged": self.include_read_flagged,
-            "flag_date_filter": self.flag_date_filter,
-            "window_mode": self.window_mode,
-            # Reminder filters
-            "reminder_show_flagged": self.reminder_show_flagged,
-            "reminder_due_filter": self.reminder_due_filter,
-            "reminder_show_categorized": self.reminder_show_categorized,
-            "reminder_categories": self.reminder_categories,
-            "reminder_high_importance": self.reminder_high_importance,
-            "reminder_normal_importance": self.reminder_normal_importance,
-            "reminder_low_importance": self.reminder_low_importance,
-            "reminder_pending_meetings": self.reminder_pending_meetings,
-            "reminder_accepted_meetings": self.reminder_accepted_meetings,
-            "reminder_declined_meetings": self.reminder_declined_meetings,
-            "reminder_meeting_states": self.reminder_meeting_states,
-            "reminder_tasks": self.reminder_tasks,
-
-            "reminder_todo": self.reminder_todo,
-            "reminder_has_reminder": self.reminder_has_reminder,
-            "reminder_task_dates": self.reminder_task_dates,
-            "buttons_on_hover": self.buttons_on_hover,
-
-            "email_double_click": self.email_double_click,
-            "enabled_accounts": self.enabled_accounts
-        }
-        with open("sidebar_config.json", "w") as f:
-            json.dump(data, f)
 
     def apply_window_layout(self):
         """Apply the current window mode (single or dual) to the layout."""
-        if self.window_mode == "single":
+        if self.config.window_mode == "single":
             # Single window mode - hide reminder section
             try:
                 self.paned_window.forget(self.pane_reminders)
@@ -1219,8 +945,8 @@ class SidebarWindow(tk.Tk):
                 # Closing: Save and Destroy
                 if hasattr(self, "account_ui_helper"):
                     new_settings = self.account_ui_helper.get_settings()
-                    self.enabled_accounts = new_settings
-                    self.save_config()
+                    self.config.enabled_accounts = new_settings
+                    self.config.save()
                     self.refresh_emails()
                     self.refresh_reminders()
                     
@@ -1266,7 +992,7 @@ class SidebarWindow(tk.Tk):
                 self.account_ui_helper = AccountSelectionUI(
                     self.account_overlay, 
                     accounts, 
-                    self.enabled_accounts, 
+                    self.config.enabled_accounts, 
                     self.launch_folder_selection_from_overlay, 
                     bg_color="#202020"
                 )
@@ -1317,16 +1043,15 @@ class SidebarWindow(tk.Tk):
                 widget.destroy()
 
             # Determine enabled accounts
-            accounts = [n for n, s in self.enabled_accounts.items() if s.get("email")] if self.enabled_accounts else None
-
+            accounts = [n for n, s in self.config.enabled_accounts.items() if s.get("email")] if self.config.enabled_accounts else None
 
 
             emails, unread_count = self.outlook_client.get_inbox_items(
 
                 count=30, 
-                unread_only=not self.show_read,
+                unread_only=not self.config.show_read,
                 account_names=accounts,
-                account_config=self.enabled_accounts
+                account_config=self.config.enabled_accounts
             )
             
             # Update Header Count
@@ -1414,7 +1139,7 @@ class SidebarWindow(tk.Tk):
                 header_frame.pack(fill="x")
 
                 # Sender
-                if self.email_show_sender:
+                if self.config.email_show_sender:
                     sender_text = email['sender']
                     if is_unread:
                         sender_text = u"● " + sender_text # Add indicator dot
@@ -1424,14 +1149,14 @@ class SidebarWindow(tk.Tk):
                         text=sender_text, 
                         fg=self.colors["fg_primary"], 
                         bg=bg_color, 
-                        font=(self.font_family, self.font_size, "bold"),
+                        font=(self.config.font_family, self.config.font_size, "bold"),
                         anchor="w"
                     )
                     lbl_sender.pack(side="left", fill="x", expand=True)
 
 
                 # Attachment indicator (only show if setting is enabled)
-                if email.get('has_attachments', False) and self.show_has_attachment:
+                if email.get('has_attachments', False) and self.config.show_has_attachment:
                     attach_icon_path = resource_path("icon2/@.png")
                     attach_img = None
                     if os.path.exists(attach_icon_path):
@@ -1445,7 +1170,7 @@ class SidebarWindow(tk.Tk):
                             text="@", 
                             fg=self.colors.get("accent", "#60CDFF"), 
                             bg=bg_color, 
-                            font=(self.font_family, self.font_size + 1, "bold"),
+                            font=(self.config.font_family, self.config.font_size + 1, "bold"),
                         )
                     lbl_attachment.pack(side="right", padx=(4, 2))
                     ToolTip(lbl_attachment, "Has Attachments")
@@ -1463,7 +1188,7 @@ class SidebarWindow(tk.Tk):
                         text=imp_text, 
                         fg=imp_fg, 
                         bg=bg_color, 
-                        font=(self.font_family, self.font_size + 1, "bold"),
+                        font=(self.config.font_family, self.config.font_size + 1, "bold"),
                     )
                     lbl_importance.pack(side="right", padx=(0, 2))
 
@@ -1525,22 +1250,22 @@ class SidebarWindow(tk.Tk):
                         # StartLine 4694 says fg="white". I'll check if I need to change it.
                         # For now I will leave "white" as it contrasts well with the colored badges.
                         bg=badge_bg, 
-                        font=(self.font_family, self.font_size - 2, "bold"),
+                        font=(self.config.font_family, self.config.font_size - 2, "bold"),
                         padx=6, pady=2
                     )
                     lbl_badge.pack(side="right", padx=2)
                     
                 # Subject
-                if self.email_show_subject:
+                if self.config.email_show_subject:
                     lbl_subject = tk.Label(
                         card, 
                         text=email['subject'], 
                         fg=self.colors["fg_secondary"], 
                         bg=bg_color, 
-                        font=(self.font_family, self.font_size),
+                        font=(self.config.font_family, self.config.font_size),
                         anchor="w",
                         justify="left",
-                        wraplength=self.expanded_width - 40 
+                        wraplength=self.config.width - 40 
                     )
                     lbl_subject.pack(fill="x")
                 
@@ -1549,17 +1274,17 @@ class SidebarWindow(tk.Tk):
                 lbl_preview = None
                 # Capture current body lines setting for this card
                 try: 
-                    lines = int(self.email_body_lines)
+                    lines = int(self.config.email_body_lines)
                 except: 
                     lines = 2
                     
-                if self.email_show_body or self.show_hover_content:
+                if self.config.email_show_body or self.config.show_hover_content:
                     lbl_preview = tk.Text(
                         card, 
                         height=lines,
                         bg=bg_color, 
                         fg=self.colors["fg_dim"], 
-                        font=(self.font_family, self.font_size - 1),
+                        font=(self.config.font_family, self.config.font_size - 1),
                         bd=0,
                         highlightthickness=0,
                         wrap="word",
@@ -1577,7 +1302,7 @@ class SidebarWindow(tk.Tk):
                     lbl_preview.config(state="disabled") # Read-only
                     
                     # Check if we should initially pack it (Show Body = True)
-                    if self.email_show_body:
+                    if self.config.email_show_body:
                          lbl_preview.pack(fill="x")
                 
                 # Icon Cache for this refresh cycle
@@ -1599,7 +1324,7 @@ class SidebarWindow(tk.Tk):
                 # Populate buttons first (so they exist for binding)
                 # Filter for valid buttons (Must have Icon AND Action)
                 valid_buttons = [
-                    conf for conf in self.btn_config 
+                    conf for conf in self.config.btn_config 
                     if conf.get("icon") and conf.get("action1") != "None"
                 ]
 
@@ -1658,7 +1383,7 @@ class SidebarWindow(tk.Tk):
                     btn.bind("<Button-1>", lambda e, c=conf, em=email: self.handle_custom_action(c, em))
 
                 # --- Logic for Buttons Visibility ---
-                if self.buttons_on_hover:
+                if self.config.buttons_on_hover:
                     # Start hidden
                     frame_buttons.pack_forget()
                 else:
@@ -1671,7 +1396,7 @@ class SidebarWindow(tk.Tk):
                 # We also capture 'lines' from the scope to ensure correct height
                 def show_hover_elements(e, lp=lbl_preview, fb=frame_buttons, h=lines, eid=email.get('entry_id'), sid=email.get('store_id')):
                     # 1. Show Body Preview if enabled and not permanent
-                    if self.show_hover_content and not self.email_show_body and lp:
+                    if self.config.show_hover_content and not self.config.email_show_body and lp:
                          # Lazy-fetch body on first hover
                          if not getattr(lp, '_body_loaded', False):
                              lp._body_loaded = True
@@ -1719,18 +1444,18 @@ class SidebarWindow(tk.Tk):
                               lp.pack(fill="x", padx=5, pady=(0, 2)) 
                     
                     # 2. Show Buttons if enabled
-                    if self.buttons_on_hover:
+                    if self.config.buttons_on_hover:
                          if not fb.winfo_ismapped():
                               fb.pack(fill="x", expand=True, padx=2, pady=(0, 2))
                 
                 def hide_hover_elements(e, lp=lbl_preview, fb=frame_buttons):
                     # 1. Hide Body Preview
-                    if self.show_hover_content and not self.email_show_body and lp:
+                    if self.config.show_hover_content and not self.config.email_show_body and lp:
                          if lp.winfo_ismapped():
                               lp.pack_forget()
                     
                     # 2. Hide Buttons
-                    if self.buttons_on_hover:
+                    if self.config.buttons_on_hover:
                          if fb.winfo_ismapped():
                               fb.pack_forget()
 
@@ -1758,7 +1483,7 @@ class SidebarWindow(tk.Tk):
                      c._show_timer = c.after(250, lambda: _shf(e, lp, fb))
 
                 # Apply Bindings
-                if (self.show_hover_content and not self.email_show_body) or self.buttons_on_hover:
+                if (self.config.show_hover_content and not self.config.email_show_body) or self.config.buttons_on_hover:
                     card.bind("<Enter>", safe_show)
                     card.bind("<Leave>", robust_hide)
                     
@@ -1773,7 +1498,7 @@ class SidebarWindow(tk.Tk):
                     self.open_email(eid, source_widget=w)
 
                 # Apply Click Bindings
-                if self.email_double_click: 
+                if self.config.email_double_click: 
                      card.bind("<Double-Button-1>", on_card_click)
                      card.bind("<Button-1>", lambda e, c=card: c.focus_set())
                 else:
@@ -1783,19 +1508,19 @@ class SidebarWindow(tk.Tk):
                 for child in card.winfo_children():
                      # Don't bind click to buttons (they have their own actions)
                      if child != frame_buttons and getattr(child, "master", None) != frame_buttons:
-                        if self.email_double_click: 
+                        if self.config.email_double_click: 
                             child.bind("<Double-Button-1>", on_card_click)
                         else:
                             child.bind("<Button-1>", on_card_click)
                      # Preview text click -> Open Email
                      if child == lbl_preview:
-                          if self.email_double_click: 
+                          if self.config.email_double_click: 
                               child.bind("<Double-Button-1>", on_card_click)
                           else:
                               child.bind("<Button-1>", on_card_click)
 
                 
-                if self.email_double_click: 
+                if self.config.email_double_click: 
                       # Logic handled by bind_click helper inside loop (Wait, bind_click isn't shown here)
                       # Assuming bind_click handles double click check or we need to add it.
                       # The loop continues...
@@ -1849,7 +1574,7 @@ class SidebarWindow(tk.Tk):
         
         # Helper for binding click
         def bind_click(widget, entry_id):
-            if self.email_double_click:
+            if self.config.email_double_click:
                 widget.bind("<Double-Button-1>", lambda e, eid=entry_id, w=widget: self.open_email(eid, source_widget=w))
             else:
                 widget.bind("<Button-1>", lambda e, eid=entry_id, w=widget: self.open_email(eid, source_widget=w))
@@ -1865,26 +1590,26 @@ class SidebarWindow(tk.Tk):
         
         has_date_filter = False
         
-        if "Today" in self.reminder_meeting_dates:
+        if "Today" in self.config.reminder_meeting_dates:
              # Today EOD
              d = today_start + timedelta(days=1) - timedelta(seconds=1)
              if d > end_date: end_date = d
              has_date_filter = True
              
-        if "Tomorrow" in self.reminder_meeting_dates:
+        if "Tomorrow" in self.config.reminder_meeting_dates:
              # Tomorrow EOD
              d = today_start + timedelta(days=2) - timedelta(seconds=1)
              if d > end_date: end_date = d
              has_date_filter = True
 
-        if "Next 7 Days" in self.reminder_meeting_dates:
+        if "Next 7 Days" in self.config.reminder_meeting_dates:
              d = today_start + timedelta(days=8) - timedelta(seconds=1) # Today + 7 full days
              if d > end_date: end_date = d
              has_date_filter = True
              
-        if "Custom" in self.reminder_meeting_dates:
+        if "Custom" in self.config.reminder_meeting_dates:
              try:
-                 days = int(getattr(self, "reminder_custom_days", 30))
+                 days = int(getattr(self.config, "reminder_custom_days", 30))
              except: days = 30
              d = today_start + timedelta(days=days+1) - timedelta(seconds=1)
              if d > end_date: end_date = d
@@ -1897,7 +1622,7 @@ class SidebarWindow(tk.Tk):
              # Show none
              meetings = []
         else:
-             cal_accounts = [n for n, s in self.enabled_accounts.items() if s.get("calendar")] if self.enabled_accounts else None
+             cal_accounts = [n for n, s in self.config.enabled_accounts.items() if s.get("calendar")] if self.config.enabled_accounts else None
              # Pass datetime objects directly
              raw_meetings = self.outlook_client.get_calendar_items(today_start, end_date, cal_accounts)
              
@@ -1908,18 +1633,18 @@ class SidebarWindow(tk.Tk):
                  status = m.get("response_status", 0)
                  
                  # Accepted
-                 if status == 3 and self.reminder_accepted_meetings:
+                 if status == 3 and self.config.reminder_accepted_meetings:
                      meetings.append(m)
                      continue
                      
                  # Declined
-                 if status == 4 and self.reminder_declined_meetings:
+                 if status == 4 and self.config.reminder_declined_meetings:
                      meetings.append(m)
                      continue
                      
                  # Pending (None, Organized, Tentative, NotResponded=5)
                  # Basically anything not Accepted(3) or Declined(4)
-                 if status not in [3, 4] and self.reminder_pending_meetings:
+                 if status not in [3, 4] and self.config.reminder_pending_meetings:
                      meetings.append(m)
                      continue
         
@@ -2012,7 +1737,7 @@ class SidebarWindow(tk.Tk):
 
                  # Now pack labels LEFT (remaining space after buttons)
                  tk.Label(mf, text=time_str, fg=self.colors["fg_dim"], bg=self.colors["bg_card"], font=("Segoe UI", 9)).pack(side="left")
-                 subj = tk.Label(mf, text=m['subject'], fg=self.colors["fg_primary"], bg=self.colors["bg_card"], font=("Segoe UI", 9, "bold"), anchor="w", wraplength=self.expanded_width - 130)
+                 subj = tk.Label(mf, text=m['subject'], fg=self.colors["fg_primary"], bg=self.colors["bg_card"], font=("Segoe UI", 9, "bold"), anchor="w", wraplength=self.config.width - 130)
                  subj.pack(side="left", padx=5)
 
                  bind_click(mf, m['entry_id'])
@@ -2043,8 +1768,9 @@ class SidebarWindow(tk.Tk):
                  subj.bind("<Leave>", hide_c_actions)
 
         # 2. Outlook Tasks
-        if self.reminder_show_tasks:
-             tasks = self.outlook_client.get_tasks(due_filters=getattr(self, "reminder_task_dates", []), account_names=cal_accounts)
+        # 2. Outlook Tasks
+        if self.config.reminder_show_tasks:
+             tasks = self.outlook_client.get_tasks(due_filters=self.config.reminder_task_dates, account_names=cal_accounts)
              
              if tasks:
                  tk.Label(container, text="TASKS", fg=self.colors.get("accent_success", "#28a745"), bg=self.colors["bg_root"], font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=5, pady=(10, 2))
@@ -2093,7 +1819,7 @@ class SidebarWindow(tk.Tk):
                               btn_complete.image = img # Keep ref
                      
                      if not btn_complete:
-                          make_task_btn(t_actions, u"âœ“", do_complete, "Mark Complete")
+                          make_task_btn(t_actions, u"✓", do_complete, "Mark Complete")
                      else:
                           btn_complete.pack(side="right", padx=5)
                           btn_complete.bind("<Button-1>", lambda e, _f=do_complete: _f())
@@ -2108,7 +1834,7 @@ class SidebarWindow(tk.Tk):
                               btn_open.image = img
                      
                      if not btn_open:
-                          make_task_btn(t_actions, u"ðŸ“‚", lambda eid=task['entry_id']: self.open_email(eid), "Open Task")
+                          make_task_btn(t_actions, u"📂", lambda eid=task['entry_id']: self.open_email(eid), "Open Task")
                      else:
                           btn_open.pack(side="right", padx=5)
                           btn_open.bind("<Button-1>", lambda e, eid=task['entry_id']: self.open_email(eid))
@@ -2139,7 +1865,7 @@ class SidebarWindow(tk.Tk):
                              tk.Label(tf, text=t_date_str, fg=date_fg, bg=self.colors["bg_card"], font=("Segoe UI", 9)).pack(side="left")
                      except: pass
 
-                     subj = tk.Label(tf, text=task['subject'], fg=self.colors["fg_primary"], bg=self.colors["bg_card"], font=("Segoe UI", 9), anchor="w", justify="left", wraplength=self.expanded_width-130)
+                     subj = tk.Label(tf, text=task['subject'], fg=self.colors["fg_primary"], bg=self.colors["bg_card"], font=("Segoe UI", 9), anchor="w", justify="left", wraplength=self.config.width-130)
                      subj.pack(side="left", padx=5, pady=(0, 2))
 
                      bind_click(tf, task['entry_id'])
@@ -2170,13 +1896,13 @@ class SidebarWindow(tk.Tk):
                      subj.bind("<Leave>", hide_t_actions)
 
         # 3. Flagged Emails
-        if self.reminder_show_flagged:
-             email_accounts = [n for n, s in self.enabled_accounts.items() if s.get("email")] if self.enabled_accounts else None
+        if self.config.reminder_show_flagged:
+             email_accounts = [n for n, s in self.config.enabled_accounts.items() if s.get("email")] if self.config.enabled_accounts else None
              flags, _ = self.outlook_client.get_inbox_items(
                  count=30,
                  unread_only=False,
                  only_flagged=True,
-                 due_filters=self.reminder_due_filters,
+                 due_filters=self.config.reminder_due_filters,
                  account_names=email_accounts
              )
              
@@ -2188,7 +1914,7 @@ class SidebarWindow(tk.Tk):
                      cf.pack(fill="x", padx=2, pady=2)
                      
                      # Subject Label (Now packed top)
-                     subj = tk.Label(cf, text=email['subject'], fg=self.colors["fg_primary"], bg=self.colors["bg_card"], font=("Segoe UI", 9), anchor="w", justify="left", wraplength=self.expanded_width-40)
+                     subj = tk.Label(cf, text=email['subject'], fg=self.colors["fg_primary"], bg=self.colors["bg_card"], font=("Segoe UI", 9), anchor="w", justify="left", wraplength=self.config.width-40)
                      subj.pack(side="top", fill="x", expand=True, padx=5, pady=(0, 2))
                      
                      bind_click(cf, email['entry_id'])
@@ -2226,7 +1952,7 @@ class SidebarWindow(tk.Tk):
                               btn_unflag.image = img
                      
                      if not btn_unflag:
-                          make_flag_btn(f_actions, u"âš‘", do_unflag, "Unflag")
+                          make_flag_btn(f_actions, u"⚐", do_unflag, "Unflag")
                      else:
                           # Pack Right
                           btn_unflag.pack(side="right", padx=5)
@@ -2242,7 +1968,7 @@ class SidebarWindow(tk.Tk):
                               btn_open.image = img
                      
                      if not btn_open:
-                          make_flag_btn(f_actions, u"ðŸ“‚", lambda eid=email['entry_id']: self.open_email(eid), "Open Email")
+                          make_flag_btn(f_actions, u"📂", lambda eid=email['entry_id']: self.open_email(eid), "Open Email")
                      else:
                           # Pack Right (left/next to Unflag)
                           btn_open.pack(side="right", padx=5)
@@ -2286,7 +2012,7 @@ class SidebarWindow(tk.Tk):
         # Determine active icon based on state
         if isinstance(self.btn_pin, tk.Label):
              # If using Label with Images
-             if self.is_pinned:
+             if self.config.pinned:
                  if hasattr(self, 'icon_pin_active'):
                      self.btn_pin.config(image=self.icon_pin_active)
              else:
@@ -2296,32 +2022,18 @@ class SidebarWindow(tk.Tk):
         elif isinstance(self.btn_pin, tk.Canvas):
             # If using Canvas drawing
             self.btn_pin.delete("all")
-            color = "#007ACC" if self.is_pinned else "#AAAAAA"
+            color = "#007ACC" if self.config.pinned else "#AAAAAA"
             # Draw a simple pin shape
             self.btn_pin.create_oval(10, 5, 20, 15, fill=color, outline="")
             self.btn_pin.create_line(15, 15, 15, 25, fill=color, width=2)
 
     def toggle_pin(self):
-        self.is_pinned = not self.is_pinned
+        self.config.pinned = not self.config.pinned
+        self.config.save()
         
-        # Update Tooltip
-        if self.is_pinned:
-            if hasattr(self, 'icon_pin_active') and isinstance(self.btn_pin, tk.Label):
-                 self.btn_pin.config(image=self.icon_pin_active)
-            elif isinstance(self.btn_pin, tk.Canvas):
-                 self.btn_pin.delete("all")
-                 self.draw_pin_icon() # Redraw pinned state
+        if self.toolbar:
+            self.toolbar.update_pin_state()
             
-            self.pin_tooltip.text = "Unpin Window (Current: Pinned)"
-        else:
-            if hasattr(self, 'icon_pin_inactive') and isinstance(self.btn_pin, tk.Label):
-                 self.btn_pin.config(image=self.icon_pin_inactive)
-            elif isinstance(self.btn_pin, tk.Canvas):
-                 self.btn_pin.delete("all")
-                 self.draw_pin_icon() # Redraw unpinned state (draw_pin_icon checks is_pinned)
-            
-            self.pin_tooltip.text = "Pin Window (Current: Auto-Collapse)"
-        self.save_config()
         self.apply_state()
         
         # Force a check immediately to update pulse state
@@ -2333,7 +2045,7 @@ class SidebarWindow(tk.Tk):
         self.monitor_x, self.monitor_y, self.screen_width, self.screen_height = self.get_current_monitor_info()
 
         # Update AppBar edge based on preference
-        new_edge = ABE_LEFT if self.dock_side == "Left" else ABE_RIGHT
+        new_edge = ABE_LEFT if self.config.dock_side == "Left" else ABE_RIGHT
         
         # If side changed, we MUST unregister the old one first to release the old edge
         if self.appbar.edge != new_edge:
@@ -2341,18 +2053,18 @@ class SidebarWindow(tk.Tk):
             self.appbar.edge = new_edge
             self.appbar.abd.uEdge = new_edge
 
-        if self.is_pinned:
+        if self.config.pinned:
             # Pinned: Reserve Full Width, Visual Full Width
             mode = "PINNED"
-            reserve_w = self.expanded_width
-            visual_w = self.expanded_width
+            reserve_w = self.config.width
+            visual_w = self.config.width
             
         elif self.is_expanded:
             # Expanded/Overlay: Reserve Strip Width, Visual Full Width
             # This allows the "Overlay" effect without losing the "Sneak Behind" protection for the strip.
             mode = "OVERLAY"
             reserve_w = self.hot_strip_width
-            visual_w = self.expanded_width
+            visual_w = self.config.width
             
         else:
             # Collapsed: Reserve Strip Width, Visual Strip Width
@@ -2373,7 +2085,7 @@ class SidebarWindow(tk.Tk):
             self.header.pack(fill="x", side="top", before=self.paned_window)
             
             # Grip Placement
-            if self.dock_side == "Left":
+            if self.config.dock_side == "Left":
                 self.resize_grip.place(relx=1.0, rely=0, anchor="ne", relheight=1.0)
             else:
                 self.resize_grip.place(relx=0.0, rely=0, anchor="nw", relheight=1.0)
@@ -2390,25 +2102,25 @@ class SidebarWindow(tk.Tk):
         self.set_geometry(visual_w)
 
     def on_resize_drag(self, event):
-        if self.is_pinned or self.is_expanded:
+        if self.config.pinned or self.is_expanded:
             x_root = self.winfo_pointerx()
             
             # Calculate width based on side
-            if self.dock_side == "Left":
+            if self.config.dock_side == "Left":
                 new_width = x_root - self.monitor_x
             else:
                 new_width = (self.monitor_x + self.screen_width) - x_root
             
             if new_width > self.min_width and new_width < (self.screen_width // 2):
-                self.expanded_width = new_width
+                self.config.width = new_width
                 # Optimization: ONLY resize the visual window, do NOT trigger AppBar reflow
-                self.set_geometry(self.expanded_width)
+                self.set_geometry(self.config.width)
                 # Ensure the content knows we resized if needed (pack handles this)
 
     def on_resize_release(self, event):
         # Commit the new width to the system (triggers reflow once)
         self.apply_state() 
-        self.save_config()
+        self.config.save()
 
     def set_geometry(self, width):
         # Retrieve Monitor and Work Area info in one go
@@ -2429,7 +2141,7 @@ class SidebarWindow(tk.Tk):
             y = rect.top
             h = rect.bottom - rect.top
             
-            if self.dock_side == "Right":
+            if self.config.dock_side == "Right":
                  x = rect.right - width
         else:
             # Unpinned / Overlay Mode (Only if registration failed or deliberately unregistered)
@@ -2441,7 +2153,7 @@ class SidebarWindow(tk.Tk):
             # But ensure we don't start 'under' a vertical taskbar on the left?
             # Using Work Area left (wx) is safest.
             
-            if self.dock_side == "Left":
+            if self.config.dock_side == "Left":
                 x = wx
             else:
                 x = wx + ww - width
@@ -2529,9 +2241,9 @@ class SidebarWindow(tk.Tk):
         
         # Determine side
         if win_center < mon_center:
-            self.dock_side = "Left"
+            self.config.dock_side = "Left"
         else:
-            self.dock_side = "Right"
+            self.config.dock_side = "Right"
             
         # Re-apply state which will snap to monitor edge and re-register
         self.apply_state()
@@ -2562,8 +2274,6 @@ class SidebarWindow(tk.Tk):
             # Ignore self and shell
             if cls in ["Progman", "WorkerW", "Shell_TrayWnd", "ImmersiveLauncher"] or hwnd_active == self.winfo_id():
                  # Not a "real" app we care about
-                 # If we were suppressing, maybe we should restore? 
-                 # Actually, if we are on Desktop, we probably want to Restore if we auto-collapsed.
                  pass
             else:
                 # 3. Get Window Rect
@@ -2588,22 +2298,20 @@ class SidebarWindow(tk.Tk):
                     # Is it basically full monitor size?
                     is_fullscreen = (abs(fw - mw) < 20) and (abs(fh - mh) < 20)
                     
-                    # print("DEBUG: Window '{}' Class: {} Size: {}x{} Monitor: {}x{} Fullscreen: {}".format(win32gui.GetWindowText(hwnd_active), cls, fw, fh, mw, mh, is_fullscreen))
-
                     if is_fullscreen:
                         # ACTIVE FULLSCREEN DETECTED
-                        if self.is_pinned and not getattr(self, "was_pinned_before_fs", False):
+                        if self.config.pinned and not getattr(self, "was_pinned_before_fs", False):
                             # Auto-Collapse
                             print("DEBUG: Fullscreen App Detected ({}) - Auto Collapsing".format(cls))
                             self.was_pinned_before_fs = True
-                            self.is_pinned = False
+                            self.config.pinned = False
                             
                             # Update Tooltip/Icon manually since we are bypassing toggle_pin
                             if hasattr(self, 'pin_tooltip'):
                                 self.pin_tooltip.text = "Pin Window (Current: Auto-Collapse)"
                             self.draw_pin_icon() 
                             
-                            self.save_config() # Optional: Persist? Maybe not if it's temporary state.
+                            self.config.save() # Optional: Persist? Maybe not if it's temporary state.
                             self.apply_state()
                     
                     else:
@@ -2611,39 +2319,35 @@ class SidebarWindow(tk.Tk):
                         # Restore if we auto-collapsed
                         if getattr(self, "was_pinned_before_fs", False):
                             # print("DEBUG: Fullscreen ended - Restoring Pin")
-                            self.is_pinned = True
+                            self.config.pinned = True
                             self.was_pinned_before_fs = False
                             
                             if hasattr(self, 'pin_tooltip'):
                                 self.pin_tooltip.text = "Unpin Window (Current: Pinned)"
                             self.draw_pin_icon()
                             
-                            self.save_config()
+                            self.config.save()
                             self.apply_state()
             
             # If we switched to a different monitor (or desktop focus), we also might want to restore?
-            # E.g. User Alt-Tabs to an app on secondary monitor. Sidebar on Primary should probably restore?
-            # Current logic only restores if the active window is on SAME monitor and NOT fullscreen.
-            # If active window is on OTHER monitor, 'on_same_monitor' is False.
-            # We should probably restore if the user leaves the fullscreen app too.
-             
             if not on_same_monitor and getattr(self, "was_pinned_before_fs", False):
                  # Focus moved away from the fullscreen app on this monitor
                  # Restore
                  # print("DEBUG: Focus moved monitor - Restoring Pin")
-                 self.is_pinned = True
+                 self.config.pinned = True
                  self.was_pinned_before_fs = False
                  if hasattr(self, 'pin_tooltip'):
                      self.pin_tooltip.text = "Unpin Window (Current: Pinned)"
                  self.draw_pin_icon()
-                 self.save_config()
+                 self.config.save()
                  self.apply_state()
 
         except Exception as e:
-            print("FS Check Error: {}".format(e))
+            # print("FS Check Error: {}".format(e))
+            pass
             
         self.after(1000, self.check_fullscreen_app)
-
+ 
     def check_updates(self):
         """Threaded (or scheduled) update check."""
         try:
@@ -2652,14 +2356,14 @@ class SidebarWindow(tk.Tk):
             print("Polling error: {}".format(e))
         
         # Schedule next poll
-        interval = getattr(self, "poll_interval", 15) * 1000
+        interval = getattr(self.config, "poll_interval", 15) * 1000
         self.after(interval, self.check_updates)
 
     def _perform_check(self):
         """Actual check logic."""
         accounts = None
-        if self.enabled_accounts:
-            accounts = list(self.enabled_accounts.keys())
+        if self.config.enabled_accounts:
+            accounts = list(self.config.enabled_accounts.keys())
 
         # Safety net: Force a full refresh every 5 minutes regardless
         # This ensures emails recover even if check_new_mail fails silently
@@ -2679,7 +2383,7 @@ class SidebarWindow(tk.Tk):
              self.refresh_emails()
         
         # 2. Gather Statuses for Pulse
-        unread_count = self.outlook_client.get_unread_count(accounts, self.enabled_accounts)
+        unread_count = self.outlook_client.get_unread_count(accounts, self.config.enabled_accounts)
         due_status = self.outlook_client.get_pulse_status(accounts)
 
         active_colors = []
@@ -2689,29 +2393,29 @@ class SidebarWindow(tk.Tk):
             active_colors.append("#0078D4")
 
         # Priority 2: Meetings (Orange)
-        if due_status["calendar"] == "Today" and self.reminder_show_meetings and "Today" in self.reminder_meeting_dates:
+        if due_status["calendar"] == "Today" and self.config.reminder_show_meetings and "Today" in self.config.reminder_meeting_dates:
             active_colors.append("#E68D49") # Soft Orange
             
         # Priority 3: Tasks (Green)
-        if self.reminder_show_tasks:
+        if self.config.reminder_show_tasks:
             t_status = due_status["tasks"]
-            if t_status == "Overdue" and "Overdue" in self.reminder_due_filters:
+            if t_status == "Overdue" and "Overdue" in self.config.reminder_due_filters:
                 active_colors.append("#28C745")
-            elif t_status == "Today" and "Today" in self.reminder_due_filters:
+            elif t_status == "Today" and "Today" in self.config.reminder_due_filters:
                 active_colors.append("#28C745")
             
         # Trigger Pulse if needed
-        if active_colors and not self.is_pinned and not self.is_expanded:
-            print("DEBUG: Active Pulse Colors: {}".format(active_colors))
+        if active_colors and not self.config.pinned and not self.is_expanded:
+            # print("DEBUG: Active Pulse Colors: {}".format(active_colors))
             self.start_pulse(active_colors)
         elif not active_colors:
             self.stop_pulse()
 
     def start_pulse(self, colors):
         """Starts the hot strip pulsing animation with a list of colors."""
-        if self.is_pinned or self.is_expanded: return 
+        if self.config.pinned or self.is_expanded: return 
         
-        print("DEBUG: start_pulse triggered. Colors={}".format(colors)) 
+        # print("DEBUG: start_pulse triggered. Colors={}".format(colors)) 
         
         # Ensure colors is a list
         if isinstance(colors, str): colors = [colors]
@@ -2816,7 +2520,7 @@ class SidebarWindow(tk.Tk):
             self.after_cancel(self._collapse_timer)
             self._collapse_timer = None
         
-        if not self.is_pinned and not self.is_expanded:
+        if not self.config.pinned and not self.is_expanded:
             # Start hover timer (0.75s delay)
             if not self._hover_timer:
                 self._hover_timer = self.after(750, self.do_expand)
@@ -2824,7 +2528,7 @@ class SidebarWindow(tk.Tk):
     def do_expand(self):
         """Actually expands the sidebar after delay."""
         self._hover_timer = None
-        if not self.is_pinned and not self.is_expanded:
+        if not self.config.pinned and not self.is_expanded:
             self.stop_pulse() # Stop pulse only when genuinely opening
             self.is_expanded = True
             self.apply_state() # Expand and reserve space
@@ -2836,7 +2540,7 @@ class SidebarWindow(tk.Tk):
         widget_under_mouse = self.winfo_containing(x, y)
         
         # If we are really outside the window
-        if not self.is_pinned:
+        if not self.config.pinned:
             # Cancel potential expand timer if we left quickly (mouse-over between screens)
             if self._hover_timer:
                 self.after_cancel(self._hover_timer)
@@ -2846,7 +2550,7 @@ class SidebarWindow(tk.Tk):
                  # Delay collapse
                  if self._collapse_timer:
                      self.after_cancel(self._collapse_timer)
-                 self._collapse_timer = self.after(self.hover_delay, self.do_collapse)
+                 self._collapse_timer = self.after(self.config.hover_delay, self.do_collapse)
 
     def on_motion(self, event):
         # Reset collapse timer if moving inside
@@ -2855,7 +2559,7 @@ class SidebarWindow(tk.Tk):
              self._collapse_timer = None
 
     def do_collapse(self):
-        if not self.is_pinned:
+        if not self.config.pinned:
             self.is_expanded = False
             self.apply_state() # Collapse and release space
 
@@ -2874,168 +2578,22 @@ class SidebarWindow(tk.Tk):
         return app_dir
 
     def load_config(self):
-        try:
-            app_dir = self.get_app_data_dir()
-            config_path = os.path.join(app_dir, "config.json")
-            
-            # If user config doesn't exist, check for bundled default in current dir (read-only)
-            if not os.path.exists(config_path):
-                bundled_config = "config.json"
-                if os.path.exists(bundled_config):
-                    try:
-                        # Copy bundled default to AppData so user can edit it later
-                        shutil.copy2(bundled_config, config_path)
-                    except Exception as e:
-                        print("Failed to copy default config: {}".format(e))
-            
-            if os.path.exists(config_path):
-                with open(config_path, "r") as f:
-                    config = json.load(f)
-                    
-                self.window_mode = config.get("window_mode", "dual")
-                self.split_sash_pos = config.get("split_sash_pos", 0)
-                self.enabled_accounts = config.get("enabled_accounts", {})
-
-                self.dock_side = config.get("dock_side", "Right")
-                self.current_theme = config.get("theme", "Dark")
-                if self.current_theme in self.palettes:
-                    self.colors = self.palettes[self.current_theme]
-                else:
-                    self.colors = self.palettes["Dark"]
-                    
-                self.font_family = config.get("font_family", "Segoe UI")
-                self.font_size = config.get("font_size", 9)
-                self.poll_interval = config.get("poll_interval", 15)
-                
-                # Email List Filters
-                self.show_read = config.get("show_read", False)
-                self.show_has_attachment = config.get("show_has_attachment", True)
-
-                if "buttons" in config:
-                     self.btn_config = config["buttons"]
-                     self.btn_count = len(self.btn_config)
-                
-                self.buttons_on_hover = config.get("buttons_on_hover", True)
-                self.email_double_click = config.get("email_double_click", True)
-                self.show_hover_content = config.get("show_hover_content", False) # New setting
-                
-                # Quick Create
-                self.quick_create_actions = config.get("quick_create_actions", ["New Email"])
-                     
-                # Reminder Settings
-                self.reminder_show_flagged = config.get("reminder_show_flagged", True)
-                self.reminder_due_filters = config.get("reminder_due_filters", ["No Date"])
-                
-                self.reminder_show_categorized = config.get("reminder_show_categorized", True)
-                # self.reminder_categories = config.get("reminder_categories", [])
-                
-                self.reminder_show_importance = config.get("reminder_show_importance", True)
-                self.reminder_high_importance = config.get("reminder_high_importance", False)
-                self.reminder_normal_importance = config.get("reminder_normal_importance", False)
-                self.reminder_low_importance = config.get("reminder_low_importance", False)
-                
-                self.reminder_show_meetings = config.get("reminder_show_meetings", True)
-                self.reminder_pending_meetings = config.get("reminder_pending_meetings", True)
-                self.reminder_accepted_meetings = config.get("reminder_accepted_meetings", True)
-                self.reminder_declined_meetings = config.get("reminder_declined_meetings", True)
-                self.reminder_meeting_dates = config.get("reminder_meeting_dates", ["Today", "Tomorrow"])
-                self.reminder_custom_days = config.get("reminder_custom_days", 30)
-                
-                self.reminder_show_tasks = config.get("reminder_show_tasks", True)
-                self.reminder_tasks = config.get("reminder_tasks", True)
-                self.reminder_todo = config.get("reminder_todo", True)
-                self.reminder_has_reminder = config.get("reminder_has_reminder", True)
-                self.reminder_task_dates = config.get("reminder_task_dates", ["Overdue", "Today", "Tomorrow"])
-                
-                # Email Content Settings
-                self.email_show_sender = config.get("email_show_sender", True)
-                self.email_show_subject = config.get("email_show_subject", True)
-                self.email_show_body = config.get("email_show_body", False)
-                self.email_body_lines = config.get("email_body_lines", 2)
-        except Exception as e:
-            print("Error loading config: {}".format(e))
-        
-        # Auto-enable all accounts on fresh install (no config file yet)
-        if not self.enabled_accounts:
-            try:
-                available = self.outlook_client.get_accounts()
-                if available:
-                    for acc in available:
-                        self.enabled_accounts[acc] = {"email": True, "calendar": True, "tasks": True}
-                    self.save_config()
-            except:
-                pass
+        """Legacy wrapper: now defers to self.config.load()"""
+        self.config.load()
 
     def save_config(self):
-        app_dir = self.get_app_data_dir()
-        config_path = os.path.join(app_dir, "config.json")
-        
-        config = {
-            "dock_side": self.dock_side,
-            "theme": self.current_theme,
-            "window_mode": self.window_mode,
-            "enabled_accounts": self.enabled_accounts,
-            "split_sash_pos": self.split_sash_pos,
-            "font_family": self.font_family,
-            "font_size": self.font_size,
-            "poll_interval": self.poll_interval,
-            "buttons": self.btn_config,
-            "buttons_on_hover": self.buttons_on_hover,
-            "email_double_click": self.email_double_click,
-            
-            # Reminder Settings
-            "reminder_show_flagged": self.reminder_show_flagged,
-            "reminder_due_filters": self.reminder_due_filters,
-            
-            "reminder_show_categorized": self.reminder_show_categorized,
-            # "reminder_categories": self.reminder_categories,
-            
-            "reminder_show_importance": self.reminder_show_importance,
-            "reminder_high_importance": self.reminder_high_importance,
-            "reminder_normal_importance": self.reminder_normal_importance,
-            "reminder_low_importance": self.reminder_low_importance,
-            
-            "reminder_show_meetings": self.reminder_show_meetings,
-            "reminder_pending_meetings": self.reminder_pending_meetings,
-            "reminder_accepted_meetings": self.reminder_accepted_meetings,
-            "reminder_declined_meetings": self.reminder_declined_meetings,
-            "reminder_meeting_dates": self.reminder_meeting_dates,
-            "reminder_custom_days": self.reminder_custom_days,
-            
-            "reminder_show_tasks": self.reminder_show_tasks,
-            "reminder_tasks": self.reminder_tasks,
-            "reminder_todo": self.reminder_todo,
-            "reminder_has_reminder": self.reminder_has_reminder,
-            "reminder_task_dates": self.reminder_task_dates,
-            
-            # Email Content Settings
-            "email_show_sender": self.email_show_sender,
-            "email_show_subject": self.email_show_subject,
-            "email_show_body": self.email_show_body,
-            "email_body_lines": self.email_body_lines,
-            
-            # Quick Create
-            "quick_create_actions": self.quick_create_actions,
-            
-            # Email interaction settings
-            "show_hover_content": self.show_hover_content,
-            "show_read": self.show_read,
-            "show_has_attachment": self.show_has_attachment
-        }
-        try:
-            with open(config_path, "w") as f:
-                json.dump(config, f, indent=4)
-        except Exception as e:
-            print("Error saving config: {}".format(e))
+        """Legacy wrapper: now defers to self.config.save()"""
+        self.config.save()
+
 
     def handle_quick_create(self):
         """Handles the quick create button click."""
-        actions = getattr(self, "quick_create_actions", ["New Email"])
+        actions = self.config.quick_create_actions
         
         # If disabled/empty, do nothing
         if not actions:
              return
-
+ 
         if len(actions) == 1:
             self._execute_quick_action(actions[0])
         else:
@@ -3044,7 +2602,7 @@ class SidebarWindow(tk.Tk):
             
             def make_cmd(act):
                 return lambda: self._execute_quick_action(act)
-
+ 
             for act in actions:
                 menu.add_command(label=act, command=make_cmd(act))
             
@@ -3053,52 +2611,20 @@ class SidebarWindow(tk.Tk):
                 y = self.btn_quick_create.winfo_rooty()
                 menu.tk_popup(x, y)
             except: pass
-
+ 
     def update_quick_create_icon(self):
         """Updates the Quick Create button icon/color based on selection."""
-        if not hasattr(self, "btn_quick_create"): return
-
-        actions = getattr(self, "quick_create_actions", [])
-        
-        # Determine Color
-        color = "#555555" # Grey (Disabled)
-        if not actions:
-            color = "#555555"
-        elif len(actions) > 1:
-            color = self.colors["fg_primary"] # Dynamic for Theme
-        else:
-            # Single Action Colors
-            act = actions[0]
-            if act == "New Email": color = "#6fb7ff"      # Light Blue
-            elif act == "New Meeting": color = "#ffb366"  # Light Orange
-            elif act == "New Appointment": color = "#ffcc80" # Lighter Orange
-            elif act == "New Task": color = "#80e0a0"     # Light Green
-            
-        # Update Icon
-        try:
-            # 26x26 Size
-            if os.path.exists(resource_path("icon2/plus.png")):
-                img = self.load_icon_colored(resource_path("icon2/plus.png"), size=(26, 26), color=color)
-                self.image_cache["quick_create"] = img
-                self.btn_quick_create.configure(image=img)
-        except: pass
-
+        # Delegated to Toolbar
+        if self.toolbar:
+            self.toolbar.update_quick_create_icon(self.colors)
+ 
     def _execute_quick_action(self, action):
         if action == "New Email": self.outlook_client.create_email()
         elif action == "New Meeting": self.outlook_client.create_meeting()
         elif action == "New Appointment": self.outlook_client.create_appointment()
         elif action == "New Task": self.outlook_client.create_task()
+ 
 
-    def toggle_theme(self):
-        """Switches between Light and Dark themes."""
-        if self.current_theme == "Dark":
-            self.current_theme = "Light"
-        else:
-            self.current_theme = "Dark"
-            
-        self.colors = self.palettes[self.current_theme]
-        self.save_config()
-        
     def apply_theme(self):
         """Applies the current theme colors to all UI components."""
         # Clear image cache to force reload with new colors/context
@@ -3107,7 +2633,7 @@ class SidebarWindow(tk.Tk):
         c = self.colors
         
         # 1. Main Window & Frames
-        self.config(bg=c["bg_root"])
+        self.configure(bg=c["bg_root"])
         self.content_wrapper.config(bg=c["bg_root"])
         self.main_frame.config(bg=c["bg_root"])
         self.footer.config(bg=c["bg_header"])
@@ -3115,101 +2641,98 @@ class SidebarWindow(tk.Tk):
         try: self.resize_grip.config(bg=c["fg_dim"])
         except: pass
         
+        # 2. Panes & Scroll Frames
         try:
              self.paned_window.config(bg=c["bg_root"])
              self.pane_emails.config(bg=c["bg_root"])
              self.pane_reminders.config(bg=c["bg_root"])
              self.email_list_frame.config(bg=c["bg_root"])
+             self.scroll_frame.config(bg=c["bg_root"])
+             self.reminder_list.config(bg=c["bg_root"])
         except: pass
-
-        # 2. Header Elements
+ 
+        # 3. Section Headers
+        try:
+            self.email_header.config(bg=c["bg_card"])
+            self.lbl_email_header.config(bg=c["bg_card"], fg=c["fg_text"])
+            self.r_header.config(bg=c["bg_card"])
+            for child in self.r_header.winfo_children():
+                try: child.config(bg=c["bg_card"], fg=c["fg_dim"])
+                except: pass
+        except: pass
+        
+        # 4. Header Elements
         try:
             self.lbl_title.config(bg=c["bg_header"], fg=c["fg_primary"])
-            self.btn_account_toggle.config(bg=c["bg_card"], fg=c["fg_text"])
+            self.btn_account_toggle.config(bg=c["bg_card"])
             
-            # Settings
-            self.btn_settings.config(bg=c["bg_header"], fg=c["fg_dim"])
-            if os.path.exists(resource_path("icon2/spanner.png")):
-                 img = self.load_icon_colored(resource_path("icon2/spanner.png"), size=(22, 22), color=c["fg_primary"])
-                 if img:
-                     self.image_cache["settings_header"] = img
-                     self.btn_settings.config(image=img)
-                 else:
-                     self.btn_settings.config(image='', text="âš™")
+            if self.toolbar:
+                self.toolbar.apply_theme(c)
 
-            # Help
-            self.btn_help.config(bg=c["bg_header"], fg=c["fg_dim"])
-            
-            # Refresh
-            self.btn_refresh.config(bg=c["bg_header"], fg=c["fg_dim"])
-            if os.path.exists(resource_path("icon2/refresh.png")):
-                 img = self.load_icon_colored(resource_path("icon2/refresh.png"), size=(22, 22), color=c["fg_primary"])
-                 if img:
-                     self.image_cache["sync_header"] = img
-                     self.btn_refresh.config(image=img)
-                 else:
-                     self.btn_refresh.config(image='', text="â†»")
-
-            # Share
-            self.btn_share.config(bg=c["bg_header"], fg=c["fg_dim"])
-            if os.path.exists(resource_path("icon2/share.png")):
-                 img = self.load_icon_colored(resource_path("icon2/share.png"), size=(20, 20), color=c["fg_primary"])
-                 if img:
-                     self.image_cache["share_header"] = img
-                     self.btn_share.config(image=img)
-                 else:
-                     self.btn_share.config(image='', text="ðŸ”—")
-            
-            # Pin
-            if os.path.exists(resource_path("icon2/pin1.png")):
-                 self.icon_pin_active = self.load_icon_colored(resource_path("icon2/pin1.png"), size=(24, 24), color=c["fg_primary"])
-                 self.icon_pin_inactive = self.load_icon_colored(resource_path("icon2/pin1.png"), size=(24, 24), color=c["fg_dim"])
-            self.draw_pin_icon()
-                 
         except Exception as e:
-            print("Error updating header: {}".format(e))
-
-        # 3. Footer Elements
-        try:
-            self.lbl_version.config(bg=c["bg_header"], fg=c["fg_dim"])
-            self.btn_close.config(bg=c["bg_header"], fg=c["fg_dim"])
-            
-            # Outlook
-            self.btn_outlook.config(bg=c["bg_header"])
-            if os.path.exists(resource_path("icon2/email.png")):
-                 img = self.load_icon_colored(resource_path("icon2/email.png"), size=(32, 32), color=c["fg_primary"])
-                 if img:
-                     self.image_cache["outlook_footer"] = img
-                     self.btn_outlook.config(image=img)
-                 
-            # Calendar
-            self.btn_calendar.config(bg=c["bg_header"])
-            if os.path.exists(resource_path("icon2/calendar.png")):
-                 img = self.load_icon_colored(resource_path("icon2/calendar.png"), size=(28, 28), color=c["fg_primary"])
-                 if img:
-                     self.image_cache["calendar_footer"] = img
-                     self.btn_calendar.config(image=img)
-                 
-            # Quick Create
-            self.btn_quick_create.config(bg=c["bg_header"])
-            self.update_quick_create_icon()
-            
-        except Exception as e:
-            print("Error updating footer: {}".format(e))
-
-        # 4. Settings Panel (if open calls its own update or we assume it closes/reopens?)
-        # Better to update if open.
+            print("Error updating header/toolbar: {}".format(e))
+        
+        # 5. Hot strip & canvas
+        try: self.hot_strip.config(bg=c["accent"])
+        except: pass
+        try: self.hot_strip_canvas.config(bg=c["bg_root"])
+        except: pass
+ 
+        # 6. Settings Panel (if open, close and re-open with new colors)
         if hasattr(self, "settings_panel") and self.settings_panel and self.settings_panel.winfo_exists():
-             # Re-open to refresh styles
              try:
                  self.settings_panel.destroy()
-                 self.open_settings()
+                 self.settings_panel = None
+                 self.settings_panel_open = False
+                 self.toggle_settings_panel()
              except: pass
              
-        # 5. Content
-        self.refresh_emails()
-        self.refresh_reminders()
-
+        # 7. Recolor existing email cards in-place (no COM re-fetch)
+        try:
+            for card in self.scroll_frame.scrollable_frame.winfo_children():
+                self._recolor_widget_tree(card, c)
+        except: pass
+        
+        # 8. Recolor existing reminder items in-place
+        try:
+            for item in self.reminder_list.scrollable_frame.winfo_children():
+                self._recolor_widget_tree(item, c)
+        except: pass
+        
+        self.update_idletasks()
+    
+    def _recolor_widget_tree(self, widget, c):
+        """Recursively recolor a widget and all its children for theme change."""
+        try:
+            wtype = widget.winfo_class()
+            if wtype == "Frame":
+                try:
+                    hb = widget.cget("highlightbackground")
+                    # Card with border - update bg and keep accent border for unread
+                    widget.config(bg=c["bg_card"])
+                    if hb not in (c["accent"], c["card_border"]):
+                        widget.config(highlightbackground=c["card_border"])
+                except:
+                    widget.config(bg=c["bg_root"])
+            elif wtype == "Label":
+                parent_bg = c["bg_card"]
+                try: parent_bg = widget.master.cget("bg")
+                except: pass
+                widget.config(bg=parent_bg)
+                fg = widget.cget("fg")
+                if fg in ("#FFFFFF", "#ffffff", "white", "#000000", "#000", "black"):
+                    widget.config(fg=c["fg_text"])
+                elif fg in ("#CCCCCC", "#cccccc", "#333333"):
+                    widget.config(fg=c["fg_secondary"])
+                elif fg in ("#999999", "#666666"):
+                    widget.config(fg=c["fg_dim"])
+            elif wtype == "Canvas":
+                widget.config(bg=c["bg_card"])
+        except: pass
+        
+        for child in widget.winfo_children():
+            self._recolor_widget_tree(child, c)
+ 
     def toggle_theme(self):
         """Switches between Light and Dark themes."""
         if self.current_theme == "Dark":
@@ -3218,13 +2741,14 @@ class SidebarWindow(tk.Tk):
             self.current_theme = "Dark"
             
         self.colors = self.palettes[self.current_theme]
+        self.config.theme = self.current_theme
         self.save_config()
         
         # Apply changes immediately
         self.apply_theme()
-
-# --- Single Instance Logic (Mutex) ---
-
+ 
+ # --- Single Instance Logic (Mutex) ---
+ 
 class SingleInstance:
     """
     Limits application to a single instance using a Named Mutex.

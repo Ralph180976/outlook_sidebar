@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.13" # Robust fetch: DASL filters + AppData logging
+VERSION = "v1.3.14" # Theme toggle fixes, exit icon, account selection fix
 
 # --- Image Resampling Mode ---
 try:

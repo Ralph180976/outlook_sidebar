@@ -58,7 +58,7 @@ COLOR_PALETTES = {
         "fg_text": "#000000", # Alias
         "fg_secondary": "#333333",
         "fg_dim": "#666666",
-        "accent": "#007ACC",
+        "accent": "#3AADE5",
         "divider": "#D0D0D0",
         "scroll_bg": "#E8E8E8",
         "input_bg": "#FFFFFF",

@@ -174,25 +174,29 @@ class AppBarManager:
 
         # Define the hook implementation
         def wnd_proc(hWnd, msg, wParam, lParam):
-            if msg == WM_ACTIVATE:
-                shell32.SHAppBarMessage(ABM_ACTIVATE, ctypes.byref(self.abd))
+            try:
+                if msg == WM_ACTIVATE:
+                    shell32.SHAppBarMessage(ABM_ACTIVATE, ctypes.byref(self.abd))
 
-            elif msg == WM_WINDOWPOSCHANGED:
-                shell32.SHAppBarMessage(ABM_WINDOWPOSCHANGED, ctypes.byref(self.abd))
+                elif msg == WM_WINDOWPOSCHANGED:
+                    shell32.SHAppBarMessage(ABM_WINDOWPOSCHANGED, ctypes.byref(self.abd))
 
-            elif msg == self.uCallbackMessage:
-                # Explorer notifies us that something changed (taskbar/appbar/monitor/etc.)
-                if wParam == ABN_POSCHANGED:
-                    # Re-apply position
-                    if self._last_width > 0:
-                        self.set_pos(
-                            self._last_width,
-                            self._mon_left, self._mon_top,
-                            self._mon_w, self._mon_h
-                        )
+                elif msg == self.uCallbackMessage:
+                    # Explorer notifies us that something changed (taskbar/appbar/monitor/etc.)
+                    if wParam == ABN_POSCHANGED:
+                        # Re-apply position
+                        if self._last_width > 0:
+                            self.set_pos(
+                                self._last_width,
+                                self._mon_left, self._mon_top,
+                                self._mon_w, self._mon_h
+                            )
+                    return 0
+
+                return self._call_old(hWnd, msg, wParam, lParam)
+            except Exception as e:
+                print("ERROR in WndProc: {}".format(e))
                 return 0
-
-            return self._call_old(hWnd, msg, wParam, lParam)
 
         # Create C-callable function pointer
         # casting logic is handled by decorated function in standard python ctypes if done right, 
