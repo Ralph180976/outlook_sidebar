@@ -282,9 +282,10 @@ class ShareDialog(tk.Toplevel):
             "Download the installer here:\n"
             "{}\n\n"
             "To install:\n"
-            "1. Download and extract the zip file to a folder\n"
-            "2. Double-click Setup.bat\n"
-            "3. Launch InboxBar from your desktop\n\n"
+            "1. Download the zip file and extract it\n"
+            "2. Run the InboxBar Setup installer\n"
+            "3. InboxBar will appear in your Start Menu and optionally on your Desktop\n\n"
+            "To uninstall, use Add/Remove Programs in Windows Settings.\n\n"
             "Requirements: Windows 10/11 + Microsoft Outlook (Classic)\n\n"
             "Enjoy!"
         ).format(DOWNLOAD_URL)

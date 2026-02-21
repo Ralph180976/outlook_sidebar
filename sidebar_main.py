@@ -2019,6 +2019,23 @@ class SidebarWindow(tk.Tk):
                      bind_click(cf, email['entry_id'])
                      bind_click(subj, email['entry_id'])
 
+                     # Tooltip showing flag request and due date
+                     tip_parts = []
+                     if email.get('flag_request'):
+                         tip_parts.append(email['flag_request'])
+                     due = email.get('due_date')
+                     if due:
+                         try:
+                             if due.year < 3000:
+                                 tip_parts.append("Due: {}".format(due.strftime('%a %d %b %Y')))
+                             else:
+                                 tip_parts.append("No due date")
+                         except:
+                             pass
+                     if tip_parts:
+                         ToolTip(cf, "\n".join(tip_parts))
+                         ToolTip(subj, "\n".join(tip_parts))
+
                      # Flag Actions Frame (Hidden initially)
                      # Packed below subject
                      f_actions = tk.Frame(cf, bg=self.colors["bg_card"])
@@ -2073,6 +2090,59 @@ class SidebarWindow(tk.Tk):
                           btn_open.pack(side="right", padx=5)
                           btn_open.bind("<Button-1>", lambda e, eid=email['entry_id']: self.open_email(eid))
                           ToolTip(btn_open, "Open Email")
+
+                     # Flag info labels (packed LEFT, so they appear to the left of buttons)
+                     flag_req = email.get('flag_request', '')
+                     # Abbreviate common flag requests
+                     abbrev = {
+                         'For Your Information': 'FYI',
+                         'Follow up': 'Follow up',
+                         'Forward': 'Forward',
+                         'Review': 'Review',
+                         'Reply': 'Reply',
+                         'Reply to All': 'Reply All',
+                         'Call': 'Call',
+                         'Do not Forward': 'No Forward',
+                         'Read': 'Read',
+                     }
+                     short_req = abbrev.get(flag_req, flag_req) if flag_req else ''
+
+                     # Build due date text
+                     due_text = ''
+                     due = email.get('due_date')
+                     if due:
+                         try:
+                             # Strip timezone info if present (COM returns tz-aware datetimes)
+                             if hasattr(due, 'tzinfo') and due.tzinfo:
+                                 due = due.replace(tzinfo=None)
+                             if due.year < 3000:
+                                 now_dt = datetime.now()
+                                 today_d = now_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+                                 due_d = due.replace(hour=0, minute=0, second=0, microsecond=0)
+                                 diff = (due_d - today_d).days
+                                 if diff < 0:
+                                     due_text = "Overdue {}d".format(abs(diff))
+                                 elif diff == 0:
+                                     due_text = "Today"
+                                 elif diff == 1:
+                                     due_text = "Tomorrow"
+                                 else:
+                                     due_text = due.strftime('%a %d %b')
+                         except:
+                             pass
+
+                     info_text = ''
+                     if short_req and due_text:
+                         info_text = "{} · {}".format(short_req, due_text)
+                     elif short_req:
+                         info_text = short_req
+                     elif due_text:
+                         info_text = due_text
+
+                     if info_text:
+                         due_color = "#FF6B6B" if due_text.startswith("Overdue") else self.colors["fg_dim"]
+                         lbl_info = tk.Label(f_actions, text=info_text, fg=due_color, bg=self.colors["bg_card"], font=("Segoe UI", 8), anchor="w")
+                         lbl_info.pack(side="left", padx=(5, 0))
 
                      # --- HOVER LOGIC ---
                      def show_f_actions(e, fa=f_actions):

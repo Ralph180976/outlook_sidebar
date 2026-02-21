@@ -432,6 +432,8 @@ class OutlookClient:
         restricts = []
         
         if only_flagged:
+            # Use FlagIcon instead of FlagStatus — FlagStatus values don't reliably
+            # match visual icons. FlagIcon=6 means red flag, FlagIcon=0 means no flag.
             restricts.append("[FlagStatus] <> 0")
             
             if due_filters and len(due_filters) > 0:
@@ -454,11 +456,12 @@ class OutlookClient:
                     restricts.append("({})".format(combined_date_query))
 
         if unread_only:
-            # Use DASL for safer unread filtering (avoids some Table API bugs with [UnRead])
+            # Show only unread emails in the main email list
+            # Flagged emails (even if read) are shown separately in the Flagged/Reminders section
             restricts.append("@SQL=\"urn:schemas:httpmail:read\" = 0")
-        else:
-            # Use DASL for safer date format (US format MM/DD/YYYY) to avoid locale issues
-            # Limit scan to recent 7 days
+        elif not only_flagged:
+            # Limit scan to recent 7 days (skip when fetching flagged items,
+            # since those use Jet-style filters which can't mix with DASL)
             cutoff = (datetime.now() - timedelta(days=7)).strftime('%m/%d/%Y %H:%M')
             restricts.append("@SQL=\"urn:schemas:httpmail:datereceived\" >= '{}'".format(cutoff))
         
@@ -488,6 +491,10 @@ class OutlookClient:
             except: pass
             try: table.Columns.Add("Importance")
             except: pass
+            try: table.Columns.Add("FlagRequest")
+            except: pass
+            try: table.Columns.Add("TaskDueDate")
+            except: pass
             
             items = []
             c = 0
@@ -497,12 +504,14 @@ class OutlookClient:
                     if not row: break
                     
                     vals = row.GetValues()
-                    # EntryID=0, Subject=1, Sender=2, Recv=3, UnRead=4, Flag=5, Class=6, HasAttach=7, Importance=8
+                    # EntryID=0, Subject=1, Sender=2, Recv=3, UnRead=4, Flag=5, Class=6, HasAttach=7, Importance=8, FlagReq=9, TaskDue=10
                     
                     # Filter out Non-Mail items if possible (e.g. Meeting Requests/Responses often clog inbox)
                     msg_class = vals[6] if len(vals) > 6 else "IPM.Note"
                     has_attach = vals[7] if len(vals) > 7 else False
                     importance = vals[8] if len(vals) > 8 else 1
+                    flag_request = vals[9] if len(vals) > 9 else ""
+                    task_due = vals[10] if len(vals) > 10 else None
                     
                     items.append({
                         "entry_id": vals[0],
@@ -513,6 +522,8 @@ class OutlookClient:
                         "flag_status": vals[5],
                         "has_attachments": bool(has_attach),
                         "importance": importance,
+                        "flag_request": flag_request or "",
+                        "due_date": task_due,
                         "preview": "",
                         "is_meeting_request": "IPM.Schedule" in str(msg_class),
                         "store_id": store.StoreID, # Needed for actions
