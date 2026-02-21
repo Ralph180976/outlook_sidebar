@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.14" # Theme toggle fixes, exit icon, account selection fix
+VERSION = "v1.3.15" # Fix Outlook button, Quick Create Meeting, is_expanded init
 
 # --- Image Resampling Mode ---
 try:
