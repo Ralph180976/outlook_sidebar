@@ -704,6 +704,13 @@ class OutlookClient:
             appt = self.outlook.CreateItem(1) # olAppointmentItem
             appt.Display()
         except: pass
+
+    def create_meeting(self):
+        try:
+            meeting = self.outlook.CreateItem(1)  # olAppointmentItem
+            meeting.MeetingStatus = 1  # olMeeting - enables attendee picker
+            meeting.Display()
+        except: pass
         
     def create_task(self):
         try:

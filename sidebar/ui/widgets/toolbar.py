@@ -4,7 +4,7 @@ import sys
 
 # Try to import ToolTip from existing project structure
 try:
-    from sidebar.ui.tooltip import ToolTip
+    from sidebar.ui.widgets.base import ToolTip
 except ImportError:
     # Fallback if structure is different
     class ToolTip:
@@ -107,6 +107,7 @@ class SidebarToolbar:
             self.btn_close = tk.Label(self.footer, text="\u2715", bg=colors["bg_header"], fg="#FF4444", cursor="hand2", font=("Segoe UI", 12))
         self.btn_close.pack(side="right", padx=10)
         self.btn_close.bind("<Button-1>", lambda e: self.callbacks.get("close")())
+        ToolTip(self.btn_close, "Exit InboxBar")
         
         # Quick Create
         self.btn_quick_create = tk.Label(self.footer, bg=colors["bg_header"], cursor="hand2")
@@ -127,6 +128,15 @@ class SidebarToolbar:
             self.callbacks.get("outlook"), "Open Outlook", size=(32, 32)
         )
 
+    def _flash_button(self, btn, flash_color="#555555", duration=150):
+        """Briefly flash a button's background to indicate it was clicked."""
+        try:
+            orig_bg = btn.cget("bg")
+            btn.config(bg=flash_color)
+            btn.after(duration, lambda: btn.config(bg=orig_bg))
+        except Exception:
+            pass
+
     def _create_icon_button(self, parent, icon_path, cache_key, colors, command, current_tooltip, size=(24,24), fallback_text="?"):
         """Helper to create a standard icon button."""
         btn = None
@@ -146,7 +156,10 @@ class SidebarToolbar:
         
         btn.pack(side="right", padx=5)
         if command:
-            btn.bind("<Button-1>", lambda e: command())
+            def on_click(e, b=btn, cmd=command):
+                self._flash_button(b)
+                cmd()
+            btn.bind("<Button-1>", on_click)
         if current_tooltip:
             ToolTip(btn, current_tooltip)
             

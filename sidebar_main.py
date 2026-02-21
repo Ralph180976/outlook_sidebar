@@ -145,6 +145,7 @@ class SidebarWindow(tk.Tk):
 
         self._hover_timer = None
         self._collapse_timer = None
+        self.is_expanded = False
         
         # Settings Panel State
         self.settings_panel_open = False
@@ -654,17 +655,26 @@ class SidebarWindow(tk.Tk):
     def _get_outlook_app(self):
         """
         Gets the Outlook Application COM object.
-        Tries GetActiveObject first (reuses existing instance), falls back to Dispatch.
+        Reuses the existing OutlookClient's connection.
         """
+        # First, try to reuse the already-connected OutlookClient
+        if hasattr(self, 'outlook_client') and self.outlook_client:
+            if self.outlook_client.outlook:
+                return self.outlook_client.outlook
+            # Try reconnecting
+            if self.outlook_client.connect():
+                return self.outlook_client.outlook
+        
+        # Fallback: try direct COM (requires win32com import)
         try:
-            # Try to connect to already-running Outlook
+            import win32com.client
             app = win32com.client.GetActiveObject("Outlook.Application")
             return app
         except:
             pass
         
-        # Fall back to Dispatch (may start Outlook if not running)
         try:
+            import win32com.client
             app = win32com.client.Dispatch("Outlook.Application")
             return app
         except Exception:
@@ -750,62 +760,151 @@ class SidebarWindow(tk.Tk):
         except Exception:
             return False
 
+    def _allow_foreground_for_outlook(self):
+        """Grant our process permission to set the Outlook window as foreground."""
+        try:
+            import subprocess
+            # Find Outlook's PID
+            result = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq OUTLOOK.EXE", "/FO", "CSV", "/NH"],
+                capture_output=True, text=True, timeout=3
+            )
+            for line in result.stdout.strip().split("\n"):
+                parts = line.strip().strip('"').split('","')
+                if len(parts) >= 2:
+                    try:
+                        pid = int(parts[1])
+                        ctypes.windll.user32.AllowSetForegroundWindow(pid)
+                        return
+                    except (ValueError, Exception):
+                        pass
+            # Fallback: allow any process
+            ctypes.windll.user32.AllowSetForegroundWindow(-1)  # ASFW_ANY
+        except Exception:
+            try:
+                ctypes.windll.user32.AllowSetForegroundWindow(-1)
+            except Exception:
+                pass
+
     def _show_outlook_folder(self, folder_id):
         """
         Shows the specified Outlook folder (6=Inbox, 9=Calendar).
         Reuses existing Explorer if available, otherwise creates one.
+        Forces the window to the foreground.
+        Returns True if it succeeded, False otherwise.
         """
+        import traceback
+        succeeded = False
         try:
+            # Grant foreground permission before doing anything
+            self._allow_foreground_for_outlook()
+            
             app = self._get_outlook_app()
             if not app:
-                return
+                print("[Outlook] Could not get Outlook Application object")
+                return False
             
             ns = app.GetNamespace("MAPI")
             folder = ns.GetDefaultFolder(folder_id)
+            print("[Outlook] Got folder for id={}".format(folder_id))
             
             # Try to get existing explorer
             explorer = self._get_any_explorer(app)
             
             if explorer:
+                print("[Outlook] Found existing explorer")
                 # Reuse existing explorer - switch folder
                 try:
                     explorer.CurrentFolder = folder
-                except Exception:
-                    pass
+                    print("[Outlook] Switched to folder")
+                except Exception as e:
+                    print("[Outlook] Failed to switch folder: {}".format(e))
                 
-                # Get hwnd and focus
+                # Activate via COM first
+                try:
+                    explorer.Activate()
+                    print("[Outlook] Activated explorer")
+                    succeeded = True
+                except Exception as e:
+                    print("[Outlook] Activate failed: {}".format(e))
+                
+                # Then force focus via hwnd
+                hwnd = None
                 try:
                     hwnd = explorer.Hwnd if hasattr(explorer, 'Hwnd') else None
-                    if hwnd:
-                        self._focus_window_by_hwnd(hwnd)
-                    else:
-                        explorer.Activate()
-                except Exception:
-                    pass
+                    print("[Outlook] Explorer hwnd={}".format(hwnd))
+                except Exception as e:
+                    print("[Outlook] Failed to get hwnd: {}".format(e))
+                    
+                if hwnd:
+                    self._focus_window_by_hwnd(hwnd)
+                    succeeded = True
+                    # Delayed re-focus as safety net
+                    self.after(150, lambda h=hwnd: self._focus_window_by_hwnd(h))
             else:
+                print("[Outlook] No existing explorer found, creating new one")
                 # No explorer exists - create one via GetExplorer
                 try:
                     new_explorer = folder.GetExplorer()
                     new_explorer.Display()
+                    succeeded = True
+                    print("[Outlook] Created and displayed new explorer")
                     
-                    # Focus the new window
-                    self.after(100, lambda: self._focus_window_by_hwnd(
-                        new_explorer.Hwnd if hasattr(new_explorer, 'Hwnd') else None
-                    ))
-                except Exception:
+                    # Focus the new window with retries
+                    def _delayed_focus(attempt=1):
+                        if attempt > 5:
+                            return
+                        try:
+                            h = new_explorer.Hwnd if hasattr(new_explorer, 'Hwnd') else None
+                            if h:
+                                self._focus_window_by_hwnd(h)
+                            else:
+                                self.after(100, lambda: _delayed_focus(attempt + 1))
+                        except Exception:
+                            self.after(100, lambda: _delayed_focus(attempt + 1))
+                    
+                    self.after(100, _delayed_focus)
+                except Exception as e:
+                    print("[Outlook] GetExplorer failed: {}".format(e))
                     # Ultimate fallback
-                    folder.Display()
+                    try:
+                        folder.Display()
+                        succeeded = True
+                    except Exception as e2:
+                        print("[Outlook] folder.Display() also failed: {}".format(e2))
                     
-        except Exception:
-            pass
+        except Exception as e:
+            print("[Outlook] _show_outlook_folder error: {}".format(e))
+            traceback.print_exc()
+        
+        return succeeded
 
     def open_outlook_app(self):
         """Opens/Focuses the main Outlook window (Inbox)."""
-        self._show_outlook_folder(6)  # 6 = olFolderInbox
+        success = self._show_outlook_folder(6)  # 6 = olFolderInbox
+        if not success:
+            # Fallback: launch Outlook via subprocess to show Inbox
+            print("[Outlook] COM method failed, falling back to subprocess")
+            try:
+                import subprocess
+                subprocess.Popen(["outlook.exe", "/select", "outlook:inbox"])
+            except Exception as e:
+                print("[Outlook] subprocess fallback also failed: {}".format(e))
+                try:
+                    os.startfile("outlook:")
+                except Exception as e2:
+                    print("[Outlook] os.startfile fallback also failed: {}".format(e2))
 
     def open_calendar_app(self):
         """Opens/Focuses the Outlook Calendar."""
-        self._show_outlook_folder(9)  # 9 = olFolderCalendar
+        success = self._show_outlook_folder(9)  # 9 = olFolderCalendar
+        if not success:
+            print("[Outlook] COM method failed for calendar, falling back to subprocess")
+            try:
+                import subprocess
+                subprocess.Popen(["outlook.exe", "/select", "outlook:calendar"])
+            except Exception as e:
+                print("[Outlook] subprocess calendar fallback failed: {}".format(e))
         
         
     # Legacy load_config/save_config removed. 
