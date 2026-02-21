@@ -146,6 +146,7 @@ class SidebarWindow(tk.Tk):
         self._hover_timer = None
         self._collapse_timer = None
         self.is_expanded = False
+        self.hot_strip_width = DEFAULT_HOT_STRIP_WIDTH
         
         # Settings Panel State
         self.settings_panel_open = False
@@ -2703,32 +2704,68 @@ class SidebarWindow(tk.Tk):
             self.apply_state() # Expand and reserve space
 
     def on_leave(self, event):
-        # We need to be careful. Leaving the window to the desktop should collapse.
-        # But verify we aren't just hovering a child widget (Tkinter events bubble, but checking coordinates keeps us safe).
-        x, y = self.winfo_pointerxy()
-        widget_under_mouse = self.winfo_containing(x, y)
-        
-        # If we are really outside the window
+        # Leaving the window to the desktop should collapse.
+        # Verify mouse is truly outside the window (not just crossing a child widget boundary).
         if not self.config.pinned:
-            # Cancel potential expand timer if we left quickly (mouse-over between screens)
+            # Cancel potential expand timer if we left quickly
             if self._hover_timer:
                 self.after_cancel(self._hover_timer)
                 self._hover_timer = None
                 
             if self.is_expanded:
-                 # Delay collapse
-                 if self._collapse_timer:
-                     self.after_cancel(self._collapse_timer)
-                 self._collapse_timer = self.after(self.config.hover_delay, self.do_collapse)
+                # Check if mouse is actually outside the window
+                try:
+                    x, y = self.winfo_pointerxy()
+                    wx = self.winfo_rootx()
+                    wy = self.winfo_rooty()
+                    ww = self.winfo_width()
+                    wh = self.winfo_height()
+                    
+                    if x < wx or x >= wx + ww or y < wy or y >= wy + wh:
+                        # Mouse is truly outside — start collapse timer
+                        if self._collapse_timer:
+                            self.after_cancel(self._collapse_timer)
+                        self._collapse_timer = self.after(self.config.hover_delay, self.do_collapse)
+                except:
+                    # Fallback: just start the timer
+                    if self._collapse_timer:
+                        self.after_cancel(self._collapse_timer)
+                    self._collapse_timer = self.after(self.config.hover_delay, self.do_collapse)
 
     def on_motion(self, event):
-        # Reset collapse timer if moving inside
+        # Reset collapse timer only if mouse is inside the window
         if self._collapse_timer:
-             self.after_cancel(self._collapse_timer)
-             self._collapse_timer = None
+            try:
+                x, y = self.winfo_pointerxy()
+                wx = self.winfo_rootx()
+                wy = self.winfo_rooty()
+                ww = self.winfo_width()
+                wh = self.winfo_height()
+                
+                if wx <= x < wx + ww and wy <= y < wy + wh:
+                    self.after_cancel(self._collapse_timer)
+                    self._collapse_timer = None
+            except:
+                pass
 
     def do_collapse(self):
         if not self.config.pinned:
+            # Double-check mouse is still outside before collapsing
+            try:
+                x, y = self.winfo_pointerxy()
+                wx = self.winfo_rootx()
+                wy = self.winfo_rooty()
+                ww = self.winfo_width()
+                wh = self.winfo_height()
+                
+                if wx <= x < wx + ww and wy <= y < wy + wh:
+                    # Mouse came back — don't collapse
+                    self._collapse_timer = None
+                    return
+            except:
+                pass
+            
+            self._collapse_timer = None
             self.is_expanded = False
             self.apply_state() # Collapse and release space
 
