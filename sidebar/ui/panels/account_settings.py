@@ -231,12 +231,7 @@ class AccountSelectionUI(tk.Frame):
         # Assuming parent is the overlay frame calling .place()
         btn_close.bind("<Button-1>", lambda e: self.master.place_forget())
 
-        # Help Text
-        tk.Label(
-            self, 
-            text="Select folders to sync. Hold Shift/Ctrl for multiple.",
-            bg=self.colors["bg"], fg="#888888", font=("Segoe UI", 9, "italic")
-        ).pack(fill="x", padx=15, pady=(0, 10))
+        # Help text removed - the FolderPickerFrame shows its own hint when the folder tree appears
         
         # Scrollable Area
         canvas = tk.Canvas(self, bg=self.colors["bg"], highlightthickness=0)

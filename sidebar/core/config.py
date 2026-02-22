@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.17" # Fix collapse when unpinned, hot_strip_width init crash
+VERSION = "v1.3.18" # Bring Outlook to front, hover link text, theme fix, account hint text
 
 # --- Image Resampling Mode ---
 try:

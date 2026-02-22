@@ -595,6 +595,7 @@ class SidebarWindow(tk.Tk):
                     else: item.MarkAsTask(4)
                     item.Save()
                 elif act_name == "Open Email":
+                    self._allow_foreground_for_outlook()
                     item.Display()
                     try:
                         # Maximize Window
@@ -602,6 +603,11 @@ class SidebarWindow(tk.Tk):
                         inspector.WindowState = 2 # olMaximized
                         # Force window to front
                         inspector.Activate()
+                        # Poll for window and force focus
+                        try:
+                            caption = inspector.Caption
+                            self.after(50, lambda: self._wait_and_focus(caption, attempt=1))
+                        except: pass
                     except:
                         pass
                 elif act_name == "Reply":
@@ -609,6 +615,7 @@ class SidebarWindow(tk.Tk):
                     item.UnRead = False
                     item.Save()
                     
+                    self._allow_foreground_for_outlook()
                     reply = item.Reply()
                     reply.Display()
                     try:
@@ -616,6 +623,11 @@ class SidebarWindow(tk.Tk):
                         inspector = reply.GetInspector
                         inspector.WindowState = 2 # olMaximized
                         inspector.Activate()
+                        # Poll for window and force focus
+                        try:
+                            caption = inspector.Caption
+                            self.after(50, lambda: self._wait_and_focus(caption, attempt=1))
+                        except: pass
                     except:
                         pass
                 elif act_name == "Move To...":
@@ -973,6 +985,7 @@ class SidebarWindow(tk.Tk):
                  self.outlook_client.connect()
              
              if self.outlook_client.namespace:
+                 self._allow_foreground_for_outlook()
                  item = self.outlook_client.namespace.GetItemFromID(entry_id)
                  item.Display()
                  
@@ -1507,19 +1520,39 @@ class SidebarWindow(tk.Tk):
                                      try:
                                          body_text = item.Body or ""
                                      except: pass
+                                     # Clean up plain text body: remove standalone URLs (tracking links, etc.)
+                                     if body_text:
+                                         import re
+                                         # Remove lines that are just URLs
+                                         body_text = re.sub(r'^\s*https?://\S+\s*$', '', body_text, flags=re.MULTILINE)
+                                         # Remove inline URLs (but keep surrounding text)
+                                         body_text = re.sub(r'https?://\S+', '', body_text)
+                                         body_text = body_text.strip()
                                      # If plain body is too short, try extracting from HTML
                                      if len(body_text.strip()) < 30:
                                          try:
                                              import re
                                              html = item.HTMLBody or ""
-                                             # Strip HTML tags
-                                             text = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL)
+                                             # Replace <a> tags with their display text (not the href URL)
+                                             text = re.sub(r'<a[^>]*>(.*?)</a>', r'\1', html, flags=re.DOTALL|re.IGNORECASE)
+                                             # Remove style blocks
+                                             text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL)
+                                             # Remove script blocks
+                                             text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL)
+                                             # Strip remaining HTML tags
                                              text = re.sub(r'<[^>]+>', ' ', text)
+                                             # Decode HTML entities
                                              text = re.sub(r'&nbsp;', ' ', text)
                                              text = re.sub(r'&amp;', '&', text)
                                              text = re.sub(r'&lt;', '<', text)
                                              text = re.sub(r'&gt;', '>', text)
-                                             text = re.sub(r'\s+', ' ', text).strip()
+                                             text = re.sub(r'&#\d+;', '', text)
+                                             # Remove any remaining URLs
+                                             text = re.sub(r'https?://\S+', '', text)
+                                             # Collapse whitespace
+                                             text = re.sub(r'[ \t]+', ' ', text)
+                                             text = re.sub(r'\n\s*\n', '\n', text)
+                                             text = text.strip()
                                              if len(text) > len(body_text.strip()):
                                                  body_text = text
                                          except: pass
@@ -2825,10 +2858,31 @@ class SidebarWindow(tk.Tk):
             self.toolbar.update_quick_create_icon(self.colors)
  
     def _execute_quick_action(self, action):
-        if action == "New Email": self.outlook_client.create_email()
-        elif action == "New Meeting": self.outlook_client.create_meeting()
-        elif action == "New Appointment": self.outlook_client.create_appointment()
-        elif action == "New Task": self.outlook_client.create_task()
+        item = None
+        try:
+            self._allow_foreground_for_outlook()
+            if action == "New Email":
+                item = self.outlook_client.outlook.CreateItem(0)  # olMailItem
+            elif action == "New Meeting":
+                item = self.outlook_client.outlook.CreateItem(1)  # olAppointmentItem
+                item.MeetingStatus = 1  # olMeeting
+            elif action == "New Appointment":
+                item = self.outlook_client.outlook.CreateItem(1)  # olAppointmentItem
+            elif action == "New Task":
+                item = self.outlook_client.outlook.CreateItem(3)  # olTaskItem
+            
+            if item:
+                item.Display()
+                try:
+                    inspector = item.GetInspector
+                    inspector.Activate()
+                    try:
+                        caption = inspector.Caption
+                        self.after(50, lambda: self._wait_and_focus(caption, attempt=1))
+                    except: pass
+                except: pass
+        except Exception as e:
+            print("Quick create error: {}".format(e))
  
 
     def apply_theme(self):
@@ -2932,6 +2986,11 @@ class SidebarWindow(tk.Tk):
                     widget.config(fg=c["fg_secondary"])
                 elif fg in ("#999999", "#666666"):
                     widget.config(fg=c["fg_dim"])
+            elif wtype == "Text":
+                parent_bg = c["bg_card"]
+                try: parent_bg = widget.master.cget("bg")
+                except: pass
+                widget.config(bg=parent_bg, fg=c["fg_dim"])
             elif wtype == "Canvas":
                 widget.config(bg=c["bg_card"])
         except: pass
@@ -2952,6 +3011,11 @@ class SidebarWindow(tk.Tk):
         
         # Apply changes immediately
         self.apply_theme()
+        
+        # Full refresh to rebuild cards with correct icon colors and Text widget backgrounds
+        try:
+            self.refresh_emails()
+        except: pass
  
  # --- Single Instance Logic (Mutex) ---
  

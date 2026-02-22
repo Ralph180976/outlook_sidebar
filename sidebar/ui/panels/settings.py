@@ -998,7 +998,7 @@ class SettingsPanel(tk.Frame):
         )
         
         # Trigger Resize/Reflow
-        self.main_window.apply_window_mode()
+        self.main_window.apply_window_layout()
 
     def refresh_dropdown_options(self):
         """Refreshes dropdown options to discourage duplicates."""
