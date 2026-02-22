@@ -4,7 +4,6 @@ __pycache__/
 *.pyo
 
 # Build output
-*.spec
 build/
 dist/
 dist_package/
@@ -28,7 +27,8 @@ full_code.txt
 # Backups
 backup_*/
 
-# Installer
+# Installer output (uploaded to GitHub Releases, not committed)
+installer_output/
 InboxBar_Installer.zip
 
 # Compiled

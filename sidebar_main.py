@@ -88,6 +88,7 @@ from sidebar.ui.panels.account_settings import AccountSelectionDialog, AccountSe
 from sidebar.ui.panels.account_settings import AccountSelectionDialog, AccountSelectionUI, FolderPickerFrame
 from sidebar.ui.dialogs.feedback import FeedbackDialog
 from sidebar.ui.widgets.toolbar import SidebarToolbar
+from sidebar.services.update_checker import check_for_update
 
 class SidebarWindow(tk.Tk):
     def __init__(self):
@@ -413,6 +414,9 @@ class SidebarWindow(tk.Tk):
         
         # Start Background Polling
         self.start_polling()
+        
+        # Check for updates (runs in background thread)
+        self._check_for_app_update()
 
     def config_window_visuals(self):
         """Configures window visual properties (e.g. transparency)."""
@@ -2457,6 +2461,49 @@ class SidebarWindow(tk.Tk):
         """Starts the background polling loop."""
         self.check_updates()
         self.check_fullscreen_app()
+
+    def _check_for_app_update(self):
+        """Check GitHub for a newer version (runs in background thread)."""
+        def _on_result(latest_version, download_url, release_page):
+            if latest_version:
+                # Schedule UI update on main thread
+                self.after(0, lambda: self._show_update_bar(latest_version, download_url))
+        
+        check_for_update(_on_result)
+    
+    def _show_update_bar(self, version, download_url):
+        """Shows a subtle update notification bar above the footer."""
+        if hasattr(self, '_update_bar') and self._update_bar:
+            try: self._update_bar.destroy()
+            except: pass
+        
+        bar = tk.Frame(self.main_frame, bg=self.colors["accent"], cursor="hand2")
+        bar.pack(fill="x", side="bottom", before=self.footer)
+        
+        lbl = tk.Label(
+            bar,
+            text="\u2b06  Update {} available — click to download".format(version),
+            bg=self.colors["accent"],
+            fg="#000000",
+            font=(self.config.font_family, 8, "bold"),
+            cursor="hand2",
+            pady=4,
+        )
+        lbl.pack(fill="x")
+        
+        import webbrowser
+        bar.bind("<Button-1>", lambda e: webbrowser.open(download_url))
+        lbl.bind("<Button-1>", lambda e: webbrowser.open(download_url))
+        
+        # Close button
+        btn_x = tk.Label(
+            bar, text="\u2715", bg=self.colors["accent"], fg="#000000",
+            font=(self.config.font_family, 8), cursor="hand2", padx=5,
+        )
+        btn_x.place(relx=1.0, rely=0.5, anchor="e", x=-2)
+        btn_x.bind("<Button-1>", lambda e: bar.destroy())
+        
+        self._update_bar = bar
 
     def check_fullscreen_app(self):
         """Checks if a full-screen application is active on the current monitor and helps sidebar get out of the way."""
