@@ -18,7 +18,7 @@ class ConfigManager:
         self.width = DEFAULT_EXPANDED_WIDTH
         self.pinned = True
         self.dock_side = "Left"
-        self.theme = "Light"
+        self.theme = "Dark"
         self.font_family = DEFAULT_FONT_FAMILY
         self.font_size = DEFAULT_FONT_SIZE
         self.window_mode = "dual"  # "single" or "dual"
@@ -26,15 +26,14 @@ class ConfigManager:
         # Behavior
         self.poll_interval = 30
         self.hover_delay = 500
-        self.hover_delay = 500
-        self.show_hover_content = False
-        self.email_double_click = False
-        self.buttons_on_hover = False
+        self.show_hover_content = True
+        self.email_double_click = True
+        self.buttons_on_hover = True
         self.quick_create_actions = ["New Email"]
         
         # Email Filters
         self.show_read = False
-        self.show_has_attachment = False
+        self.show_has_attachment = True
         self.only_flagged = False
         self.include_read_flagged = True
         self.flag_date_filter = "Anytime"
@@ -46,9 +45,9 @@ class ConfigManager:
         self.email_body_lines = 2
         
         # Account Settings
-        self.enabled_accounts = {} # {"Name": {"email": True, "calendar": True, ...}}
+        self.enabled_accounts = {} # {\"Name\": {\"email\": True, \"calendar\": True, ...}}
         
-        # Reminder Filters (The source of previous bugs)
+        # Reminder Filters
         self.reminder_show_flagged = True
         self.reminder_due_filters = ["No Date"] # List[str]
         self.reminder_show_categorized = True
@@ -72,11 +71,13 @@ class ConfigManager:
         self.reminder_has_reminder = True
         self.reminder_task_dates = ["Overdue", "Today", "Tomorrow"] # List[str]
         
-        # Buttons (Legacy support for now, moving to Toolbar module in Phase 2)
-        self.btn_count = 2
+        # Action Buttons
+        self.btn_count = 4
         self.btn_config = [
-            {"label": "Trash", "icon": "Read & Delete.png", "action1": "Mark Read", "action2": "Delete", "folder": ""}, 
-            {"label": "Reply", "icon": "Reply.png", "action1": "Reply", "action2": "None", "folder": ""}
+            {"icon": "Mark as Read.png", "action1": "Mark Read", "folder": ""},
+            {"icon": "open.png", "action1": "Open Email", "folder": ""},
+            {"icon": "Read & Delete.png", "action1": "Read & Delete", "folder": ""},
+            {"icon": "Flag.png", "action1": "Flag", "folder": ""}
         ]
         
         # Load immediately
@@ -147,6 +148,36 @@ class ConfigManager:
             self.btn_count = data.get("btn_count", self.btn_count)
             self.btn_config = data.get("btn_config", self.btn_config)
             self.quick_create_actions = data.get("quick_create_actions", self.quick_create_actions)
+            
+            # --- Migrate old Unicode icons to PNG filenames ---
+            migrated = False
+            icon_migration = {
+                "Mark Read": "Mark as Read.png",
+                "Delete": "Delete.png",
+                "Reply": "Reply.png",
+                "Flag": "Flag.png",
+                "Move to Folder": "Move to Folder.png",
+                "Open": "open.png",
+            }
+            for btn in self.btn_config:
+                icon = btn.get("icon", "")
+                if icon and not icon.lower().endswith(".png"):
+                    # Old Unicode icon — map by action
+                    action = btn.get("action1", "")
+                    # Check action2 for combo actions like "Mark Read" + "Delete"
+                    action2 = btn.get("action2", "None")
+                    if action2 and action2 != "None":
+                        combo_key = "{} & {}".format(action, action2)
+                        combo_file = "Read & Delete.png" if combo_key == "Mark Read & Delete" else None
+                        if combo_file:
+                            btn["icon"] = combo_file
+                            migrated = True
+                            continue
+                    if action in icon_migration:
+                        btn["icon"] = icon_migration[action]
+                        migrated = True
+            if migrated:
+                self.save()
 
         except Exception as e:
             print(f"Error loading config: {e}")
