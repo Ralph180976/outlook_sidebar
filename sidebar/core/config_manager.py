@@ -75,8 +75,8 @@ class ConfigManager:
         # Buttons (Legacy support for now, moving to Toolbar module in Phase 2)
         self.btn_count = 2
         self.btn_config = [
-            {"label": "Trash", "icon": "✓", "action1": "Mark Read", "action2": "Delete", "folder": ""}, 
-            {"label": "Reply", "icon": "↩", "action1": "Reply", "action2": "None", "folder": ""}
+            {"label": "Trash", "icon": "Read & Delete.png", "action1": "Mark Read", "action2": "Delete", "folder": ""}, 
+            {"label": "Reply", "icon": "Reply.png", "action1": "Reply", "action2": "None", "folder": ""}
         ]
         
         # Load immediately

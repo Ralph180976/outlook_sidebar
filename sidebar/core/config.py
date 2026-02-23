@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.18" # Bring Outlook to front, hover link text, theme fix, account hint text
+VERSION = "v1.3.19" # Fix default button icons for first-time users
 
 # --- Image Resampling Mode ---
 try:
