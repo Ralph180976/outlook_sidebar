@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.19" # Fix default button icons for first-time users
+VERSION = "v1.3.20" # Public repo, direct GitHub API update checker
 
 # --- Image Resampling Mode ---
 try:

@@ -2464,7 +2464,7 @@ class SidebarWindow(tk.Tk):
 
     def _check_for_app_update(self):
         """Check GitHub for a newer version (runs in background thread)."""
-        def _on_result(latest_version, download_url, release_page):
+        def _on_result(latest_version, download_url):
             if latest_version:
                 # Schedule UI update on main thread
                 self.after(0, lambda: self._show_update_bar(latest_version, download_url))
