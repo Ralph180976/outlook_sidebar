@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.21" # Updated defaults, icon migration for existing users
+VERSION = "v1.3.22" # Microsoft 365 Deep Linking compatibility
 
 # --- Image Resampling Mode ---
 try:

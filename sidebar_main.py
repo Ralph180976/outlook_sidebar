@@ -81,6 +81,8 @@ from sidebar.core.config_manager import ConfigManager
 from sidebar.core.theme import COLOR_PALETTES, OL_CAT_COLORS
 from sidebar.core.appbar import AppBarManager, MONITORINFO, ABE_LEFT, ABE_RIGHT, ABE_TOP, ABE_BOTTOM 
 from sidebar.services.outlook_client import OutlookClient
+from sidebar.services.graph_client import GraphAPIClient
+from sidebar.services.hybrid_client import HybridMailClient
 from sidebar.ui.widgets.base import ScrollableFrame, RoundedFrame, ToolTip
 from sidebar.ui.panels.settings import SettingsPanel
 from sidebar.ui.panels.help import HelpPanel
@@ -172,13 +174,16 @@ class SidebarWindow(tk.Tk):
         self.help_panel_open = False
         
         try:
-            self.outlook_client = OutlookClient()
+            self.outlook_client = self._select_backend()
         except Exception as e:
-            print("ERROR: OutlookClient init failed: {}".format(e))
+            print("ERROR: MailClient init failed: {}".format(e))
+            self.outlook_client = None
         
         # Image Cache (to keep references alive)
         self.image_cache = {}
         self.dismissed_calendar_ids = set()  # Track dismissed calendar items (session only)
+        self._calendar_widgets = []  # [(start_dt, time_label, subj_label, frame)] for urgency updates
+        self._cal_urgency_timer = None  # Timer for periodic urgency checks
 
         # --- Window Setup ---
         self.overrideredirect(True)  # Frameless
@@ -575,70 +580,42 @@ class SidebarWindow(tk.Tk):
             print("No EntryID found.")
             return
 
-        item = self.outlook_client.get_item_by_entryid(entry_id, store_id)
-        if not item:
-            print("Could not retrieve Outlook item.")
-            return
-
-        # Sequential Execution Helper
+        # Use MailClient abstraction instead of raw COM objects
         def execute_single_action(act_name, folder_name=""):
             if not act_name or act_name == "None": return
             
+            with open("C:\\Dev\\Outlook_Sidebar\\debug_out.txt", "a") as f:
+                 f.write(f"Executing action '{act_name}' on ID {entry_id[:15]}...\n")
+                 
             try:
                 if act_name == "Mark Read":
-                    item.UnRead = False
-                    item.Save()
+                    self.outlook_client.mark_as_read(entry_id, store_id)
                 elif act_name == "Delete":
-                    item.Delete()
+                    self.outlook_client.delete_email(entry_id, store_id)
                 elif act_name == "Read & Delete":
-                    item.UnRead = False
-                    item.Save()
-                    item.Delete()
+                    self.outlook_client.mark_as_read(entry_id, store_id)
+                    self.outlook_client.delete_email(entry_id, store_id)
                 elif act_name == "Flag":
-                    if item.IsMarkedAsTask: item.ClearTaskFlag()
-                    else: item.MarkAsTask(4)
-                    item.Save()
+                    self.outlook_client.toggle_flag(entry_id, store_id)
                 elif act_name == "Open Email":
                     self._allow_foreground_for_outlook()
-                    item.Display()
-                    try:
-                        # Maximize Window
-                        inspector = item.GetInspector
-                        inspector.WindowState = 2 # olMaximized
-                        # Force window to front
-                        inspector.Activate()
-                        # Poll for window and force focus
-                        try:
-                            caption = inspector.Caption
-                            self.after(50, lambda: self._wait_and_focus(caption, attempt=1))
-                        except: pass
-                    except:
-                        pass
+                    self.outlook_client.open_item(entry_id, store_id)
                 elif act_name == "Reply":
                     # Mark as read first
-                    item.UnRead = False
-                    item.Save()
+                    self.outlook_client.mark_as_read(entry_id, store_id)
                     
                     self._allow_foreground_for_outlook()
-                    reply = item.Reply()
-                    reply.Display()
-                    try:
-                        # Maximize Window
-                        inspector = reply.GetInspector
-                        inspector.WindowState = 2 # olMaximized
-                        inspector.Activate()
-                        # Poll for window and force focus
-                        try:
-                            caption = inspector.Caption
-                            self.after(50, lambda: self._wait_and_focus(caption, attempt=1))
-                        except: pass
-                    except:
-                        pass
+                    if hasattr(self.outlook_client, "reply_to_email"):
+                        self.outlook_client.reply_to_email(entry_id, store_id)
+                    else:
+                        print("Reply action not yet fully abstracted for Graph API")
+                        
                 elif act_name == "Move To...":
                     if folder_name:
-                        target = self.outlook_client.find_folder_by_name(folder_name)
-                        if target: item.Move(target)
-                        else: print("Folder '{}' not found.".format(folder_name))
+                         if hasattr(self.outlook_client, "move_email"):
+                             self.outlook_client.move_email(entry_id, folder_name, store_id)
+                         else:
+                             print("Move to Folder not fully abstracted for Graph API")
             except Exception as e:
                 print("Error executing {}: {}".format(act_name, e))
 
@@ -674,13 +651,13 @@ class SidebarWindow(tk.Tk):
         Gets the Outlook Application COM object.
         Reuses the existing OutlookClient's connection.
         """
-        # First, try to reuse the already-connected OutlookClient
+        # First, try to reuse the backend (if it's COM based)
         if hasattr(self, 'outlook_client') and self.outlook_client:
-            if self.outlook_client.outlook:
-                return self.outlook_client.outlook
-            # Try reconnecting
-            if self.outlook_client.connect():
-                return self.outlook_client.outlook
+            app = self.outlook_client.get_native_app()
+            if app: return app
+            if hasattr(self.outlook_client, 'connect'):
+                 self.outlook_client.connect()
+                 return self.outlook_client.get_native_app()
         
         # Fallback: try direct COM (requires win32com import)
         try:
@@ -928,6 +905,20 @@ class SidebarWindow(tk.Tk):
     # They are now handled by ConfigManager (self.config).
 
 
+    def _select_backend(self):
+        """Instantiates the correct MailClient backend based on config."""
+        backend_pref = getattr(self.config, "backend", "hybrid")
+        
+        if backend_pref == "graph":
+            print("[Backend] Using Microsoft Graph API exclusively")
+            return GraphAPIClient()
+        elif backend_pref == "com":
+            print("[Backend] Using Classic Outlook COM exclusively")
+            return OutlookClient()
+        else: # auto / hybrid
+            print("[Backend] Using Hybrid Client (COM + Graph)")
+            return HybridMailClient()
+
     def apply_window_layout(self):
         """Apply the current window mode (single or dual) to the layout."""
         if self.config.window_mode == "single":
@@ -979,18 +970,37 @@ class SidebarWindow(tk.Tk):
             except:
                 pass
 
-    def open_email(self, entry_id, source_widget=None):
+    def open_email(self, entry_id, source_widget=None, store_id=None, fallback_link=None):
         """Opens the specific email item with visual feedback."""
         if source_widget:
             self.flash_widget_recursive(source_widget)
                 
+        import string
+        is_hex = all(c in string.hexdigits.upper() + string.hexdigits.lower() for c in entry_id) if hasattr(entry_id, 'isalnum') else False
+        
+        # If it doesn't look like a standard COM hex entry ID
+        if not is_hex or len(entry_id) < 40 or "AAMk" in entry_id:
+            if fallback_link:
+                import webbrowser
+                webbrowser.open(fallback_link)
+                return
+            try:
+                self.outlook_client.open_item(entry_id, store_id)
+            except Exception as e:
+                print("Error routing open to hybrid client: {}".format(e))
+            return
+            
         try:
-             if not self.outlook_client.namespace:
-                 self.outlook_client.connect()
+             # Safe try for raw COM object interaction with native focus forcing
+             if not self.outlook_client.com.namespace:
+                 self.outlook_client.com.connect()
              
-             if self.outlook_client.namespace:
+             if self.outlook_client.com.namespace:
                  self._allow_foreground_for_outlook()
-                 item = self.outlook_client.namespace.GetItemFromID(entry_id)
+                 if store_id:
+                     item = self.outlook_client.com.namespace.GetItemFromID(entry_id, store_id)
+                 else:
+                     item = self.outlook_client.com.namespace.GetItemFromID(entry_id)
                  item.Display()
                  
                  try:
@@ -999,10 +1009,7 @@ class SidebarWindow(tk.Tk):
                      
                      # Force window usage if possible
                      try:
-                        # Some versions of Outlook don't expose HWND on Inspector easily via OOM in Py2.7
-                        # But we can try to find it via the caption immediately.
                         caption = inspector.Caption
-                        # Start polling for it
                         self.after(50, lambda: self._wait_and_focus(caption, attempt=1))
                      except:
                         pass
@@ -1081,9 +1088,7 @@ class SidebarWindow(tk.Tk):
                 
                 # Fetch Accounts
                 accounts = self.outlook_client.get_accounts()
-                if not accounts:
-                     messagebox.showerror("Error", "Could not fetch Outlook accounts.")
-                     return
+                # Do not error out if empty, allow UI to show "Add Account" button
 
                 # Note: We want to overlay the 'email_list_frame'.
                 # But 'place' is relative to the parent. 'email_list_frame' parent is 'pane_emails'.
@@ -1800,12 +1805,14 @@ class SidebarWindow(tk.Tk):
             tk.Label(container, text="CALENDAR", fg="#60CDFF", bg=self.colors["bg_root"], font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=5, pady=(5, 2))
             # Filter out dismissed items
             meetings = [m for m in meetings if m.get('entry_id') not in self.dismissed_calendar_ids]
+            
+            # Reset calendar widget tracking for urgency updates
+            self._calendar_widgets = []
 
             for m in meetings:
                  mf = tk.Frame(container, bg=self.colors["bg_card"], padx=5, pady=5)
                  mf.pack(fill="x", padx=2, pady=1)
                  
-                 # Time
                  # Time
                  try:
                      dt = m['start']
@@ -1821,6 +1828,9 @@ class SidebarWindow(tk.Tk):
                              time_str = dt.strftime("%a %I:%M %p")
                  except:
                      time_str = "??"
+                 
+                 # --- Urgency Color Logic ---
+                 time_fg, subj_fg = self._get_cal_urgency_colors(m.get('start'))
                      
                  # --- Calendar Buttons Frame (pack RIGHT first so it reserves space) ---
                  c_actions = tk.Frame(mf, bg=self.colors["bg_card"])
@@ -1861,10 +1871,10 @@ class SidebarWindow(tk.Tk):
                           btn_open_cal.image = img
                  
                  if not btn_open_cal:
-                      make_cal_btn(c_actions, "Open", lambda eid=m['entry_id']: self.open_email(eid), "Open Meeting")
+                      make_cal_btn(c_actions, "Open", lambda eid=m['entry_id'], wlink=m.get('web_link'): self.open_email(eid, fallback_link=wlink), "Open Meeting")
                  else:
                       btn_open_cal.pack(side="right", padx=2)
-                      btn_open_cal.bind("<Button-1>", lambda e, eid=m['entry_id']: self.open_email(eid))
+                      btn_open_cal.bind("<Button-1>", lambda e, eid=m['entry_id'], wlink=m.get('web_link'): self.open_email(eid, fallback_link=wlink))
                       btn_open_cal.bind("<Enter>", lambda e, b=btn_open_cal: b.config(bg=self.colors["bg_card_hover"]))
                       btn_open_cal.bind("<Leave>", lambda e, b=btn_open_cal: b.config(bg=self.colors["bg_card"]))
                       ToolTip(btn_open_cal, "Open Meeting")
@@ -1873,9 +1883,13 @@ class SidebarWindow(tk.Tk):
                  c_actions.pack(side="right", padx=2)
 
                  # Now pack labels LEFT (remaining space after buttons)
-                 tk.Label(mf, text=time_str, fg=self.colors["fg_dim"], bg=self.colors["bg_card"], font=("Segoe UI", 9)).pack(side="left")
-                 subj = tk.Label(mf, text=m['subject'], fg=self.colors["fg_primary"], bg=self.colors["bg_card"], font=("Segoe UI", 9, "bold"), anchor="w", wraplength=self.config.width - 130)
+                 time_lbl = tk.Label(mf, text=time_str, fg=time_fg, bg=self.colors["bg_card"], font=("Segoe UI", 9))
+                 time_lbl.pack(side="left")
+                 subj = tk.Label(mf, text=m['subject'], fg=subj_fg, bg=self.colors["bg_card"], font=("Segoe UI", 9, "bold"), anchor="w", wraplength=self.config.width - 130)
                  subj.pack(side="left", padx=5)
+                 
+                 # Track for live urgency updates
+                 self._calendar_widgets.append((m.get('start'), time_lbl, subj, mf))
 
                  bind_click(mf, m['entry_id'])
                  bind_click(subj, m['entry_id'])
@@ -1903,6 +1917,9 @@ class SidebarWindow(tk.Tk):
                  mf.bind("<Leave>", hide_c_actions)
                  subj.bind("<Enter>", show_c_actions)
                  subj.bind("<Leave>", hide_c_actions)
+            
+            # Start the urgency timer if we have calendar widgets
+            self._start_cal_urgency_timer()
 
         # 2. Outlook Tasks
         # 2. Outlook Tasks
@@ -1971,10 +1988,10 @@ class SidebarWindow(tk.Tk):
                               btn_open.image = img
                      
                      if not btn_open:
-                          make_task_btn(t_actions, u"📂", lambda eid=task['entry_id']: self.open_email(eid), "Open Task")
+                          make_task_btn(t_actions, u"📂", lambda eid=task['entry_id'], wlink=task.get('web_link'): self.open_email(eid, fallback_link=wlink), "Open Task")
                      else:
                           btn_open.pack(side="right", padx=5)
-                          btn_open.bind("<Button-1>", lambda e, eid=task['entry_id']: self.open_email(eid))
+                          btn_open.bind("<Button-1>", lambda e, eid=task['entry_id'], wlink=task.get('web_link'): self.open_email(eid, fallback_link=wlink))
                           ToolTip(btn_open, "Open Task")
                      
 
@@ -2455,6 +2472,107 @@ class SidebarWindow(tk.Tk):
         # Re-apply state which will snap to monitor edge and re-register
         self.apply_state()
 
+    # --- Calendar Urgency ---
+    def _get_cal_urgency_colors(self, start_dt):
+        """Returns (time_fg, subj_fg) colors based on meeting proximity.
+        
+        - Default: dim time, normal subject
+        - 15 min before: amber time, amber subject
+        - At meeting time (0 to +1 min): orange/pulsing
+        - 1+ min overdue: red
+        """
+        if not start_dt or not hasattr(start_dt, 'timestamp'):
+            return self.colors["fg_dim"], self.colors["fg_primary"]
+        
+        try:
+            from datetime import datetime
+            now = datetime.now()
+            # Strip timezone info if present (Outlook returns tz-aware datetimes)
+            meeting_time = start_dt.replace(tzinfo=None) if hasattr(start_dt, 'tzinfo') and start_dt.tzinfo else start_dt
+            diff_seconds = (meeting_time - now).total_seconds()
+            diff_minutes = diff_seconds / 60.0
+            
+            if diff_minutes <= -1:
+                # 1+ minute overdue → red
+                return "#FF4444", "#FF4444"
+            elif diff_minutes <= 0:
+                # At meeting time (0 to -1 min) → bright orange
+                return "#FF8C00", "#FF8C00"
+            elif diff_minutes <= 15:
+                # Within 15 minutes → amber
+                return "#FFB347", "#FFB347"
+            else:
+                # Normal
+                return self.colors["fg_dim"], self.colors["fg_primary"]
+        except:
+            return self.colors["fg_dim"], self.colors["fg_primary"]
+    
+    def _update_cal_urgency(self):
+        """Update all tracked calendar widgets with current urgency colors."""
+        for entry in self._calendar_widgets:
+            try:
+                start_dt, time_lbl, subj_lbl, frame = entry
+                # Check widget still exists
+                if not time_lbl.winfo_exists():
+                    continue
+                time_fg, subj_fg = self._get_cal_urgency_colors(start_dt)
+                time_lbl.config(fg=time_fg)
+                subj_lbl.config(fg=subj_fg)
+            except:
+                pass
+    
+    def _start_cal_urgency_timer(self):
+        """Start periodic urgency color updates (every 30 seconds)."""
+        if self._cal_urgency_timer:
+            try:
+                self.after_cancel(self._cal_urgency_timer)
+            except:
+                pass
+        
+        self._cal_pulse_on = True
+        
+        def tick():
+            if not self._calendar_widgets:
+                return
+            try:
+                from datetime import datetime
+                now = datetime.now()
+                
+                for entry in self._calendar_widgets:
+                    try:
+                        start_dt, time_lbl, subj_lbl, frame = entry
+                        if not time_lbl.winfo_exists():
+                            continue
+                        
+                        meeting_time = start_dt.replace(tzinfo=None) if hasattr(start_dt, 'tzinfo') and start_dt.tzinfo else start_dt
+                        diff_seconds = (meeting_time - now).total_seconds()
+                        diff_minutes = diff_seconds / 60.0
+                        
+                        if -1 <= diff_minutes <= 0:
+                            # Meeting is NOW — pulse between orange and dim
+                            if self._cal_pulse_on:
+                                time_lbl.config(fg="#FF8C00")
+                                subj_lbl.config(fg="#FF8C00")
+                            else:
+                                time_lbl.config(fg=self.colors["fg_dim"])
+                                subj_lbl.config(fg=self.colors["fg_dim"])
+                        else:
+                            # Normal urgency update (no pulse needed)
+                            time_fg, subj_fg = self._get_cal_urgency_colors(start_dt)
+                            time_lbl.config(fg=time_fg)
+                            subj_lbl.config(fg=subj_fg)
+                    except:
+                        pass
+                
+                self._cal_pulse_on = not self._cal_pulse_on
+            except:
+                pass
+            
+            # Run every 2 seconds for smooth pulsing
+            self._cal_urgency_timer = self.after(2000, tick)
+        
+        tick()
+
     # --- Polling Control ---
     # --- Polling Control ---
     def start_polling(self):
@@ -2507,96 +2625,8 @@ class SidebarWindow(tk.Tk):
 
     def check_fullscreen_app(self):
         """Checks if a full-screen application is active on the current monitor and helps sidebar get out of the way."""
-        try:
-            # 1. Get Foreground Window
-            hwnd_active = user32.GetForegroundWindow()
-            if not hwnd_active:
-                self.after(2000, self.check_fullscreen_app)
-                return
-
-            # 2. Get Class Name (Ignore Shell/Desktop)
-            buff = ctypes.create_unicode_buffer(256)
-            user32.GetClassNameW(hwnd_active, buff, 256)
-            cls = buff.value
-            
-            on_same_monitor = False # Default
-            
-            # Ignore self and shell
-            if cls in ["Progman", "WorkerW", "Shell_TrayWnd", "ImmersiveLauncher"] or hwnd_active == self.winfo_id():
-                 # Not a "real" app we care about
-                 pass
-            else:
-                # 3. Get Window Rect
-                rect = wintypes.RECT()
-                user32.GetWindowRect(hwnd_active, ctypes.byref(rect))
-                fw = rect.right - rect.left
-                fh = rect.bottom - rect.top
-                
-                # 4. Get Current Monitor Metrics for Sidebar
-                metrics = self.get_monitor_metrics()
-                mx, my, mw, mh = metrics['monitor']
-                
-                # 5. Check Intersection/Monitor
-                # Does the active window center fall onto our monitor?
-                fcx = (rect.left + rect.right) // 2
-                fcy = (rect.top + rect.bottom) // 2
-                
-                on_same_monitor = (mx <= fcx <= mx + mw) and (my <= fcy <= my + mh)
-                
-                if on_same_monitor:
-                    # 6. Check Dimensions (Allow small variance)
-                    # Is it basically full monitor size?
-                    is_fullscreen = (abs(fw - mw) < 20) and (abs(fh - mh) < 20)
-                    
-                    if is_fullscreen:
-                        # ACTIVE FULLSCREEN DETECTED
-                        if self.config.pinned and not getattr(self, "was_pinned_before_fs", False):
-                            # Auto-Collapse
-                            print("DEBUG: Fullscreen App Detected ({}) - Auto Collapsing".format(cls))
-                            self.was_pinned_before_fs = True
-                            self.config.pinned = False
-                            
-                            # Update Tooltip/Icon manually since we are bypassing toggle_pin
-                            if hasattr(self, 'pin_tooltip'):
-                                self.pin_tooltip.text = "Pin Window (Current: Auto-Collapse)"
-                            self.draw_pin_icon() 
-                            
-                            self.config.save() # Optional: Persist? Maybe not if it's temporary state.
-                            self.apply_state()
-                    
-                    else:
-                        # Not fullscreen, but on same monitor
-                        # Restore if we auto-collapsed
-                        if getattr(self, "was_pinned_before_fs", False):
-                            # print("DEBUG: Fullscreen ended - Restoring Pin")
-                            self.config.pinned = True
-                            self.was_pinned_before_fs = False
-                            
-                            if hasattr(self, 'pin_tooltip'):
-                                self.pin_tooltip.text = "Unpin Window (Current: Pinned)"
-                            self.draw_pin_icon()
-                            
-                            self.config.save()
-                            self.apply_state()
-            
-            # If we switched to a different monitor (or desktop focus), we also might want to restore?
-            if not on_same_monitor and getattr(self, "was_pinned_before_fs", False):
-                 # Focus moved away from the fullscreen app on this monitor
-                 # Restore
-                 # print("DEBUG: Focus moved monitor - Restoring Pin")
-                 self.config.pinned = True
-                 self.was_pinned_before_fs = False
-                 if hasattr(self, 'pin_tooltip'):
-                     self.pin_tooltip.text = "Unpin Window (Current: Pinned)"
-                 self.draw_pin_icon()
-                 self.config.save()
-                 self.apply_state()
-
-        except Exception as e:
-            # print("FS Check Error: {}".format(e))
-            pass
-            
-        self.after(1000, self.check_fullscreen_app)
+        # DISABLED: Causes jumpy behavior when switching between maxed apps on different displays
+        return
  
     def check_updates(self):
         """Threaded (or scheduled) update check."""
@@ -2905,29 +2935,17 @@ class SidebarWindow(tk.Tk):
             self.toolbar.update_quick_create_icon(self.colors)
  
     def _execute_quick_action(self, action):
-        item = None
         try:
             self._allow_foreground_for_outlook()
             if action == "New Email":
-                item = self.outlook_client.outlook.CreateItem(0)  # olMailItem
+                self.outlook_client.create_email()
             elif action == "New Meeting":
-                item = self.outlook_client.outlook.CreateItem(1)  # olAppointmentItem
-                item.MeetingStatus = 1  # olMeeting
+                self.outlook_client.create_meeting()
             elif action == "New Appointment":
-                item = self.outlook_client.outlook.CreateItem(1)  # olAppointmentItem
+                # Graph doesn't distinguish deeply; map to meeting
+                self.outlook_client.create_meeting()
             elif action == "New Task":
-                item = self.outlook_client.outlook.CreateItem(3)  # olTaskItem
-            
-            if item:
-                item.Display()
-                try:
-                    inspector = item.GetInspector
-                    inspector.Activate()
-                    try:
-                        caption = inspector.Caption
-                        self.after(50, lambda: self._wait_and_focus(caption, attempt=1))
-                    except: pass
-                except: pass
+                self.outlook_client.create_task()
         except Exception as e:
             print("Quick create error: {}".format(e))
  
@@ -3071,7 +3089,7 @@ class SingleInstance:
     Limits application to a single instance using a Named Mutex.
     Safe for MSIX and standard execution.
     """
-    def __init__(self, name="Global\\OutlookSidebar_Mutex_v1"):
+    def __init__(self, name="Global\\OutlookSidebar_Mutex_v2"):
         self.mutex_name = name
         self.mutex_handle = None
         self.last_error = 0

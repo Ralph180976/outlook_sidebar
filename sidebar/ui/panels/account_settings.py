@@ -315,6 +315,41 @@ class AccountSelectionUI(tk.Frame):
                            selectcolor="#CCCCCC", activeforeground="white", borderwidth=0, highlightthickness=0,
                            font=("Segoe UI", 14)).pack(side="left", padx=5)
 
+        # "Add M365 Account" Button
+        add_frame = tk.Frame(scroll_frame, bg=self.colors["bg"])
+        add_frame.pack(fill="x", padx=5, pady=(20, 10))
+        btn_add = tk.Button(
+            add_frame, text="+ Add Microsoft 365 Account", bg="#333333", fg="white", 
+            bd=0, font=("Segoe UI", 9, "bold"), cursor="hand2", command=self.add_m365_account,
+            padx=10, pady=5
+        )
+        btn_add.pack(side="left")
+
+    def add_m365_account(self):
+         """Trigger Graph API interactive login, then refresh UI."""
+         try:
+             from sidebar.services.graph_auth import GraphAuth
+             auth = GraphAuth()
+             token = auth.get_token(interactive=True)
+             
+             if token:
+                 email = auth.get_current_user_email()
+                 if email and email not in self.accounts:
+                     self.accounts.append(email)
+                     self.working_settings[email] = {"email": True, "calendar": True}
+                     
+                     # Force the entire window/overlay to redraw
+                     # First clean up this scroll frame content:
+                     for widget in self.winfo_children():
+                         widget.destroy()
+                     self.setup_ui()
+                     
+                     tk.messagebox.showinfo("Success", f"Successfully added {email}")
+             else:
+                  tk.messagebox.showwarning("Cancelled", "Sign in cancelled.")
+         except Exception as e:
+             tk.messagebox.showerror("Error", f"Failed to add MS365 Account:\n{e}")
+
     def on_folder_click(self, account):
         def on_selected(paths):
             self.vars[account]["email_folders"] = paths

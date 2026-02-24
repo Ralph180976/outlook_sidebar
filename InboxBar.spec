@@ -20,6 +20,9 @@ a = Analysis(
         'pywintypes',
         'PIL',
         'PIL._tkinter_finder',
+        'msal',
+        'requests',
+        'urllib3',
         # --- All sidebar modules ---
         'sidebar',
         'sidebar.core',

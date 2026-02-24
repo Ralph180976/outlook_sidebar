@@ -206,6 +206,85 @@ class SettingsPanel(tk.Frame):
         )
         self.btn_dual_window.pack(side="left", fill="x", expand=True)
 
+        # === SECTION 1.5: Backend Integration ===
+        create_section_header(main_content, "Backend Integration")
+        
+        backend_frame = tk.Frame(main_content, bg=self.colors["bg_root"])
+        backend_frame.pack(fill="x", padx=(20, 30), pady=(10, 0))
+        
+        tk.Label(backend_frame, text="Mail Source:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).pack(side="left")
+        
+        self.backend_var = tk.StringVar(value=getattr(self.main_window.config, "backend", "auto"))
+        self.backend_cb = ttk.Combobox(
+            backend_frame, 
+            textvariable=self.backend_var,
+            values=["auto", "com", "graph"], 
+            state="readonly", 
+            width=10,
+            font=("Segoe UI", 10)
+        )
+        self.backend_cb.pack(side="left", padx=(5, 10))
+        
+        # M365 Auth Buttons
+        def switch_backend(e=None):
+            self.main_window.config.backend = self.backend_var.get()
+            self.main_window.config.save()
+            update_auth_ui()
+            # Inform user it requires restart
+            tk.messagebox.showinfo("Restart Required", "Backend changes require a restart to take effect.")
+            
+        self.backend_cb.bind("<<ComboboxSelected>>", switch_backend)
+        
+        self.auth_info_lbl = tk.Label(backend_frame, text="", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 9))
+        self.auth_info_lbl.pack(side="left", padx=(10, 5))
+        
+        def do_graph_login():
+            try:
+                from sidebar.services.graph_auth import GraphAuth
+                auth = GraphAuth()
+                auth.get_token(interactive=True)
+                update_auth_ui()
+                tk.messagebox.showinfo("Success", "Successfully signed into Microsoft 365.")
+            except Exception as e:
+                tk.messagebox.showerror("Sign in Failed", str(e))
+                
+        def do_graph_logout():
+            from sidebar.services.graph_auth import GraphAuth
+            GraphAuth().logout()
+            update_auth_ui()
+            
+        self.btn_login = tk.Button(
+            backend_frame, text="Sign in to M365", command=do_graph_login,
+            bg=self.colors["bg_card"], fg=self.colors["fg_text"],
+            font=("Segoe UI", 9), relief="raised", bd=1
+        )
+        
+        self.btn_logout = tk.Button(
+            backend_frame, text="Sign Out", command=do_graph_logout,
+            bg=self.colors["bg_card"], fg="#FF4444",
+            font=("Segoe UI", 9), relief="raised", bd=1
+        )
+        
+        def update_auth_ui():
+            if self.backend_var.get() == "com":
+                self.btn_login.pack_forget()
+                self.btn_logout.pack_forget()
+                self.auth_info_lbl.config(text="")
+            else:
+                from sidebar.services.graph_auth import GraphAuth
+                auth = GraphAuth()
+                email = auth.get_current_user_email()
+                if email:
+                    self.btn_login.pack_forget()
+                    self.auth_info_lbl.config(text=f"Logged in as: {email}", fg="#60CDFF")
+                    self.btn_logout.pack(side="right")
+                else:
+                    self.btn_logout.pack_forget()
+                    self.auth_info_lbl.config(text="Not signed in", fg="#FF4444")
+                    self.btn_login.pack(side="right")
+                    
+        update_auth_ui()
+
         # === SECTION 2: General Settings ===
         create_section_header(main_content, "General Settings")
 

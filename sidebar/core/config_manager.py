@@ -22,6 +22,7 @@ class ConfigManager:
         self.font_family = DEFAULT_FONT_FAMILY
         self.font_size = DEFAULT_FONT_SIZE
         self.window_mode = "dual"  # "single" or "dual"
+        self.backend = "auto"      # "auto" | "com" | "graph"
         
         # Behavior
         self.poll_interval = 30
@@ -69,7 +70,7 @@ class ConfigManager:
         self.reminder_tasks = True
         self.reminder_todo = True
         self.reminder_has_reminder = True
-        self.reminder_task_dates = ["Overdue", "Today", "Tomorrow"] # List[str]
+        self.reminder_task_dates = ["Overdue", "Today", "Tomorrow", "No Date"] # List[str]
         
         # Action Buttons
         self.btn_count = 4
@@ -143,6 +144,14 @@ class ConfigManager:
             self.reminder_has_reminder = data.get("reminder_has_reminder", self.reminder_has_reminder)
             self.reminder_task_dates = data.get("reminder_task_dates", self.reminder_task_dates)
             
+            self.email_show_sender = data.get("email_show_sender", self.email_show_sender)
+            self.email_show_subject = data.get("email_show_subject", self.email_show_subject)
+            self.email_show_body = data.get("email_show_body", self.email_show_body)
+            self.email_body_lines = data.get("email_body_lines", self.email_body_lines)
+            
+            # Application Backend
+            self.backend = data.get("backend", self.backend)
+            
             self.buttons_on_hover = data.get("buttons_on_hover", self.buttons_on_hover)
             self.email_double_click = data.get("email_double_click", self.email_double_click)
             self.btn_count = data.get("btn_count", self.btn_count)
@@ -185,6 +194,7 @@ class ConfigManager:
     def save(self):
         """Saves current state to disk."""
         data = {
+            "backend": getattr(self, "backend", "auto"),
             "width": self.width,
             "pinned": self.pinned,
             "dock_side": self.dock_side,

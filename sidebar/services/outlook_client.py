@@ -3,11 +3,14 @@ import win32com.client
 from datetime import datetime, timedelta
 import pythoncom
 import os
+import time
 
 # Import theme constants from core
+# Import theme constants from core
 from sidebar.core.theme import OL_CAT_COLORS
+from sidebar.services.mail_client import MailClient
 
-class OutlookClient:
+class OutlookClient(MailClient):
     # Re-expose for compatibility if needed, or just use the imported one
     OL_CAT_COLORS = OL_CAT_COLORS
 
@@ -15,13 +18,22 @@ class OutlookClient:
         self.outlook = None
         self.namespace = None
         self.last_received_time = None
+        self._last_connect_time = 0
         self.connect()
         # Initialize last_received_time
         if self.namespace:
             self.check_latest_time()
 
     def connect(self):
-        """Attempts to connect to the Outlook COM object."""
+        """Attempts to connect to the Outlook COM object with a cooldown."""
+        # Cool down of 60 seconds if it recently failed
+        if self.outlook and self.namespace: return True
+        now = time.time()
+        if now - getattr(self, '_last_connect_time', 0) < 60:
+            return False
+            
+        self._last_connect_time = now
+        
         try:
             # Helper to initialize COM in this thread if needed
             # pythoncom.CoInitialize() 
@@ -48,7 +60,7 @@ class OutlookClient:
             print("COM reconnect: failed")
         return success
 
-    def _is_connection_healthy(self):
+    def is_connected(self) -> bool:
         """Quick probe to check if COM connection is still alive."""
         if not self.namespace:
             return False
@@ -57,6 +69,10 @@ class OutlookClient:
             return True
         except:
             return False
+            
+    def get_native_app(self):
+        """Returns the raw Outlook COM Application object for legacy compatibility."""
+        return self.outlook
 
     def get_accounts(self):
         """Returns list of account names."""
@@ -120,7 +136,7 @@ class OutlookClient:
                 if not self.connect(): return False
 
             # Detect stale COM connection (e.g. after network change)
-            if not self._is_connection_healthy():
+            if not self.is_connected():
                 print("COM connection stale in check_new_mail, reconnecting...")
                 if not self.reconnect(): return False
 
@@ -362,8 +378,8 @@ class OutlookClient:
             if not self.namespace:
                 if not self.connect(): return [], 0
 
-            # Detect stale COM connection (e.g. after network change)
-            if not self._is_connection_healthy():
+            # Detect stale COM connection
+            if not self.is_connected():
                 print("COM connection stale in get_inbox_items, reconnecting...")
                 if not self.reconnect(): return [], 0
 

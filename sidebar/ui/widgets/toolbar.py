@@ -99,7 +99,7 @@ class SidebarToolbar:
         close_icon_path = self.resource_path("icon2/close-window.png")
         if os.path.exists(close_icon_path):
             try:
-                self.icons["close"] = self.load_icon(close_icon_path, size=(20, 20), color="#FF4444")
+                self.icons["close"] = self.load_icon(close_icon_path, size=(28, 28), color="#FF4444")
                 self.btn_close = tk.Label(self.footer, image=self.icons["close"], bg=colors["bg_header"], cursor="hand2")
             except:
                 self.btn_close = tk.Label(self.footer, text="\u2715", bg=colors["bg_header"], fg="#FF4444", cursor="hand2", font=("Segoe UI", 12))
@@ -275,7 +275,7 @@ class SidebarToolbar:
         if self.lbl_version: self.lbl_version.config(bg=colors["bg_header"], fg=colors["fg_dim"])
         if self.btn_close: 
             self.btn_close.config(bg=colors["bg_header"])
-            self._reload_icon(self.btn_close, "icon2/close-window.png", "close", colors, (20, 20), icon_color="#FF4444")
+            self._reload_icon(self.btn_close, "icon2/close-window.png", "close", colors, (28, 28), icon_color="#FF4444")
         if self.btn_quick_create: 
             self.btn_quick_create.config(bg=colors["bg_header"])
             self.update_quick_create_icon(colors)
