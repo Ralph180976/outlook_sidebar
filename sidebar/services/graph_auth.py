@@ -33,8 +33,13 @@ class GraphAuth:
         
         self.cache = msal.SerializableTokenCache()
         if os.path.exists(self._cache_path):
-            with open(self._cache_path, "r") as f:
-                self.cache.deserialize(f.read())
+            try:
+                with open(self._cache_path, "r") as f:
+                    content = f.read()
+                    if content:
+                        self.cache.deserialize(content)
+            except Exception as e:
+                print(f"[GraphAuth] Ignored corrupt cache: {e}")
         
         # Use 'common' for multi-tenant so any Microsoft account works
         self.app = msal.PublicClientApplication(

@@ -4,11 +4,34 @@ from datetime import datetime, timedelta
 import pythoncom
 import os
 import time
+import time
+try:
+    import winreg
+except ImportError:
+    import _winreg as winreg
 
-# Import theme constants from core
 # Import theme constants from core
 from sidebar.core.theme import OL_CAT_COLORS
 from sidebar.services.mail_client import MailClient
+
+def _has_outlook_profile():
+    """Check registry to see if Outlook is actually set up, avoiding the 'Welcome to Outlook' wizard."""
+    paths = [
+        r"Software\Microsoft\Office\16.0\Outlook\Profiles",
+        r"Software\Microsoft\Office\15.0\Outlook\Profiles",
+        r"Software\Microsoft\Windows NT\CurrentVersion\Windows Messaging Subsystem\Profiles"
+    ]
+    for p in paths:
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, p)
+            # Check if there's at least one profile
+            num_subkeys = winreg.QueryInfoKey(key)[0]
+            winreg.CloseKey(key)
+            if num_subkeys > 0:
+                return True
+        except OSError:
+            pass
+    return False
 
 class OutlookClient(MailClient):
     # Re-expose for compatibility if needed, or just use the imported one
@@ -33,6 +56,12 @@ class OutlookClient(MailClient):
             return False
             
         self._last_connect_time = now
+        
+        if not _has_outlook_profile():
+            print("No Outlook profile found in registry. Skipping COM initialization to avoid wizard.")
+            self.outlook = None
+            self.namespace = None
+            return False
         
         try:
             # Helper to initialize COM in this thread if needed

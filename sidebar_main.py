@@ -1175,6 +1175,7 @@ class SidebarWindow(tk.Tk):
          self.overlay_picker.pack(fill="both", expand=True)
 
     def refresh_emails(self):
+        if not self.outlook_client: return
         try:
             # Update UI fonts for header elements
             self.lbl_title.config(font=(self.font_family, 10, "bold"))
@@ -1727,6 +1728,7 @@ class SidebarWindow(tk.Tk):
 
     def refresh_reminders(self):
         """Refreshes the Reminder/Flagged section (Bottom List)."""
+        if not self.outlook_client: return
         # Ensure scrollable frame exists
         # Clear content
         if self.reminder_list:
@@ -2662,6 +2664,7 @@ class SidebarWindow(tk.Tk):
 
     def _perform_check(self):
         """Actual check logic."""
+        if not self.outlook_client: return
         accounts = None
         if self.config.enabled_accounts:
             accounts = list(self.config.enabled_accounts.keys())

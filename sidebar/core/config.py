@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.23" # Added Sentry SDK Error Tracking
+VERSION = "v1.3.24" # Fix NoneType error and COM wizard popup
 
 # --- Image Resampling Mode ---
 try:
