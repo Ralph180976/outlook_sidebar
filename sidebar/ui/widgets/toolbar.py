@@ -52,9 +52,11 @@ class SidebarToolbar:
         # Better to let the main app handle caching if the loader does it? 
         # Actually standard practice is to keep references here too to prevent GC.
         self.icons = {}
+        self.colors = {}
 
     def create_header_buttons(self, colors):
         """Creates the buttons in the header frame."""
+        self.colors = colors
         # 1. Pin Button
         self._create_pin_button(colors)
         
@@ -172,7 +174,7 @@ class SidebarToolbar:
         
         if os.path.exists(path):
              try:
-                  self.icon_pin_active = self.load_icon(path, size=(24, 24), color=colors["fg_primary"])
+                  self.icon_pin_active = self.load_icon(path, size=(24, 24), color=colors["accent"])
                   self.icon_pin_inactive = self.load_icon(path, size=(24, 24), color=colors["fg_dim"])
                   
                   img = self.icon_pin_active if self.config.pinned else self.icon_pin_inactive
@@ -197,7 +199,7 @@ class SidebarToolbar:
         if not isinstance(self.btn_pin, tk.Canvas): return
         
         self.btn_pin.delete("all")
-        color = "#007ACC" if self.config.pinned else "#AAAAAA"
+        color = colors.get("accent", "#007ACC") if self.config.pinned else colors.get("fg_dim", "#AAAAAA")
         # Draw a simple pin shape
         self.btn_pin.create_oval(10, 5, 20, 15, fill=color, outline="")
         self.btn_pin.create_line(15, 15, 15, 25, fill=color, width=2)
@@ -213,10 +215,7 @@ class SidebarToolbar:
                      self.btn_pin.config(image=self.icon_pin_inactive)
         elif isinstance(self.btn_pin, tk.Canvas):
              self.btn_pin.delete("all")
-             # We need colors again to redraw canvas? 
-             # Or just hardcode fallback colors as it was in original?
-             # sidebar_main.py used hardcoded fallback colors in draw_pin_icon
-             color = "#007ACC" if self.config.pinned else "#AAAAAA"
+             color = self.colors.get("accent", "#007ACC") if self.config.pinned else self.colors.get("fg_dim", "#AAAAAA")
              self.btn_pin.create_oval(10, 5, 20, 15, fill=color, outline="")
              self.btn_pin.create_line(15, 15, 15, 25, fill=color, width=2)
 
@@ -254,6 +253,7 @@ class SidebarToolbar:
 
     def apply_theme(self, colors):
         """Updates all buttons with new theme colors."""
+        self.colors = colors
         # 1. Header Buttons
         if self.btn_settings: self.btn_settings.config(bg=colors["bg_header"])
         if self.btn_help: self.btn_help.config(bg=colors["bg_header"], fg=colors["fg_dim"])
@@ -302,7 +302,7 @@ class SidebarToolbar:
         path = self.resource_path("icon2/pin1.png")
         if os.path.exists(path):
             try:
-                self.icon_pin_active = self.load_icon(path, size=(24, 24), color=colors["fg_primary"])
+                self.icon_pin_active = self.load_icon(path, size=(24, 24), color=colors["accent"])
                 self.icon_pin_inactive = self.load_icon(path, size=(24, 24), color=colors["fg_dim"])
                 self.btn_pin.config(bg=colors["bg_header"])
                 self.update_pin_state()

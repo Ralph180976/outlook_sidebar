@@ -56,6 +56,16 @@ import time
 import math
 import glob
 import ctypes
+
+try:
+    import sentry_sdk
+    sentry_sdk.init(
+        dsn="https://3542f3c3d42e6dea7747f1a9ae88af18@o4510942810472448.ingest.de.sentry.io/4510945291010128",
+        send_default_pii=True,
+    )
+except ImportError:
+    pass
+
 from ctypes import wintypes
 from PIL import Image, ImageTk, ImageDraw
 from datetime import datetime, timedelta
@@ -177,6 +187,13 @@ class SidebarWindow(tk.Tk):
             self.outlook_client = self._select_backend()
         except Exception as e:
             print("ERROR: MailClient init failed: {}".format(e))
+            import traceback
+            traceback.print_exc()
+            try:
+                import sentry_sdk
+                sentry_sdk.capture_exception()
+            except ImportError:
+                pass
             self.outlook_client = None
         
         # Image Cache (to keep references alive)
@@ -342,28 +359,8 @@ class SidebarWindow(tk.Tk):
         
         # Dropdown / Drawer Button (Arrow)
         # Dynamic Generation for "Infilled White" arrow as requested
-        try:
-             # Size 20x20
-             # DOWN Arrow (Closed)
-             img_down = Image.new("RGBA", (20, 20), (0,0,0,0))
-             draw_d = ImageDraw.Draw(img_down)
-             # Triangle pointing down: Top-Left, Top-Right, Bottom-Center
-             # Coordinates for 20x20: (4, 7), (16, 7), (10, 15)
-             draw_d.polygon([(4, 7), (16, 7), (10, 15)], fill="white")
-             self.icon_arrow_down = ImageTk.PhotoImage(img_down)
-             
-             # UP Arrow (Open)
-             img_up = Image.new("RGBA", (20, 20), (0,0,0,0))
-             draw_u = ImageDraw.Draw(img_up)
-             # Triangle pointing up: Bottom-Left, Bottom-Right, Top-Center
-             # Coordinates: (4, 15), (16, 15), (10, 7)
-             draw_u.polygon([(4, 15), (16, 15), (10, 7)], fill="white")
-             self.icon_arrow_up = ImageTk.PhotoImage(img_up)
-             
-             self.btn_account_toggle = tk.Label(self.email_header, image=self.icon_arrow_down, bg=self.colors["bg_card"], cursor="hand2")
-        except Exception as e:
-             print("Error generating arrow icons: {}".format(e))
-             self.btn_account_toggle = tk.Label(self.email_header, text="â–¼", bg=self.colors["bg_card"], fg=self.colors["fg_text"], cursor="hand2")
+        self.btn_account_toggle = tk.Label(self.email_header, cursor="hand2")
+        self._update_arrow_icons()
              
         self.btn_account_toggle.pack(side="right", padx=5)
         self.btn_account_toggle.bind("<Button-1>", lambda e: self.toggle_account_selection())
@@ -1061,6 +1058,30 @@ class SidebarWindow(tk.Tk):
             self._focus_window_by_hwnd(target_hwnd)
         else:
             self.after(100, lambda: self._wait_and_focus(title_fragment, attempt+1))
+
+    def _update_arrow_icons(self):
+        try:
+            color = self.colors["fg_text"]
+            # DOWN Arrow (Closed)
+            img_down = Image.new("RGBA", (20, 20), (0,0,0,0))
+            draw_d = ImageDraw.Draw(img_down)
+            draw_d.polygon([(4, 7), (16, 7), (10, 15)], fill=color)
+            self.icon_arrow_down = ImageTk.PhotoImage(img_down)
+            
+            # UP Arrow (Open)
+            img_up = Image.new("RGBA", (20, 20), (0,0,0,0))
+            draw_u = ImageDraw.Draw(img_up)
+            draw_u.polygon([(4, 15), (16, 15), (10, 7)], fill=color)
+            self.icon_arrow_up = ImageTk.PhotoImage(img_up)
+
+            if hasattr(self, "account_overlay") and self.account_overlay and self.account_overlay.winfo_exists():
+                self.btn_account_toggle.config(image=self.icon_arrow_up, bg=self.colors["bg_card"])
+            else:
+                self.btn_account_toggle.config(image=self.icon_arrow_down, bg=self.colors["bg_card"])
+        except Exception as e:
+            print("Error generating arrow icons: {}".format(e))
+            if hasattr(self, "btn_account_toggle") and self.btn_account_toggle:
+                self.btn_account_toggle.config(text="▼", bg=self.colors["bg_card"], fg=self.colors["fg_text"])
 
     def toggle_account_selection(self):
         """Toggles the account selection overlay."""
@@ -2972,8 +2993,8 @@ class SidebarWindow(tk.Tk):
              self.pane_emails.config(bg=c["bg_root"])
              self.pane_reminders.config(bg=c["bg_root"])
              self.email_list_frame.config(bg=c["bg_root"])
-             self.scroll_frame.config(bg=c["bg_root"])
-             self.reminder_list.config(bg=c["bg_root"])
+             self.scroll_frame.config(bg=c["bg_root"], sb_bg=c["fg_dim"], sb_trough=c["scroll_bg"])
+             self.reminder_list.config(bg=c["bg_root"], sb_bg=c["fg_dim"], sb_trough=c["scroll_bg"])
         except: pass
  
         # 3. Section Headers
@@ -2990,6 +3011,7 @@ class SidebarWindow(tk.Tk):
         try:
             self.lbl_title.config(bg=c["bg_header"], fg=c["fg_primary"])
             self.btn_account_toggle.config(bg=c["bg_card"])
+            self._update_arrow_icons()
             
             if self.toolbar:
                 self.toolbar.apply_theme(c)

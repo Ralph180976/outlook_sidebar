@@ -25,7 +25,7 @@ class ScrollableFrame(tk.Frame):
 
         # Scrollbar on the right side
         self.scrollbar = tk.Scrollbar(self, orient="vertical", command=self.canvas.yview,
-                                      bg="#444444", troughcolor="#2D2D30", width=8,
+                                      bg="#666666", troughcolor="#333333", width=12,
                                       highlightthickness=0, bd=0)
 
         # Pack scrollbar FIRST to reserve its space, then canvas fills the rest
@@ -75,6 +75,14 @@ class ScrollableFrame(tk.Frame):
         if bg:
             self.canvas.config(bg=bg)
             self.scrollable_frame.config(bg=bg)
+            
+        sb_bg = kwargs.pop("sb_bg", None)
+        sb_trough = kwargs.pop("sb_trough", None)
+        if sb_bg:
+            self.scrollbar.config(bg=sb_bg, activebackground=sb_bg)
+        if sb_trough:
+            self.scrollbar.config(troughcolor=sb_trough)
+            
         # Apply to self (the container frame)
         tk.Frame.config(self, **kwargs)
 

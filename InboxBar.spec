@@ -23,6 +23,7 @@ a = Analysis(
         'msal',
         'requests',
         'urllib3',
+        'sentry_sdk',
         # --- All sidebar modules ---
         'sidebar',
         'sidebar.core',
