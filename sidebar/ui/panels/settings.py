@@ -928,8 +928,13 @@ class SettingsPanel(tk.Frame):
         # === TASKS (New Section) ===
         # --- 5. Tasks ---
         self.reminder_show_tasks_var = tk.BooleanVar(value=self.main_window.config.reminder_show_tasks)
+        
+        # Row frame to hold checkbox + arrow on same line
+        tasks_row = tk.Frame(reminder_frame, bg=self.colors["bg_root"])
+        tasks_row.grid(row=8, column=0, columnspan=2, sticky="w", pady=(0, 5))
+        
         chk_tasks = tk.Checkbutton(
-            reminder_frame, text="Tasks", 
+            tasks_row, text="Tasks", 
             variable=self.reminder_show_tasks_var,
             command=self.toggle_tasks_options,
             bg=self.colors["bg_root"], fg=self.colors["fg_text"],
@@ -938,22 +943,22 @@ class SettingsPanel(tk.Frame):
             activeforeground=self.colors["fg_text"],
             font=("Segoe UI", 9, "bold")
         )
-        chk_tasks.grid(row=8, column=0, sticky="w", pady=(0, 5))
+        chk_tasks.pack(side="left")
 
-        # Toggle button
+        # Toggle button (Arrow) beside checkbox
         self.tasks_options_visible = False
-        self.tasks_container = tk.Frame(reminder_frame, bg=self.colors["bg_root"])
-        self.tasks_container.grid(row=8, column=1, sticky="nw", rowspan=2, padx=(5, 0))
-
         self.btn_toggle_tasks = tk.Label(
-            self.tasks_container, text="▼",
+            tasks_row, text="▼",
             bg=self.colors["bg_root"], fg=self.colors["fg_dim"],
             font=("Segoe UI", 8),
             cursor="hand2"
         )
-        self.btn_toggle_tasks.grid(row=0, column=0, sticky="w", pady=(2, 0))
+        self.btn_toggle_tasks.pack(side="left", padx=(5, 0))
         self.btn_toggle_tasks.bind("<Button-1>", lambda e: self.toggle_tasks_visibility())
 
+        # Container for expanded options (below the checkbox row)
+        self.tasks_container = tk.Frame(reminder_frame, bg=self.colors["bg_root"])
+        self.tasks_container.grid(row=9, column=0, columnspan=2, sticky="w", padx=(20, 0))
 
         self.tasks_options_frame = tk.Frame(self.tasks_container, bg=self.colors["bg_root"])
         # Vertical Layout for Task Types + Date Filters
@@ -992,6 +997,7 @@ class SettingsPanel(tk.Frame):
             ).grid(row=3+idx, column=0, sticky="w", pady=1)
 
         # tasks_options_frame starts hidden (not gridded yet)
+        self.tasks_container.grid_remove()
 
         # Update tick states for meetings/tasks
         self.update_meeting_ticks_from_config()
@@ -1003,7 +1009,8 @@ class SettingsPanel(tk.Frame):
         if self.reminder_show_meetings_var.get():
              self.btn_toggle_meetings.grid()
         if self.reminder_show_tasks_var.get():
-             self.btn_toggle_tasks.grid()
+             self.btn_toggle_tasks.pack(side="left", padx=(5, 0))
+             self.tasks_container.grid()
 
     def update_interaction_settings(self):
         self.main_window.config.buttons_on_hover = self.buttons_on_hover_var.get()
@@ -1198,24 +1205,26 @@ class SettingsPanel(tk.Frame):
     def toggle_tasks_options(self):
         if self.reminder_show_tasks_var.get():
              self.main_window.config.reminder_show_tasks = True
+             self.btn_toggle_tasks.pack(side="left", padx=(5, 0))
              self.tasks_container.grid()
              self.toggle_tasks_visibility(force_open=True)
         else:
              self.main_window.config.reminder_show_tasks = False
-             self.tasks_options_frame.grid_remove()
+             self.tasks_options_frame.pack_forget()
              self.tasks_container.grid_remove()
+             self.btn_toggle_tasks.pack_forget()
         self.main_window.save_config()
         self.main_window.refresh_reminders()
 
     def toggle_tasks_visibility(self, force_open=False):
         if self.tasks_options_visible and not force_open:
-             self.tasks_options_frame.grid_remove()
+             self.tasks_options_frame.pack_forget()
              self.btn_toggle_tasks.config(text="▼")
              self.tasks_options_visible = False
         else:
              # Accordion: close other sections
              self._close_other_accordions('tasks')
-             self.tasks_options_frame.grid(row=1, column=0, sticky="w", padx=(10, 0))
+             self.tasks_options_frame.pack(side="top", anchor="w")
              self.btn_toggle_tasks.config(text="▲")
              self.tasks_options_visible = True
              self.after(50, lambda: self._scroll_into_view(self.tasks_options_frame))
@@ -1235,7 +1244,7 @@ class SettingsPanel(tk.Frame):
             self.btn_toggle_meetings.config(text="▼")
             self.meetings_options_visible = False
         if except_section != 'tasks' and self.tasks_options_visible:
-            self.tasks_options_frame.grid_remove()
+            self.tasks_options_frame.pack_forget()
             self.btn_toggle_tasks.config(text="▼")
             self.tasks_options_visible = False
 

@@ -352,7 +352,7 @@ class OutlookClient(MailClient):
                                     next_week = today + timedelta(days=8)
                                     date_queries.append("([DueDate] >= '{}' AND [DueDate] < '{}')".format(today.strftime('%d/%m/%Y %H:%M'), next_week.strftime('%d/%m/%Y %H:%M')))
                                 elif filter_name == "No Date":
-                                    date_queries.append("([DueDate] IS NULL OR [DueDate] > '01/01/4500')")
+                                    date_queries.append("[DueDate] = ''")
                             
                             if date_queries:
                                 combined_date_query = " OR ".join(date_queries)
