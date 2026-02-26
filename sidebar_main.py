@@ -567,7 +567,7 @@ class SidebarWindow(tk.Tk):
         """Legacy wrapper for load_icon_colored (defaults to standard grey)."""
         return self.load_icon_colored(path, size, color="#BFBFBF")
 
-    def handle_custom_action(self, config, email_data):
+    def handle_custom_action(self, config, email_data, source_card=None):
         """Executes the selected actions on the specific email."""
         print("Executing Actions for {} on {}".format(config.get('label'), email_data.get('subject')))
         
@@ -576,6 +576,24 @@ class SidebarWindow(tk.Tk):
         if not entry_id:
             print("No EntryID found.")
             return
+
+        # --- Instant visual feedback: remove the card immediately ---
+        act1 = config.get("action1", "")
+        # Determine which actions actually remove the card from view
+        always_removes = act1 in ("Delete", "Read & Delete", "Move To...")
+        # Mark Read / Flag only remove from unread-only view
+        conditional_removes = act1 in ("Mark Read", "Flag") and not self.config.show_read
+        if (always_removes or conditional_removes) and source_card:
+            try:
+                source_card.pack_forget()
+                source_card.destroy()
+            except: pass
+            # Update header count immediately (for unread counter)
+            if act1 != "Flag":
+                try:
+                    current = int(self.lbl_email_header.cget("text").split(" - ")[1])
+                    self.lbl_email_header.config(text="Email - {}".format(max(0, current - 1)))
+                except: pass
 
         # Use MailClient abstraction instead of raw COM objects
         def execute_single_action(act_name, folder_name=""):
@@ -623,8 +641,12 @@ class SidebarWindow(tk.Tk):
             # Execute Action 2 - REMOVED
             # execute_single_action(config.get("action2"), config.get("folder"))
                 
-            # Refresh UI
-            self.after(500, self.refresh_emails)
+            # Refresh UI — fast delay since card is already hidden
+            # Flag actions need reminders refreshed too
+            if act1 == "Flag":
+                self.after(100, self.refresh_emails)
+            else:
+                self.after(100, lambda: self.refresh_emails(skip_reminders=True))
             
         except Exception as e:
             print("Action execution loop error: {}".format(e))
@@ -1174,13 +1196,17 @@ class SidebarWindow(tk.Tk):
          self.overlay_picker = FolderPickerFrame(container, folders, on_pick, on_return, selected_paths)
          self.overlay_picker.pack(fill="both", expand=True)
 
-    def refresh_emails(self):
+    def refresh_emails(self, skip_reminders=False):
         if not self.outlook_client: return
         try:
             # Update UI fonts for header elements
             self.lbl_title.config(font=(self.font_family, 10, "bold"))
             self.btn_settings.config(font=(self.font_family, 12))
             self.btn_refresh.config(font=(self.font_family, 15))
+
+            # --- Anti-flicker: hide canvas content during rebuild ---
+            canvas = self.scroll_frame.canvas
+            canvas.itemconfigure(self.scroll_frame.window_id, state='hidden')
 
             # Clear existing
             for widget in self.scroll_frame.scrollable_frame.winfo_children():
@@ -1203,8 +1229,12 @@ class SidebarWindow(tk.Tk):
                  self.lbl_email_header.config(text="Email - {}".format(unread_count), bg=self.colors["bg_card"], fg=self.colors["fg_text"])
             except: pass
             
-            # Fetch Category Colors
-            cat_map = self.outlook_client.get_category_map()
+            # Fetch Category Colors (cached with 5-min TTL)
+            now_ts = time.time()
+            if not hasattr(self, '_cat_map_cache') or now_ts - getattr(self, '_cat_map_cache_time', 0) > 300:
+                self._cat_map_cache = self.outlook_client.get_category_map()
+                self._cat_map_cache_time = now_ts
+            cat_map = self._cat_map_cache
             
             for email in emails:
                 lbl_sender = None
@@ -1523,8 +1553,8 @@ class SidebarWindow(tk.Tk):
                         tip_text = tip_text.replace('Flag', 'Un-flag')
                     ToolTip(btn, tip_text)
                     
-                    # Bind Action
-                    btn.bind("<Button-1>", lambda e, c=conf, em=email: self.handle_custom_action(c, em))
+                    # Bind Action (pass card widget for instant removal)
+                    btn.bind("<Button-1>", lambda e, c=conf, em=email, w=card: self.handle_custom_action(c, em, source_card=w))
 
                 # --- Logic for Buttons Visibility ---
                 if self.config.buttons_on_hover:
@@ -1713,8 +1743,13 @@ class SidebarWindow(tk.Tk):
                     
                 card.bind("<Configure>", update_wraps)
 
-            # Ensure Reminders are also refreshed
-            self.refresh_reminders()
+            # --- Anti-flicker: reveal rebuilt content in one step ---
+            canvas.itemconfigure(self.scroll_frame.window_id, state='normal')
+            canvas.configure(scrollregion=canvas.bbox('all'))
+
+            # Ensure Reminders are also refreshed (skip for non-flag email actions)
+            if not skip_reminders:
+                self.refresh_reminders()
 
         except Exception as e:
             print("CRITICAL ERROR in refresh_emails: {}".format(e))
@@ -1732,6 +1767,9 @@ class SidebarWindow(tk.Tk):
         # Ensure scrollable frame exists
         # Clear content
         if self.reminder_list:
+            # --- Anti-flicker: hide canvas content during rebuild ---
+            r_canvas = self.reminder_list.canvas
+            r_canvas.itemconfigure(self.reminder_list.window_id, state='hidden')
             for widget in self.reminder_list.scrollable_frame.winfo_children():
                 widget.destroy()
         
@@ -2253,6 +2291,12 @@ class SidebarWindow(tk.Tk):
                      
                      # Also bind hover specifically for buttons area to prevent hiding?
                      # No, because buttons are children of fa, which is child of cf. containing check covers it.
+
+        # --- Anti-flicker: reveal rebuilt reminders content in one step ---
+        if self.reminder_list:
+            r_canvas = self.reminder_list.canvas
+            r_canvas.itemconfigure(self.reminder_list.window_id, state='normal')
+            r_canvas.configure(scrollregion=r_canvas.bbox('all'))
 
 
     def draw_pin_icon(self):

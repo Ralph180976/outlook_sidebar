@@ -39,8 +39,22 @@ class ScrollableFrame(tk.Frame):
             self.canvas.configure(yscrollcommand=self.scrollbar.set)
             self._scrollbar_visible = True
         
-        # Mousewheel scrolling
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        # Global mousewheel scrolling logic that respects multiple scrollable frames
+        if not getattr(tk.Frame, "_global_mousewheel_bound", False):
+            tk.Frame._global_mousewheel_bound = True
+            
+            def _global_mousewheel(event):
+                w = event.widget
+                while w:
+                    if hasattr(w, "_on_mousewheel") and callable(w._on_mousewheel):
+                        w._on_mousewheel(event)
+                        return
+                    try:
+                        w = w.master
+                    except AttributeError:
+                        break
+            
+            self.canvas.bind_all("<MouseWheel>", _global_mousewheel)
         
         # Ensure scrollable frame matches canvas width
         self.canvas.bind("<Configure>", self._on_canvas_configure)
