@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.24" # Fix NoneType error and COM wizard popup
+VERSION = "v1.3.25" # Fix glitch, task filters, startup resilience, diagnostic tool
 
 # --- Image Resampling Mode ---
 try:

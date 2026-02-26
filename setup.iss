@@ -2,7 +2,7 @@
 ; Creates a proper Windows installer with Add/Remove Programs support
 
 #define MyAppName "InboxBar"
-#define MyAppVersion "1.3.24"
+#define MyAppVersion "1.3.25"
 #define MyAppPublisher "Coveya"
 #define MyAppURL "https://github.com/Ralph180976/outlook_sidebar"
 #define MyAppExeName "InboxBar.exe"
