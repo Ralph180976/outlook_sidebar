@@ -189,6 +189,16 @@ class SidebarWindow(tk.Tk):
             print("ERROR: MailClient init failed: {}".format(e))
             import traceback
             traceback.print_exc()
+            # Log to AppData for remote debugging
+            try:
+                log_dir = os.path.join(os.environ.get("LOCALAPPDATA", "."), "OutlookSidebar")
+                os.makedirs(log_dir, exist_ok=True)
+                with open(os.path.join(log_dir, "startup_error.log"), "a") as f:
+                    from datetime import datetime as _dt
+                    f.write("\n=== {} ===\n".format(_dt.now()))
+                    f.write("MailClient init failed: {}\n".format(e))
+                    f.write(traceback.format_exc())
+            except: pass
             try:
                 import sentry_sdk
                 sentry_sdk.capture_exception()
@@ -1130,6 +1140,14 @@ class SidebarWindow(tk.Tk):
                     self.btn_account_toggle.config(image=self.icon_arrow_up)
                 
                 # Fetch Accounts
+                if not self.outlook_client:
+                    messagebox.showerror("Connection Error",
+                        "Outlook is not connected.\n\n"
+                        "Please make sure:\n"
+                        "1. Outlook is fully open and loaded\n"
+                        "2. Close and reopen InboxBar\n\n"
+                        "Run diagnose.py for detailed diagnostics.")
+                    return
                 accounts = self.outlook_client.get_accounts()
                 # Do not error out if empty, allow UI to show "Add Account" button
 
