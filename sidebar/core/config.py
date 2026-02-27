@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.25" # Fix glitch, task filters, startup resilience, diagnostic tool
+VERSION = "v1.3.26" # Fix offline indicator hang, fix Settings crash when msal missing
 
 # --- Image Resampling Mode ---
 try:

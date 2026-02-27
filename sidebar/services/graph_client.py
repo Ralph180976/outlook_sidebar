@@ -34,6 +34,11 @@ class GraphAPIClient(MailClient):
         
         url = endpoint if endpoint.startswith("http") else f"{self.base_url}{endpoint}"
         
+        # Enforce a connection timeout so the app doesn't hang when offline.
+        # (connect_timeout=10s, read_timeout=30s)
+        if 'timeout' not in kwargs:
+            kwargs['timeout'] = (10, 30)
+        
         try:
             resp = requests.request(method, url, headers=headers, **kwargs)
             if resp.status_code == 204: # No Content (Success)
@@ -44,9 +49,14 @@ class GraphAPIClient(MailClient):
             if "application/json" in resp.headers.get("Content-Type", ""):
                  return resp.json()
             return resp.content
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            # Network/connectivity errors — re-raise so callers can detect offline state
+            print(f"[Graph] Network error {method} {endpoint}: {e}")
+            raise
         except requests.exceptions.RequestException as e:
+            # HTTP errors (4xx/5xx) — return None, these are API-level issues
             print(f"[Graph] API Error {method} {endpoint}: {e}")
-            if hasattr(e.response, 'text'):
+            if hasattr(e, 'response') and e.response is not None and hasattr(e.response, 'text'):
                 print(f"[Graph] detail: {e.response.text}")
             return None
 

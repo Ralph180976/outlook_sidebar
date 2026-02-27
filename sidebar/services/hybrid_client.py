@@ -69,16 +69,29 @@ class HybridMailClient(MailClient):
         
         all_emails = []
         total_unread = 0
+        graph_error = None
         
         if self.com and (c_names or not account_names):
-            c_emails, c_unread = self.com.get_inbox_items(count, unread_only, only_flagged, due_filters, c_names, account_config)
-            all_emails.extend(c_emails)
-            total_unread += c_unread
+            try:
+                c_emails, c_unread = self.com.get_inbox_items(count, unread_only, only_flagged, due_filters, c_names, account_config)
+                all_emails.extend(c_emails)
+                total_unread += c_unread
+            except Exception as e:
+                print("[Hybrid] COM get_inbox_items failed: {}".format(e))
             
         if self.graph and (g_names or not account_names):
-            g_emails, g_unread = self.graph.get_inbox_items(count, unread_only, only_flagged, due_filters, g_names, account_config)
-            all_emails.extend(g_emails)
-            total_unread += g_unread
+            try:
+                g_emails, g_unread = self.graph.get_inbox_items(count, unread_only, only_flagged, due_filters, g_names, account_config)
+                all_emails.extend(g_emails)
+                total_unread += g_unread
+            except Exception as e:
+                print("[Hybrid] Graph get_inbox_items failed (likely offline): {}".format(e))
+                graph_error = e
+        
+        # If we got NO emails and there was a network error, propagate it
+        # so the UI can show the offline indicator
+        if not all_emails and graph_error is not None:
+            raise graph_error
             
         # Sort combined by received date (safely handling None dates)
         import datetime
@@ -90,7 +103,11 @@ class HybridMailClient(MailClient):
         c_names, g_names = self._split_accounts(account_names)
         total = 0
         if self.com and (c_names or not account_names): total += self.com.get_unread_count(c_names, account_config)
-        if self.graph and (g_names or not account_names): total += self.graph.get_unread_count(g_names, account_config)
+        if self.graph and (g_names or not account_names):
+            try:
+                total += self.graph.get_unread_count(g_names, account_config)
+            except Exception as e:
+                print("[Hybrid] Graph get_unread_count failed: {}".format(e))
         return total
 
     def _route_item(self, entry_id, store_id, method_name, *args):
@@ -200,13 +217,21 @@ class HybridMailClient(MailClient):
         c_names, g_names = self._split_accounts(account_names)
         val = False
         if self.com and c_names: val = val or self.com.check_new_mail(c_names)
-        if self.graph and g_names: val = val or self.graph.check_new_mail(g_names)
+        if self.graph and g_names:
+            try:
+                val = val or self.graph.check_new_mail(g_names)
+            except Exception as e:
+                print("[Hybrid] Graph check_new_mail failed: {}".format(e))
         return val
 
     def get_pulse_status(self, account_names=None) -> dict:
         c_names, g_names = self._split_accounts(account_names)
         p1 = self.com.get_pulse_status(c_names) if self.com and c_names else {"calendar": None, "tasks": None}
-        p2 = self.graph.get_pulse_status(g_names) if self.graph and g_names else {"calendar": None, "tasks": None}
+        try:
+            p2 = self.graph.get_pulse_status(g_names) if self.graph and g_names else {"calendar": None, "tasks": None}
+        except Exception as e:
+            print("[Hybrid] Graph get_pulse_status failed: {}".format(e))
+            p2 = {"calendar": None, "tasks": None}
         
         # Combine (take highest urgency)
         res = {"calendar": p1.get("calendar") or p2.get("calendar"), 

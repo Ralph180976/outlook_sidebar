@@ -242,9 +242,18 @@ class SettingsPanel(tk.Frame):
             try:
                 from sidebar.services.graph_auth import GraphAuth
                 auth = GraphAuth()
-                auth.get_token(interactive=True)
-                update_auth_ui()
-                tk.messagebox.showinfo("Success", "Successfully signed into Microsoft 365.")
+                if not auth.app:
+                    tk.messagebox.showerror("Sign in Failed", 
+                        "Microsoft Graph is not available.\n\n"
+                        "The 'msal' package may not be installed.\n"
+                        "Please reinstall InboxBar or contact support.")
+                    return
+                token = auth.get_token(interactive=True)
+                if token:
+                    update_auth_ui()
+                    tk.messagebox.showinfo("Success", "Successfully signed into Microsoft 365.")
+                else:
+                    tk.messagebox.showerror("Sign in Failed", "Could not obtain an access token.")
             except Exception as e:
                 tk.messagebox.showerror("Sign in Failed", str(e))
                 

@@ -165,6 +165,10 @@ class SidebarWindow(tk.Tk):
         self.settings_panel_open = False
         self.settings_panel = None
         self.settings_panel_width = 370
+
+        # Offline / Network State
+        self._is_offline = False
+        self._offline_bar = None
         
         # Window Mode State
         # self.split_sash_pos = 0 # Now in self.config
@@ -1214,6 +1218,68 @@ class SidebarWindow(tk.Tk):
          self.overlay_picker = FolderPickerFrame(container, folders, on_pick, on_return, selected_paths)
          self.overlay_picker.pack(fill="both", expand=True)
 
+    def _is_network_error(self, exception):
+        """Check if an exception is a transient network/connectivity error."""
+        # Check by exception type name first (works even if requests isn't imported here)
+        type_name = type(exception).__name__
+        network_types = ["ConnectionError", "Timeout", "ConnectTimeout", "ReadTimeout",
+                         "ConnectionRefusedError", "TimeoutError", "OSError"]
+        if type_name in network_types:
+            return True
+        
+        network_keywords = [
+            "getaddrinfo failed",
+            "NameResolutionError",
+            "Max retries exceeded",
+            "ConnectionError",
+            "NewConnectionError",
+            "RemoteDisconnected",
+            "Connection refused",
+            "Network is unreachable",
+            "timed out",
+            "SSLError",
+            "Errno 11001",
+            "Errno 11004",
+            "WinError 10060",
+            "HTTPSConnectionPool",
+            "ConnectTimeoutError",
+        ]
+        error_str = str(exception)
+        return any(kw.lower() in error_str.lower() for kw in network_keywords)
+
+    def _show_offline_bar(self):
+        """Show a subtle offline indicator bar below the header."""
+        if self._offline_bar and self._offline_bar.winfo_exists():
+            return  # Already showing
+        
+        self._is_offline = True
+        
+        bar = tk.Frame(self.main_frame, bg="#FFB347", height=22)
+        bar.pack(fill="x", side="top", before=self.paned_window)
+        bar.pack_propagate(False)
+        
+        lbl = tk.Label(
+            bar,
+            text="\u26A0  Offline — waiting for connection",
+            bg="#FFB347",
+            fg="#000000",
+            font=(self.config.font_family, 7, "bold"),
+            anchor="center",
+        )
+        lbl.pack(fill="x", expand=True)
+        
+        self._offline_bar = bar
+
+    def _hide_offline_bar(self):
+        """Remove the offline indicator bar."""
+        self._is_offline = False
+        if self._offline_bar:
+            try:
+                self._offline_bar.destroy()
+            except:
+                pass
+            self._offline_bar = None
+
     def refresh_emails(self, skip_reminders=False):
         if not self.outlook_client: return
         try:
@@ -1241,6 +1307,10 @@ class SidebarWindow(tk.Tk):
                 account_names=accounts,
                 account_config=self.config.enabled_accounts
             )
+            
+            # Connection succeeded — clear offline state if it was set
+            if self._is_offline:
+                self._hide_offline_bar()
             
             # Update Header Count
             try:
@@ -1773,10 +1843,17 @@ class SidebarWindow(tk.Tk):
             print("CRITICAL ERROR in refresh_emails: {}".format(e))
             import traceback
             traceback.print_exc()
-            # Try to show error to user if possible
-            try:
-                messagebox.showerror("Sidebar Error", "Error refreshing emails:\\n{}".format(e))
-            except: pass
+            
+            if self._is_network_error(e):
+                # Network/connectivity issue — show subtle offline indicator instead of popup
+                try:
+                    self._show_offline_bar()
+                except: pass
+            else:
+                # Genuine application error — still show dialog
+                try:
+                    messagebox.showerror("Sidebar Error", "Error refreshing emails:\\n{}".format(e))
+                except: pass
 
 
     def refresh_reminders(self):
@@ -2719,6 +2796,11 @@ class SidebarWindow(tk.Tk):
             self._perform_check()
         except Exception as e:
             print("Polling error: {}".format(e))
+            # Show offline indicator if this looks like a network error
+            if self._is_network_error(e):
+                try:
+                    self._show_offline_bar()
+                except: pass
         
         # Schedule next poll
         interval = getattr(self.config, "poll_interval", 15) * 1000
