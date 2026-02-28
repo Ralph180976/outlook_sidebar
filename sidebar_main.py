@@ -160,6 +160,7 @@ class SidebarWindow(tk.Tk):
         self._collapse_timer = None
         self.is_expanded = False
         self.hot_strip_width = DEFAULT_HOT_STRIP_WIDTH
+        self.min_width = DEFAULT_MIN_WIDTH
         
         # Settings Panel State
         self.settings_panel_open = False
@@ -391,7 +392,7 @@ class SidebarWindow(tk.Tk):
         # Note: We already added pane_reminders to PanedWindow
         
         # Header inside pane_reminders (for consistency with email pane)
-        self.r_header = tk.Frame(self.pane_reminders, bg=self.colors["bg_card"], height=20)
+        self.r_header = tk.Frame(self.pane_reminders, bg=self.colors["bg_card"], height=26)
         self.r_header.pack(fill="x", side="top")
         self.r_header.pack_propagate(False)
         
@@ -1416,6 +1417,22 @@ class SidebarWindow(tk.Tk):
                     )
                     lbl_sender.pack(side="left", fill="x", expand=True)
 
+                # Date/Time stamp
+                recv_dt = email.get('received_dt') or email.get('received')
+                if recv_dt:
+                    try:
+                        time_str = recv_dt.strftime("%d/%m/%y %H:%M")
+                        lbl_time = tk.Label(
+                            header_frame,
+                            text=time_str,
+                            fg=self.colors["fg_dim"],
+                            bg=bg_color,
+                            font=(self.config.font_family, self.config.font_size - 1),
+                            anchor="e"
+                        )
+                        lbl_time.pack(side="right", padx=(4, 0))
+                    except:
+                        pass
 
                 # Attachment indicator (only show if setting is enabled)
                 if email.get('has_attachments', False) and self.config.show_has_attachment:
@@ -2417,6 +2434,16 @@ class SidebarWindow(tk.Tk):
         self.config.pinned = not self.config.pinned
         self.config.save()
         
+        # When pinning, reset expanded state and cancel pending timers
+        if self.config.pinned:
+            self.is_expanded = False
+            if self._hover_timer:
+                self.after_cancel(self._hover_timer)
+                self._hover_timer = None
+            if self._collapse_timer:
+                self.after_cancel(self._collapse_timer)
+                self._collapse_timer = None
+        
         if self.toolbar:
             self.toolbar.update_pin_state()
             
@@ -2465,6 +2492,8 @@ class SidebarWindow(tk.Tk):
             self.resize_grip.place_forget()
             # Show Hot Strip
             self.hot_strip_canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
+            # Draw persistent color bars so the strip is visible
+            self.after(50, self._draw_static_strip)
         else:
             # Show internals
             self.hot_strip_canvas.place_forget()
@@ -2853,20 +2882,59 @@ class SidebarWindow(tk.Tk):
                 active_colors.append("#28C745")
             
         # Trigger Pulse if needed
-        if active_colors and not self.config.pinned and not self.is_expanded:
-            # print("DEBUG: Active Pulse Colors: {}".format(active_colors))
-            self.start_pulse(active_colors)
+        if active_colors:
+            # Always store for static strip display
+            self._last_strip_colors = active_colors
+            if not self.config.pinned and not self.is_expanded:
+                self.start_pulse(active_colors)
         elif not active_colors:
             self.stop_pulse()
+
+    def _draw_static_strip(self):
+        """Draw permanent color bars on the collapsed strip at low brightness.
+        
+        Provides visual presence even when idle so the collapsed sidebar
+        is not 'almost invisible'. The accent color is shown at ~40% brightness.
+        """
+        if not hasattr(self, "hot_strip_canvas"):
+            return
+        
+        self.hot_strip_canvas.delete("static_bars")
+        
+        # Use the last known active colors, or fall back to accent
+        colors = getattr(self, "_last_strip_colors", None)
+        if not colors:
+            colors = [self.colors.get("accent", "#60CDFF")]
+        
+        w = self.hot_strip_width
+        item_h = 110
+        num_colors = len(colors)
+        total_h = num_colors * item_h + ((num_colors - 1) * 12)
+        start_y = (self.winfo_height() // 2) - (total_h // 2)
+        
+        for i, hex_color in enumerate(colors):
+            y1 = start_y + (i * item_h) + (i * 12)
+            y2 = y1 + item_h
+            
+            # Draw at 40% brightness (visible but subtle)
+            dimmed = self.adjust_color_brightness(hex_color, 0.4)
+            
+            self.hot_strip_canvas.create_rectangle(
+                0, y1, w, y2,
+                fill=dimmed,
+                outline="",
+                tags="static_bars"
+            )
 
     def start_pulse(self, colors):
         """Starts the hot strip pulsing animation with a list of colors."""
         if self.config.pinned or self.is_expanded: return 
         
-        # print("DEBUG: start_pulse triggered. Colors={}".format(colors)) 
-        
         # Ensure colors is a list
         if isinstance(colors, str): colors = [colors]
+        
+        # Store for static display when pulse stops
+        self._last_strip_colors = colors
         
         # Update colors if already running
         self.pulse_colors = colors
@@ -2884,10 +2952,11 @@ class SidebarWindow(tk.Tk):
             self.after_cancel(self.pulse_timer)
             self.pulse_timer = None
         
-        # Reset color
+        # Draw static (dimmed) bars instead of going blank
         if hasattr(self, "hot_strip_canvas"):
             self.hot_strip_canvas.config(bg="#444444")
             self.hot_strip_canvas.delete("pulse_center")
+            self._draw_static_strip()
 
     def animate_pulse(self):
         """Animating loop for pulse: Stacked, Fixed Height, Fading Opacity."""
@@ -2907,6 +2976,7 @@ class SidebarWindow(tk.Tk):
         brightness = 0.3 + (0.7 * (scale / 20.0)) 
         
         self.hot_strip_canvas.delete("pulse_center")
+        self.hot_strip_canvas.delete("static_bars")  # Hide static bars during pulse
         
         # Geometry
         item_h = 110 # Fixed height (Reduced from 150)
@@ -2969,9 +3039,9 @@ class SidebarWindow(tk.Tk):
             self._collapse_timer = None
         
         if not self.config.pinned and not self.is_expanded:
-            # Start hover timer (0.75s delay)
+            # Start hover timer (0.4s delay — reduced from 0.75s per user feedback)
             if not self._hover_timer:
-                self._hover_timer = self.after(750, self.do_expand)
+                self._hover_timer = self.after(400, self.do_expand)
 
     def do_expand(self):
         """Actually expands the sidebar after delay."""

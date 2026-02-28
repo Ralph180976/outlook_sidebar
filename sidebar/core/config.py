@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.26" # Fix offline indicator hang, fix Settings crash when msal missing
+VERSION = "v1.3.27" # Fix resize drag, text overflow, collapsed strip visibility, pin/settings bug, hover delay, add email timestamp
 
 # --- Image Resampling Mode ---
 try:

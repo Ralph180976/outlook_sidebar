@@ -172,7 +172,7 @@ class SettingsPanel(tk.Frame):
         
         # --- Window Mode Selector ---
         window_frame = tk.Frame(main_content, bg=self.colors["bg_root"])
-        window_frame.pack(fill="x", padx=(18, 30), pady=(10, 0))
+        window_frame.pack(fill="x", padx=(18, 20), pady=(10, 0))
         
         # Track window mode (initialize from main window)
         self.window_mode_var = tk.StringVar(value=self.main_window.config.window_mode)
@@ -186,12 +186,12 @@ class SettingsPanel(tk.Frame):
             command=lambda: self.select_window_mode("single"),
             bg=self.colors["accent"] if is_single else self.colors["bg_card"],
             fg="black" if is_single else self.colors["fg_text"],
-            font=("Segoe UI", 10, "bold") if is_single else ("Segoe UI", 10),
-            bd=0, padx=20, pady=4,
+            font=("Segoe UI", 9, "bold") if is_single else ("Segoe UI", 9),
+            bd=0, padx=8, pady=4,
             activebackground=self.colors["accent"],
             activeforeground=self.colors["fg_text"]
         )
-        self.btn_single_window.pack(side="left", padx=(0, 10), fill="x", expand=True)
+        self.btn_single_window.pack(side="left", padx=(0, 5), fill="x", expand=True)
         
         # Dual Window Button
         self.btn_dual_window = tk.Button(
@@ -199,8 +199,8 @@ class SettingsPanel(tk.Frame):
             command=lambda: self.select_window_mode("dual"),
             bg=self.colors["accent"] if not is_single else self.colors["bg_card"],
             fg="black" if not is_single else self.colors["fg_text"],
-            font=("Segoe UI", 10, "bold") if not is_single else ("Segoe UI", 10),
-            bd=0, padx=20, pady=4,
+            font=("Segoe UI", 9, "bold") if not is_single else ("Segoe UI", 9),
+            bd=0, padx=8, pady=4,
             activebackground=self.colors["bg_card"],
             activeforeground=self.colors["fg_text"]
         )
@@ -209,21 +209,22 @@ class SettingsPanel(tk.Frame):
         # === SECTION 1.5: Backend Integration ===
         create_section_header(main_content, "Backend Integration")
         
-        backend_frame = tk.Frame(main_content, bg=self.colors["bg_root"])
-        backend_frame.pack(fill="x", padx=(20, 30), pady=(10, 0))
+        # Row 1: Mail Source dropdown
+        backend_row1 = tk.Frame(main_content, bg=self.colors["bg_root"])
+        backend_row1.pack(fill="x", padx=(20, 20), pady=(10, 0))
         
-        tk.Label(backend_frame, text="Mail Source:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).pack(side="left")
+        tk.Label(backend_row1, text="Mail Source:", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 10)).pack(side="left")
         
         self.backend_var = tk.StringVar(value=getattr(self.main_window.config, "backend", "auto"))
         self.backend_cb = ttk.Combobox(
-            backend_frame, 
+            backend_row1, 
             textvariable=self.backend_var,
             values=["auto", "com", "graph"], 
             state="readonly", 
-            width=10,
+            width=7,
             font=("Segoe UI", 10)
         )
-        self.backend_cb.pack(side="left", padx=(5, 10))
+        self.backend_cb.pack(side="left", padx=(5, 0))
         
         # M365 Auth Buttons
         def switch_backend(e=None):
@@ -235,8 +236,12 @@ class SettingsPanel(tk.Frame):
             
         self.backend_cb.bind("<<ComboboxSelected>>", switch_backend)
         
-        self.auth_info_lbl = tk.Label(backend_frame, text="", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 9))
-        self.auth_info_lbl.pack(side="left", padx=(10, 5))
+        # Row 2: Auth status and login/logout button
+        backend_row2 = tk.Frame(main_content, bg=self.colors["bg_root"])
+        backend_row2.pack(fill="x", padx=(20, 20), pady=(5, 0))
+        
+        self.auth_info_lbl = tk.Label(backend_row2, text="", fg=self.colors["fg_dim"], bg=self.colors["bg_root"], font=("Segoe UI", 9))
+        self.auth_info_lbl.pack(side="left")
         
         def do_graph_login():
             try:
@@ -263,13 +268,13 @@ class SettingsPanel(tk.Frame):
             update_auth_ui()
             
         self.btn_login = tk.Button(
-            backend_frame, text="Sign in to M365", command=do_graph_login,
+            backend_row2, text="Sign in", command=do_graph_login,
             bg=self.colors["bg_card"], fg=self.colors["fg_text"],
             font=("Segoe UI", 9), relief="raised", bd=1
         )
         
         self.btn_logout = tk.Button(
-            backend_frame, text="Sign Out", command=do_graph_logout,
+            backend_row2, text="Sign Out", command=do_graph_logout,
             bg=self.colors["bg_card"], fg="#FF4444",
             font=("Segoe UI", 9), relief="raised", bd=1
         )
@@ -279,13 +284,15 @@ class SettingsPanel(tk.Frame):
                 self.btn_login.pack_forget()
                 self.btn_logout.pack_forget()
                 self.auth_info_lbl.config(text="")
+                backend_row2.pack_forget()
             else:
+                backend_row2.pack(fill="x", padx=(20, 20), pady=(5, 0))
                 from sidebar.services.graph_auth import GraphAuth
                 auth = GraphAuth()
                 email = auth.get_current_user_email()
                 if email:
                     self.btn_login.pack_forget()
-                    self.auth_info_lbl.config(text=f"Logged in as: {email}", fg="#60CDFF")
+                    self.auth_info_lbl.config(text="Signed in: {}".format(email), fg="#60CDFF")
                     self.btn_logout.pack(side="right")
                 else:
                     self.btn_logout.pack_forget()
@@ -1084,12 +1091,12 @@ class SettingsPanel(tk.Frame):
         self.btn_single_window.config(
             bg=self.colors["accent"] if is_single else self.colors["bg_card"],
             fg="black" if is_single else self.colors["fg_text"],
-            font=("Segoe UI", 10, "bold") if is_single else ("Segoe UI", 10)
+            font=("Segoe UI", 9, "bold") if is_single else ("Segoe UI", 9)
         )
         self.btn_dual_window.config(
             bg=self.colors["accent"] if not is_single else self.colors["bg_card"],
             fg="black" if not is_single else self.colors["fg_text"],
-            font=("Segoe UI", 10, "bold") if not is_single else ("Segoe UI", 10)
+            font=("Segoe UI", 9, "bold") if not is_single else ("Segoe UI", 9)
         )
         
         # Trigger Resize/Reflow
