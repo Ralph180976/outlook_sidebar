@@ -735,6 +735,45 @@ class OutlookClient(MailClient):
             print("Open error: {}".format(e))
             return False
 
+    def reply_to_email(self, entry_id, store_id=None):
+        try:
+            if store_id:
+                item = self.namespace.GetItemFromID(entry_id, store_id)
+            else:
+                item = self.namespace.GetItemFromID(entry_id)
+            reply = item.Reply()
+            reply.Display()
+            return True
+        except Exception as e:
+            print("Reply error: {}".format(e))
+            return False
+
+    def reply_all_to_email(self, entry_id, store_id=None):
+        try:
+            if store_id:
+                item = self.namespace.GetItemFromID(entry_id, store_id)
+            else:
+                item = self.namespace.GetItemFromID(entry_id)
+            reply = item.ReplyAll()
+            reply.Display()
+            return True
+        except Exception as e:
+            print("Reply All error: {}".format(e))
+            return False
+
+    def forward_email(self, entry_id, store_id=None):
+        try:
+            if store_id:
+                item = self.namespace.GetItemFromID(entry_id, store_id)
+            else:
+                item = self.namespace.GetItemFromID(entry_id)
+            fwd = item.Forward()
+            fwd.Display()
+            return True
+        except Exception as e:
+            print("Forward error: {}".format(e))
+            return False
+
     def send_email_with_attachment(self, recipient, subject, body, attachment_path):
         """Send an email with a file attachment via Outlook."""
         try:

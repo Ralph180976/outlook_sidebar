@@ -155,7 +155,12 @@ class HybridMailClient(MailClient):
 
     def reply_to_email(self, entry_id, store_id=None):
         return self._route_item(entry_id, store_id, "reply_to_email")
-        
+
+    def reply_all_to_email(self, entry_id, store_id=None):
+        return self._route_item(entry_id, store_id, "reply_all_to_email")
+
+    def forward_email(self, entry_id, store_id=None):
+        return self._route_item(entry_id, store_id, "forward_email")
     def move_email(self, entry_id, folder_name, store_id=None):
         return self._route_item(entry_id, store_id, "move_email", folder_name)
 

@@ -395,7 +395,7 @@ class SettingsPanel(tk.Frame):
             list_settings_frame, text="Include read email", 
             variable=self.show_read_var,
             bg=self.colors["bg_root"], fg=self.colors["fg_text"],
-            selectcolor=self.colors["bg_card"],
+            selectcolor=self.colors["accent"],
             activebackground=self.colors["bg_root"],
             activeforeground=self.colors["fg_text"],
             font=("Segoe UI", 10)
@@ -414,7 +414,7 @@ class SettingsPanel(tk.Frame):
             list_settings_frame, text="Show if has Attachment", 
             variable=self.show_has_attachment_var,
             bg=self.colors["bg_root"], fg=self.colors["fg_text"],
-            selectcolor=self.colors["bg_card"],
+            selectcolor=self.colors["accent"],
             activebackground=self.colors["bg_root"],
             activeforeground=self.colors["fg_text"],
             font=("Segoe UI", 10)
@@ -433,19 +433,19 @@ class SettingsPanel(tk.Frame):
         self.email_show_sender_var = tk.BooleanVar(value=self.main_window.config.email_show_sender)
         tk.Checkbutton(self.email_content_frame, text="Who From", variable=self.email_show_sender_var, 
                        command=self.update_email_filters, bg=self.colors["bg_root"], fg=self.colors["fg_text"], 
-                       selectcolor=self.colors["bg_card"], activebackground=self.colors["bg_root"], 
+                       selectcolor=self.colors["accent"], activebackground=self.colors["bg_root"], 
                        activeforeground=self.colors["fg_text"], font=("Segoe UI", 9)).grid(row=0, column=0, sticky="w")
                        
         self.email_show_subject_var = tk.BooleanVar(value=self.main_window.config.email_show_subject)
         tk.Checkbutton(self.email_content_frame, text="Subject Line", variable=self.email_show_subject_var, 
                        command=self.update_email_filters, bg=self.colors["bg_root"], fg=self.colors["fg_text"], 
-                       selectcolor=self.colors["bg_card"], activebackground=self.colors["bg_root"], 
+                       selectcolor=self.colors["accent"], activebackground=self.colors["bg_root"], 
                        activeforeground=self.colors["fg_text"], font=("Segoe UI", 9)).grid(row=1, column=0, sticky="w")
 
         self.email_show_body_var = tk.BooleanVar(value=self.main_window.config.email_show_body)
         tk.Checkbutton(self.email_content_frame, text="Content Body", variable=self.email_show_body_var, 
                        command=self.update_email_filters, bg=self.colors["bg_root"], fg=self.colors["fg_text"], 
-                       selectcolor=self.colors["bg_card"], activebackground=self.colors["bg_root"], 
+                       selectcolor=self.colors["accent"], activebackground=self.colors["bg_root"], 
                        activeforeground=self.colors["fg_text"], font=("Segoe UI", 9)).grid(row=2, column=0, sticky="w")
         
         # Number of Lines Selector
@@ -474,7 +474,7 @@ class SettingsPanel(tk.Frame):
                        variable=self.show_hover_content_var, 
                        command=self.update_email_filters, 
                        bg=self.colors["bg_root"], fg=self.colors["fg_text"], 
-                       selectcolor=self.colors["bg_card"], 
+                       selectcolor=self.colors["accent"], 
                        activebackground=self.colors["bg_root"], 
                        activeforeground=self.colors["fg_text"], 
                        font=("Segoe UI", 9)).grid(row=4, column=0, sticky="w")
@@ -486,13 +486,13 @@ class SettingsPanel(tk.Frame):
         self.buttons_on_hover_var = tk.BooleanVar(value=self.main_window.config.buttons_on_hover)
         tk.Checkbutton(interaction_frame, text="Show Buttons on Hover", variable=self.buttons_on_hover_var, 
                        command=self.update_interaction_settings, bg=self.colors["bg_root"], fg=self.colors["fg_text"], 
-                       selectcolor=self.colors["bg_card"], activebackground=self.colors["bg_root"], 
+                       selectcolor=self.colors["accent"], activebackground=self.colors["bg_root"], 
                        activeforeground=self.colors["fg_text"], font=("Segoe UI", 9)).pack(side="left")
                        
         self.email_double_click_var = tk.BooleanVar(value=self.main_window.config.email_double_click)
         tk.Checkbutton(interaction_frame, text="Double Click to Open", variable=self.email_double_click_var, 
                        command=self.update_interaction_settings, bg=self.colors["bg_root"], fg=self.colors["fg_text"], 
-                       selectcolor=self.colors["bg_card"], activebackground=self.colors["bg_root"], 
+                       selectcolor=self.colors["accent"], activebackground=self.colors["bg_root"], 
                        activeforeground=self.colors["fg_text"], font=("Segoe UI", 9)).pack(side="left", padx=10)
 
         create_section_header(main_content, "Quick Create")
@@ -519,7 +519,7 @@ class SettingsPanel(tk.Frame):
                 qc_frame, text=opt, variable=var,
                 command=update_qc_settings,
                 bg=self.colors["bg_root"], fg=self.colors["fg_text"],
-                selectcolor=self.colors["bg_card"],
+                selectcolor=self.colors["accent"],
                 activebackground=self.colors["bg_root"],
                 activeforeground=self.colors["fg_text"],
                 font=("Segoe UI", 9)
@@ -546,7 +546,7 @@ class SettingsPanel(tk.Frame):
             
         # Rows
         self.rows_data = [] 
-        self.action_options = ["None", "Mark Read", "Delete", "Read & Delete", "Flag", "Open Email", "Reply", "Move To..."]
+        self.action_options = ["None", "Mark Read", "Delete", "Read & Delete", "Flag", "Open Email", "Reply", "Reply All", "Forward", "Move To..."]
         # Monochrome / Clean Unicode Icons AND Custom PNGs
         unicode_icons = [u"", u"🗑️", u"✉️", u"⚑", u"↩️", u"📂", u"↗", u"✓", u"✕", u"⚠"]
         
@@ -561,6 +561,8 @@ class SettingsPanel(tk.Frame):
         # Auto-Icon Logic Map
         self.ACTION_TO_ICON = {
             "Reply": "Reply.png",
+            "Reply All": "Reply.png",
+            "Forward": "Share.png",
             "Delete": "Delete.png",
             "Mark Read": "Mark as Read.png",
             "Read & Delete": "Read & Delete.png",
@@ -571,9 +573,9 @@ class SettingsPanel(tk.Frame):
         }
         
         current_config = self.main_window.config.btn_config
-        row_config = current_config + [{}] * (4 - len(current_config))
+        row_config = current_config + [{}] * (6 - len(current_config))
         
-        for i in range(4):
+        for i in range(6):
             c_data = row_config[i]
             
             # 1. Icon Display (Dynamic Label)
@@ -716,7 +718,7 @@ class SettingsPanel(tk.Frame):
             variable=self.reminder_show_flagged_var,
             command=self.toggle_followup_options,
             bg=self.colors["bg_root"], fg=self.colors["fg_text"],
-            selectcolor=self.colors["bg_card"],
+            selectcolor=self.colors["accent"],
             activebackground=self.colors["bg_root"],
             activeforeground=self.colors["fg_text"],
             font=("Segoe UI", 9, "bold")
@@ -760,7 +762,7 @@ class SettingsPanel(tk.Frame):
                 variable=var,
                 command=self.update_reminder_filters,
                 bg=self.colors["bg_root"], fg=self.colors["fg_text"],
-                selectcolor=self.colors["bg_card"],
+                selectcolor=self.colors["accent"],
                 activebackground=self.colors["bg_root"],
                 activeforeground=self.colors["fg_text"],
                 font=("Segoe UI", 9)
@@ -775,7 +777,7 @@ class SettingsPanel(tk.Frame):
             variable=self.due_all_var,
             command=self.toggle_all_due_options,
             bg=self.colors["bg_root"], fg=self.colors["fg_text"],
-            selectcolor=self.colors["bg_card"],
+            selectcolor=self.colors["accent"],
             activebackground=self.colors["bg_root"],
             activeforeground=self.colors["fg_text"],
             font=("Segoe UI", 9, "bold")
@@ -796,7 +798,7 @@ class SettingsPanel(tk.Frame):
             variable=self.reminder_show_categorized_var,
             command=self.update_reminder_filters,
             bg=self.colors["bg_root"], fg=self.colors["fg_text"],
-            selectcolor=self.colors["bg_card"],
+            selectcolor=self.colors["accent"],
             activebackground=self.colors["bg_root"],
             activeforeground=self.colors["fg_text"],
             font=("Segoe UI", 9, "bold")
@@ -810,7 +812,7 @@ class SettingsPanel(tk.Frame):
             variable=self.reminder_show_importance_var,
             command=self.toggle_importance_options,
             bg=self.colors["bg_root"], fg=self.colors["fg_text"],
-            selectcolor=self.colors["bg_card"],
+            selectcolor=self.colors["accent"],
             activebackground=self.colors["bg_root"],
             activeforeground=self.colors["fg_text"],
             font=("Segoe UI", 9, "bold")
@@ -846,7 +848,7 @@ class SettingsPanel(tk.Frame):
             variable=self.reminder_high_importance_var,
             command=self.update_reminder_filters,
             bg=self.colors["bg_root"], fg=self.colors["fg_text"],
-            selectcolor=self.colors["bg_card"],
+            selectcolor=self.colors["accent"],
             activebackground=self.colors["bg_root"],
             activeforeground=self.colors["fg_text"],
             font=("Segoe UI", 9)
@@ -860,7 +862,7 @@ class SettingsPanel(tk.Frame):
             variable=self.reminder_normal_importance_var,
             command=self.update_reminder_filters,
             bg=self.colors["bg_root"], fg=self.colors["fg_text"],
-            selectcolor=self.colors["bg_card"],
+            selectcolor=self.colors["accent"],
             activebackground=self.colors["bg_root"],
             activeforeground=self.colors["fg_text"],
             font=("Segoe UI", 9)
@@ -873,7 +875,7 @@ class SettingsPanel(tk.Frame):
             variable=self.reminder_low_importance_var,
             command=self.update_reminder_filters,
             bg=self.colors["bg_root"], fg=self.colors["fg_text"],
-            selectcolor=self.colors["bg_card"],
+            selectcolor=self.colors["accent"],
             activebackground=self.colors["bg_root"],
             activeforeground=self.colors["fg_text"],
             font=("Segoe UI", 9)
@@ -889,7 +891,7 @@ class SettingsPanel(tk.Frame):
             variable=self.reminder_show_meetings_var,
             command=self.toggle_meetings_options,
             bg=self.colors["bg_root"], fg=self.colors["fg_text"],
-            selectcolor=self.colors["bg_card"],
+            selectcolor=self.colors["accent"],
             activebackground=self.colors["bg_root"],
             activeforeground=self.colors["fg_text"],
             font=("Segoe UI", 9, "bold")
@@ -931,7 +933,7 @@ class SettingsPanel(tk.Frame):
                 variable=var,
                 command=self.update_reminder_filters,
                 bg=self.colors["bg_root"], fg=self.colors["fg_text"],
-                selectcolor=self.colors["bg_card"],
+                selectcolor=self.colors["accent"],
                 activebackground=self.colors["bg_root"],
                 activeforeground=self.colors["fg_text"],
                 font=("Segoe UI", 9)
@@ -954,7 +956,7 @@ class SettingsPanel(tk.Frame):
             variable=self.reminder_show_tasks_var,
             command=self.toggle_tasks_options,
             bg=self.colors["bg_root"], fg=self.colors["fg_text"],
-            selectcolor=self.colors["bg_card"],
+            selectcolor=self.colors["accent"],
             activebackground=self.colors["bg_root"],
             activeforeground=self.colors["fg_text"],
             font=("Segoe UI", 9, "bold")
@@ -989,7 +991,7 @@ class SettingsPanel(tk.Frame):
                  self.tasks_options_frame, text=t, variable=var,
                  command=self.update_reminder_filters,
                  bg=self.colors["bg_root"], fg=self.colors["fg_text"],
-                 selectcolor=self.colors["bg_card"],
+                 selectcolor=self.colors["accent"],
                  font=("Segoe UI", 9)
              ).grid(row=idx, column=0, sticky="w", pady=1)
 
@@ -1008,7 +1010,7 @@ class SettingsPanel(tk.Frame):
                  variable=var,
                  command=self.update_reminder_filters,
                  bg=self.colors["bg_root"], fg=self.colors["fg_text"],
-                 selectcolor=self.colors["bg_card"],
+                 selectcolor=self.colors["accent"],
                  font=("Segoe UI", 9)
             ).grid(row=3+idx, column=0, sticky="w", pady=1)
 
@@ -1070,10 +1072,9 @@ class SettingsPanel(tk.Frame):
         self.main_window.config.font_family = fam
         self.main_window.config.font_size = size
         self.main_window.save_config()
-        
-        # Reload UI fonts? Requires restart or huge refresh.
-        # For now, just save.
-        messagebox.showinfo("Fonts Updated", "Font settings saved. Please restart the app for changes to apply fully.")
+        # Apply font changes live
+        self.main_window.refresh_emails()
+        self.main_window.refresh_reminders()
 
     def update_refresh_rate(self, event=None):
         label = self.refresh_cb.get()

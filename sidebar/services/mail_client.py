@@ -65,6 +65,21 @@ class MailClient(abc.ABC):
         """Opens the item (e.g. in Outlook or web browser)."""
         pass
     
+    @abc.abstractmethod
+    def reply_to_email(self, entry_id, store_id=None):
+        """Opens a Reply window for the email."""
+        pass
+    
+    @abc.abstractmethod
+    def reply_all_to_email(self, entry_id, store_id=None):
+        """Opens a Reply All window for the email."""
+        pass
+    
+    @abc.abstractmethod
+    def forward_email(self, entry_id, store_id=None):
+        """Opens a Forward window for the email."""
+        pass
+    
     # --- Calendar ---
     @abc.abstractmethod
     def get_calendar_items(self, start_dt, end_dt, account_names=None) -> list:

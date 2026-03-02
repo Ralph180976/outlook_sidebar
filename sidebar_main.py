@@ -213,7 +213,7 @@ class SidebarWindow(tk.Tk):
         
         # Image Cache (to keep references alive)
         self.image_cache = {}
-        self.dismissed_calendar_ids = set()  # Track dismissed calendar items (session only)
+        self.dismissed_calendar_ids = set(getattr(self.config, 'dismissed_calendar_ids', []))
         self._calendar_widgets = []  # [(start_dt, time_label, subj_label, frame)] for urgency updates
         self._cal_urgency_timer = None  # Timer for periodic urgency checks
 
@@ -392,6 +392,9 @@ class SidebarWindow(tk.Tk):
         # Note: We already added pane_reminders to PanedWindow
         
         # Header inside pane_reminders (for consistency with email pane)
+        # Top border line
+        tk.Frame(self.pane_reminders, bg=self.colors["divider"], height=1).pack(fill="x", side="top")
+        
         self.r_header = tk.Frame(self.pane_reminders, bg=self.colors["bg_card"], height=26)
         self.r_header.pack(fill="x", side="top")
         self.r_header.pack_propagate(False)
@@ -399,6 +402,9 @@ class SidebarWindow(tk.Tk):
         self.lbl_reminder_header = tk.Label(self.r_header, text="Flagged/Reminders", 
                  bg=self.colors["bg_card"], fg=self.colors["fg_dim"], font=(self.font_family, 9, "bold")
         ).pack(side="left", padx=10, pady=3)
+        
+        # Bottom border line
+        tk.Frame(self.pane_reminders, bg=self.colors["divider"], height=1).pack(fill="x", side="top")
 
         self.reminder_list = ScrollableFrame(self.pane_reminders, bg=self.colors["input_bg"])
         self.reminder_list.pack(fill="both", expand=True)
@@ -614,9 +620,9 @@ class SidebarWindow(tk.Tk):
         def execute_single_action(act_name, folder_name=""):
             if not act_name or act_name == "None": return
             
-            with open("C:\\Dev\\Outlook_Sidebar\\debug_out.txt", "a") as f:
-                 f.write(f"Executing action '{act_name}' on ID {entry_id[:15]}...\n")
-                 
+            try:
+                print("Executing action '{}' on ID {}...".format(act_name, entry_id[:15]))
+            except: pass
             try:
                 if act_name == "Mark Read":
                     self.outlook_client.mark_as_read(entry_id, store_id)
@@ -633,13 +639,16 @@ class SidebarWindow(tk.Tk):
                 elif act_name == "Reply":
                     # Mark as read first
                     self.outlook_client.mark_as_read(entry_id, store_id)
-                    
                     self._allow_foreground_for_outlook()
-                    if hasattr(self.outlook_client, "reply_to_email"):
-                        self.outlook_client.reply_to_email(entry_id, store_id)
-                    else:
-                        print("Reply action not yet fully abstracted for Graph API")
-                        
+                    self.outlook_client.reply_to_email(entry_id, store_id)
+                elif act_name == "Reply All":
+                    self.outlook_client.mark_as_read(entry_id, store_id)
+                    self._allow_foreground_for_outlook()
+                    self.outlook_client.reply_all_to_email(entry_id, store_id)
+                elif act_name == "Forward":
+                    self.outlook_client.mark_as_read(entry_id, store_id)
+                    self._allow_foreground_for_outlook()
+                    self.outlook_client.forward_email(entry_id, store_id)
                 elif act_name == "Move To...":
                     if folder_name:
                          if hasattr(self.outlook_client, "move_email"):
@@ -1386,17 +1395,7 @@ class SidebarWindow(tk.Tk):
                         except:
                             pass
 
-                    if not is_real_due and received:
-                        # Show "Flagged X days ago"
-                        try:
-                            diff = (now_dt.astimezone() - received.astimezone()).days
-                            if diff == 0:
-                                badge_text = "FLAGGED TODAY"
-                            else:
-                                badge_text = "FLAGGED {}D".format(diff)
-                            badge_bg = "#8E8E8E"
-                        except:
-                            pass
+                    # Flag icon already indicates flagged status — no badge text needed
 
                 header_frame = tk.Frame(card, bg=bg_color)
                 header_frame.pack(fill="x")
@@ -1635,7 +1634,7 @@ class SidebarWindow(tk.Tk):
                             text=icon, 
                             fg=self.colors["fg_primary"], 
                             bg=bg_color,
-                            font=("Segoe UI", 12),
+                            font=(self.config.font_family, self.config.font_size + 2),
                             padx=10, pady=5,
                             cursor="hand2"
                         )
@@ -1975,7 +1974,15 @@ class SidebarWindow(tk.Tk):
             return icon_cache[key]
 
         if meetings:
-            tk.Label(container, text="CALENDAR", fg="#60CDFF", bg=self.colors["bg_root"], font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=5, pady=(5, 2))
+            tk.Label(container, text="CALENDAR", fg="#60CDFF", bg=self.colors["bg_root"], font=(self.config.font_family, self.config.font_size - 2, "bold"), anchor="w").pack(fill="x", padx=5, pady=(5, 2))
+            # Auto-clean dismissed IDs for meetings that have ended
+            current_meeting_ids = {m.get('entry_id') for m in meetings}
+            stale = self.dismissed_calendar_ids - current_meeting_ids
+            if stale:
+                self.dismissed_calendar_ids -= stale
+                self.config.dismissed_calendar_ids = list(self.dismissed_calendar_ids)
+                self.config.save()
+            
             # Filter out dismissed items
             meetings = [m for m in meetings if m.get('entry_id') not in self.dismissed_calendar_ids]
             
@@ -2009,7 +2016,7 @@ class SidebarWindow(tk.Tk):
                  c_actions = tk.Frame(mf, bg=self.colors["bg_card"])
 
                  def make_cal_btn(parent, text, cmd, tip):
-                     btn = tk.Label(parent, text=text, fg=self.colors["fg_dim"], bg=self.colors["bg_card"], font=("Segoe UI", 10), cursor="hand2", padx=3)
+                     btn = tk.Label(parent, text=text, fg=self.colors["fg_dim"], bg=self.colors["bg_card"], font=(self.config.font_family, self.config.font_size), cursor="hand2", padx=3)
                      btn.pack(side="right", padx=2)
                      btn.bind("<Button-1>", lambda e: cmd())
                      btn.bind("<Enter>", lambda e: btn.config(fg=self.colors["fg_primary"], bg=self.colors["bg_card_hover"]))
@@ -2019,6 +2026,8 @@ class SidebarWindow(tk.Tk):
 
                  def do_dismiss_cal(eid=m['entry_id'], w=mf):
                      self.dismissed_calendar_ids.add(eid)
+                     self.config.dismissed_calendar_ids = list(self.dismissed_calendar_ids)
+                     self.config.save()
                      w.pack_forget()
 
                  btn_dismiss = None
@@ -2056,9 +2065,9 @@ class SidebarWindow(tk.Tk):
                  c_actions.pack(side="right", padx=2)
 
                  # Now pack labels LEFT (remaining space after buttons)
-                 time_lbl = tk.Label(mf, text=time_str, fg=time_fg, bg=self.colors["bg_card"], font=("Segoe UI", 9))
+                 time_lbl = tk.Label(mf, text=time_str, fg=time_fg, bg=self.colors["bg_card"], font=(self.config.font_family, self.config.font_size - 1))
                  time_lbl.pack(side="left")
-                 subj = tk.Label(mf, text=m['subject'], fg=subj_fg, bg=self.colors["bg_card"], font=("Segoe UI", 9, "bold"), anchor="w", wraplength=self.config.width - 130)
+                 subj = tk.Label(mf, text=m['subject'], fg=subj_fg, bg=self.colors["bg_card"], font=(self.config.font_family, self.config.font_size - 1, "bold"), anchor="w", wraplength=self.config.width - 130)
                  subj.pack(side="left", padx=5)
                  
                  # Track for live urgency updates
@@ -2100,7 +2109,7 @@ class SidebarWindow(tk.Tk):
              tasks = self.outlook_client.get_tasks(due_filters=self.config.reminder_task_dates, account_names=cal_accounts)
              
              if tasks:
-                 tk.Label(container, text="TASKS", fg=self.colors.get("accent_success", "#28a745"), bg=self.colors["bg_root"], font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=5, pady=(10, 2))
+                 tk.Label(container, text="TASKS", fg=self.colors.get("accent_success", "#28a745"), bg=self.colors["bg_root"], font=(self.config.font_family, self.config.font_size - 2, "bold"), anchor="w").pack(fill="x", padx=5, pady=(10, 2))
                  for task in tasks:
                      # Determine if task is overdue
                      t_overdue = False
@@ -2119,7 +2128,7 @@ class SidebarWindow(tk.Tk):
 
                      # Helper to create buttons
                      def make_task_btn(parent, text, cmd, tip):
-                         btn = tk.Label(parent, text=text, fg=self.colors["fg_dim"], bg=self.colors["bg_card"], font=("Segoe UI", 10), cursor="hand2", padx=5)
+                         btn = tk.Label(parent, text=text, fg=self.colors["fg_dim"], bg=self.colors["bg_card"], font=(self.config.font_family, self.config.font_size), cursor="hand2", padx=5)
                          btn.pack(side="right", padx=5) # Align Right
                          btn.bind("<Button-1>", lambda e: cmd())
                          btn.bind("<Enter>", lambda e: btn.config(fg=self.colors["fg_primary"], bg=self.colors["bg_card_hover"]))
@@ -2189,10 +2198,10 @@ class SidebarWindow(tk.Tk):
                          
                          if t_date_str:
                              date_fg = "#FF6B6B" if t_overdue else self.colors["fg_dim"]
-                             tk.Label(tf, text=t_date_str, fg=date_fg, bg=self.colors["bg_card"], font=("Segoe UI", 9)).pack(side="left")
+                             tk.Label(tf, text=t_date_str, fg=date_fg, bg=self.colors["bg_card"], font=(self.config.font_family, self.config.font_size - 1)).pack(side="left")
                      except: pass
 
-                     subj = tk.Label(tf, text=task['subject'], fg=self.colors["fg_primary"], bg=self.colors["bg_card"], font=("Segoe UI", 9), anchor="w", justify="left", wraplength=self.config.width-130)
+                     subj = tk.Label(tf, text=task['subject'], fg=self.colors["fg_primary"], bg=self.colors["bg_card"], font=(self.config.font_family, self.config.font_size - 1), anchor="w", justify="left", wraplength=self.config.width-130)
                      subj.pack(side="left", padx=5, pady=(0, 2))
 
                      bind_click(tf, task['entry_id'])
@@ -2234,17 +2243,49 @@ class SidebarWindow(tk.Tk):
              )
              
              if flags:
-                 tk.Label(container, text="FLAGGED EMAILS", fg=self.colors.get("accent_warning", "#FF8C00"), bg=self.colors["bg_root"], font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=5, pady=(10, 2))
+                 tk.Label(container, text="FLAGGED EMAILS", fg=self.colors.get("accent_warning", "#FF8C00"), bg=self.colors["bg_root"], font=(self.config.font_family, self.config.font_size - 2, "bold"), anchor="w").pack(fill="x", padx=5, pady=(10, 2))
                  
                  for email in flags:
                      cf = tk.Frame(container, bg=self.colors["bg_card"], highlightthickness=1, highlightbackground=self.colors.get("accent_warning", "#FF8C00"), padx=5, pady=5)
                      cf.pack(fill="x", padx=2, pady=2)
                      
-                     # Subject Label (Now packed top)
-                     subj = tk.Label(cf, text=email['subject'], fg=self.colors["fg_primary"], bg=self.colors["bg_card"], font=("Segoe UI", 9), anchor="w", justify="left", wraplength=self.config.width-40)
-                     subj.pack(side="top", fill="x", expand=True, padx=5, pady=(0, 2))
+                     # Header row: subject + due badge
+                     flag_header = tk.Frame(cf, bg=self.colors["bg_card"])
+                     flag_header.pack(side="top", fill="x", expand=True)
+                     
+                     # Subject Label
+                     subj = tk.Label(flag_header, text=email['subject'], fg=self.colors["fg_primary"], bg=self.colors["bg_card"], font=(self.config.font_family, self.config.font_size - 1), anchor="w", justify="left", wraplength=self.config.width-80)
+                     subj.pack(side="left", fill="x", expand=True, padx=(5, 0), pady=(0, 2))
+                     
+                     # Due badge
+                     due = email.get('due_date')
+                     if due:
+                         try:
+                             if hasattr(due, 'tzinfo') and due.tzinfo:
+                                 due = due.replace(tzinfo=None)
+                             if due.year < 3000:
+                                 now_dt = datetime.now()
+                                 today_d = now_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+                                 due_d = due.replace(hour=0, minute=0, second=0, microsecond=0)
+                                 diff = (due_d - today_d).days
+                                 if diff < 0:
+                                     badge_t, badge_c = "OVERDUE", "#D83B01"
+                                 elif diff == 0:
+                                     badge_t, badge_c = "TODAY", "#FF8C00"
+                                 elif diff == 1:
+                                     badge_t, badge_c = "TOMORROW", "#0078D4"
+                                 elif diff < 7:
+                                     badge_t, badge_c = due_d.strftime("%a").upper(), "#00B7C3"
+                                 else:
+                                     badge_t, badge_c = due_d.strftime("%d %b").upper(), "#666666"
+                                 tk.Label(flag_header, text=badge_t, fg="white", bg=badge_c,
+                                          font=(self.config.font_family, self.config.font_size - 2, "bold"),
+                                          padx=4, pady=1).pack(side="right", padx=(4, 5))
+                         except:
+                             pass
                      
                      bind_click(cf, email['entry_id'])
+                     bind_click(flag_header, email['entry_id'])
                      bind_click(subj, email['entry_id'])
 
                      # Tooltip showing flag request and due date
@@ -2271,7 +2312,7 @@ class SidebarWindow(tk.Tk):
 
                      # Helper to create buttons
                      def make_flag_btn(parent, text, cmd, tip):
-                         btn = tk.Label(parent, text=text, fg=self.colors["fg_dim"], bg=self.colors["bg_card"], font=("Segoe UI", 10), cursor="hand2", padx=5)
+                         btn = tk.Label(parent, text=text, fg=self.colors["fg_dim"], bg=self.colors["bg_card"], font=(self.config.font_family, self.config.font_size), cursor="hand2", padx=5)
                          btn.pack(side="right", padx=5) # Pack right for alignment
                          btn.bind("<Button-1>", lambda e, _c=cmd: _c())
                          btn.bind("<Enter>", lambda e: btn.config(fg=self.colors["fg_primary"], bg=self.colors["bg_card_hover"]))
@@ -2369,7 +2410,7 @@ class SidebarWindow(tk.Tk):
 
                      if info_text:
                          due_color = "#FF6B6B" if due_text.startswith("Overdue") else self.colors["fg_dim"]
-                         lbl_info = tk.Label(f_actions, text=info_text, fg=due_color, bg=self.colors["bg_card"], font=("Segoe UI", 8), anchor="w")
+                         lbl_info = tk.Label(f_actions, text=info_text, fg=due_color, bg=self.colors["bg_card"], font=(self.config.font_family, self.config.font_size - 2), anchor="w")
                          lbl_info.pack(side="left", padx=(5, 0))
 
                      # --- HOVER LOGIC ---
@@ -2772,13 +2813,21 @@ class SidebarWindow(tk.Tk):
         self.check_fullscreen_app()
 
     def _check_for_app_update(self):
-        """Check GitHub for a newer version (runs in background thread)."""
+        """Check GitHub for a newer version (runs in background thread). Recurs daily at 10:00."""
         def _on_result(latest_version, download_url):
             if latest_version:
                 # Schedule UI update on main thread
                 self.after(0, lambda: self._show_update_bar(latest_version, download_url))
         
         check_for_update(_on_result)
+        
+        # Schedule next check at 10:00 AM
+        now = datetime.now()
+        next_10 = now.replace(hour=10, minute=0, second=0, microsecond=0)
+        if now >= next_10:
+            next_10 += timedelta(days=1)
+        ms_until = int((next_10 - now).total_seconds() * 1000)
+        self.after(ms_until, self._check_for_app_update)
     
     def _show_update_bar(self, version, download_url):
         """Shows a subtle update notification bar above the footer."""
@@ -3366,7 +3415,10 @@ if __name__ == "__main__":
         print("Launching SidebarWindow...")
         app = SidebarWindow()
         print("Entering mainloop...")
-        app.mainloop()
+        try:
+            app.mainloop()
+        except KeyboardInterrupt:
+            pass  # Normal shutdown (taskkill / Ctrl+C)
 
     except Exception as e:
         import traceback

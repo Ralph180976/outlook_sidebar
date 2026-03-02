@@ -157,6 +157,7 @@ class ConfigManager:
             self.btn_count = data.get("btn_count", self.btn_count)
             self.btn_config = data.get("btn_config", self.btn_config)
             self.quick_create_actions = data.get("quick_create_actions", self.quick_create_actions)
+            self.dismissed_calendar_ids = data.get("dismissed_calendar_ids", [])
             
             # --- Migrate old Unicode icons to PNG filenames ---
             migrated = False
@@ -237,7 +238,8 @@ class ConfigManager:
             "email_double_click": self.email_double_click,
             "btn_count": self.btn_count,
             "btn_config": self.btn_config,
-            "quick_create_actions": self.quick_create_actions
+            "quick_create_actions": self.quick_create_actions,
+            "dismissed_calendar_ids": getattr(self, "dismissed_calendar_ids", [])
         }
         
         try:

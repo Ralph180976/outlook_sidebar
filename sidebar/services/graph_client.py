@@ -311,6 +311,34 @@ class GraphAPIClient(MailClient):
                 return True
         return False
 
+    def reply_all_to_email(self, entry_id, store_id=None) -> bool:
+        """Creates a Reply All draft and opens it in the browser."""
+        resp = self._request("POST", f"/me/messages/{entry_id}/createReplyAll")
+        if resp and "id" in resp:
+            msg = self._request("GET", f"/me/messages/{resp['id']}?$select=webLink")
+            if msg and "webLink" in msg:
+                link = msg["webLink"]
+                email = self.auth.get_current_user_email()
+                if email and link:
+                    link += f"&login_hint={urllib.parse.quote(email)}" if "?" in link else f"?login_hint={urllib.parse.quote(email)}"
+                webbrowser.open(link)
+                return True
+        return False
+
+    def forward_email(self, entry_id, store_id=None) -> bool:
+        """Creates a Forward draft and opens it in the browser."""
+        resp = self._request("POST", f"/me/messages/{entry_id}/createForward")
+        if resp and "id" in resp:
+            msg = self._request("GET", f"/me/messages/{resp['id']}?$select=webLink")
+            if msg and "webLink" in msg:
+                link = msg["webLink"]
+                email = self.auth.get_current_user_email()
+                if email and link:
+                    link += f"&login_hint={urllib.parse.quote(email)}" if "?" in link else f"?login_hint={urllib.parse.quote(email)}"
+                webbrowser.open(link)
+                return True
+        return False
+
     def move_email(self, entry_id, folder_name, store_id=None) -> bool:
         """Moves an email to a destination folder by name."""
         # Find folder ID
