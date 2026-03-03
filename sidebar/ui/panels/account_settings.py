@@ -215,21 +215,7 @@ class AccountSelectionUI(tk.Frame):
         lbl_title = tk.Label(header, text="Select Accounts", bg=self.colors["bg"], fg="white", font=("Segoe UI", 11, "bold"))
         lbl_title.pack(side="left", padx=15)
         
-        # Close Button
-        if os.path.exists("icon2/close-window.png"):
-             try:
-                pil_img = Image.open("icon2/close-window.png").convert("RGBA")
-                pil_img = pil_img.resize((20, 20), RESAMPLE_MODE)
-                self.close_icon = ImageTk.PhotoImage(pil_img)
-                btn_close = tk.Label(header, image=self.close_icon, bg=self.colors["bg"], cursor="hand2")
-             except:
-                btn_close = tk.Label(header, text="✕", bg=self.colors["bg"], fg="#CCCCCC", cursor="hand2")
-        else:
-             btn_close = tk.Label(header, text="✕", bg=self.colors["bg"], fg="#CCCCCC", cursor="hand2")
-
-        btn_close.pack(side="right", padx=15)
-        # Assuming parent is the overlay frame calling .place()
-        btn_close.bind("<Button-1>", lambda e: self.master.place_forget())
+        # No close button needed — the arrow toggle in the header handles open/close/save
 
         # Help text removed - the FolderPickerFrame shows its own hint when the folder tree appears
         

@@ -21,8 +21,10 @@ def _parse_version(v_str):
 def check_for_update(callback):
     """Check GitHub Releases for a newer version. Runs in background thread.
     
-    Calls callback(latest_version, download_url) if update available.
-    Calls callback(None, None) if up to date or check fails.
+    Calls callback(latest_version, download_url, success) where:
+      - success=True, latest_version set = update available
+      - success=True, latest_version=None = up to date
+      - success=False = check failed (e.g. offline)
     """
     def _check():
         try:
@@ -50,13 +52,13 @@ def check_for_update(callback):
             latest = _parse_version(latest_tag)
             
             if latest > current:
-                callback(latest_tag, download_url)
+                callback(latest_tag, download_url, True)
             else:
-                callback(None, None)
+                callback(None, None, True)
                 
         except Exception as e:
             print("Update check failed: {}".format(e))
-            callback(None, None)
+            callback(None, None, False)
     
     t = threading.Thread(target=_check, daemon=True)
     t.start()

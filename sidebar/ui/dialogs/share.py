@@ -174,14 +174,26 @@ class ShareDialog(tk.Toplevel):
             "Enjoy!"
         ).format(DOWNLOAD_URL)
 
-        # Send email
+        # Send via abstracted client
         try:
-            mail = self.outlook_client.outlook.CreateItem(0)  # olMailItem
-            mail.To = email
-            mail.Subject = subject
-            mail.Body = body
-            mail.Send()
-            self._show_toast("Sent to {}".format(email), success=True)
+            # Try the native app approach (works for COM and Hybrid)
+            native = None
+            if hasattr(self.outlook_client, 'get_native_app'):
+                native = self.outlook_client.get_native_app()
+            elif hasattr(self.outlook_client, 'outlook'):
+                native = self.outlook_client.outlook
+            elif hasattr(self.outlook_client, 'com') and self.outlook_client.com:
+                native = self.outlook_client.com.outlook
+            
+            if native:
+                mail = native.CreateItem(0)  # olMailItem
+                mail.To = email
+                mail.Subject = subject
+                mail.Body = body
+                mail.Send()
+                self._show_toast("Sent to {}".format(email), success=True)
+            else:
+                self._show_toast("No email client available.", success=False)
         except Exception as e:
             print("Share email error: {}".format(e))
             self._show_toast("Failed to send. Check Outlook.", success=False)

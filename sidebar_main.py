@@ -2814,20 +2814,24 @@ class SidebarWindow(tk.Tk):
 
     def _check_for_app_update(self):
         """Check GitHub for a newer version (runs in background thread). Recurs daily at 10:00."""
-        def _on_result(latest_version, download_url):
+        def _on_result(latest_version, download_url, success):
             if latest_version:
                 # Schedule UI update on main thread
                 self.after(0, lambda: self._show_update_bar(latest_version, download_url))
+            
+            if success:
+                # Schedule next check at 10:00 AM tomorrow
+                now = datetime.now()
+                next_10 = now.replace(hour=10, minute=0, second=0, microsecond=0)
+                if now >= next_10:
+                    next_10 += timedelta(days=1)
+                ms_until = int((next_10 - now).total_seconds() * 1000)
+                self.after(ms_until, self._check_for_app_update)
+            else:
+                # Failed (offline?) — retry in 1 hour
+                self.after(3600000, self._check_for_app_update)
         
         check_for_update(_on_result)
-        
-        # Schedule next check at 10:00 AM
-        now = datetime.now()
-        next_10 = now.replace(hour=10, minute=0, second=0, microsecond=0)
-        if now >= next_10:
-            next_10 += timedelta(days=1)
-        ms_until = int((next_10 - now).total_seconds() * 1000)
-        self.after(ms_until, self._check_for_app_update)
     
     def _show_update_bar(self, version, download_url):
         """Shows a subtle update notification bar above the footer."""

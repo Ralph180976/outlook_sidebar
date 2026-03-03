@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.28" # Light mode checkboxes, divider borders, fix buttons on installed Outlook, font size applies to reminders, Reply All/Forward, 6 button slots, persist dismiss, daily update check
+VERSION = "v1.3.29" # Fix account X button, fix share dialog, update retry logic, Reply All/Forward
 
 # --- Image Resampling Mode ---
 try:
