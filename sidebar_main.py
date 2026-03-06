@@ -506,9 +506,9 @@ class SidebarWindow(tk.Tk):
                 self.settings_panel_open = False
 
     def open_share_dialog(self):
-        """Open the Share dialog to email the InboxBar installer."""
+        """Open the Share dialog with a copy-link button."""
         from sidebar.ui.dialogs.share import ShareDialog
-        ShareDialog(self.winfo_toplevel(), self.outlook_client)
+        ShareDialog(self.winfo_toplevel())
 
     def toggle_help_panel(self):
         """Show or hide the help panel alongside the email list."""

@@ -1,20 +1,19 @@
 # -*- coding: utf-8 -*-
-import re
-from sidebar.core.compat import tk, messagebox
+from sidebar.core.compat import tk
 from sidebar.core.config import VERSION
 
-# GitHub Releases page for InboxBar
-DOWNLOAD_URL = "https://github.com/Ralph180976/outlook_sidebar/releases/latest"
+# Direct download link for the latest InboxBar installer
+# (will be replaced with Microsoft Store link later)
+DOWNLOAD_URL = "https://github.com/Ralph180976/outlook_sidebar/releases/latest/download/InboxBar_Setup.exe"
 
 
 class ShareDialog(tk.Toplevel):
-    """Dialog to share InboxBar via email with a download link."""
+    """Dialog to share InboxBar by copying a download link."""
 
-    def __init__(self, parent, outlook_client):
+    def __init__(self, parent, outlook_client=None):
         tk.Toplevel.__init__(self, parent)
-        self.outlook_client = outlook_client
         self.title("Share InboxBar")
-        self.geometry("370x195")
+        self.geometry("380x220")
         self.resizable(False, False)
 
         # Make Modal
@@ -25,8 +24,8 @@ class ShareDialog(tk.Toplevel):
 
         # Center on parent
         try:
-            px = parent.winfo_rootx() + (parent.winfo_width() // 2) - 185
-            py = parent.winfo_rooty() + (parent.winfo_height() // 2) - 97
+            px = parent.winfo_rootx() + (parent.winfo_width() // 2) - 190
+            py = parent.winfo_rooty() + (parent.winfo_height() // 2) - 110
             self.geometry("+{}+{}".format(px, py))
         except:
             pass
@@ -39,6 +38,7 @@ class ShareDialog(tk.Toplevel):
             "accent": "#60CDFF",
             "fg_text": "#FFFFFF",
             "fg_dim": "#AAAAAA",
+            "success": "#2E7D32",
         }
         self.configure(
             bg=self.colors["bg_root"],
@@ -46,51 +46,54 @@ class ShareDialog(tk.Toplevel):
             highlightbackground=self.colors["accent"],
         )
 
-        # Content
+        # --- Content ---
         content = tk.Frame(self, bg=self.colors["bg_root"], padx=20, pady=15)
         content.pack(fill="both", expand=True)
 
         tk.Label(
             content,
-            text="Share InboxBar with a colleague",
+            text="Share InboxBar",
             fg=self.colors["fg_text"],
             bg=self.colors["bg_root"],
-            font=("Segoe UI", 11, "bold"),
+            font=("Segoe UI", 12, "bold"),
             anchor="w",
         ).pack(fill="x", pady=(0, 5))
 
         tk.Label(
             content,
-            text="Enter their email address to send a download link:",
+            text="Copy the download link below and paste it\ninto an email or message:",
             fg=self.colors["fg_dim"],
             bg=self.colors["bg_root"],
             font=("Segoe UI", 9),
             anchor="w",
-        ).pack(fill="x", pady=(0, 8))
+            justify="left",
+        ).pack(fill="x", pady=(0, 12))
 
-        # Email Entry
-        self.email_var = tk.StringVar()
-        self.email_entry = tk.Entry(
-            content,
-            textvariable=self.email_var,
+        # Link display (read-only entry)
+        link_frame = tk.Frame(content, bg=self.colors["accent"], padx=1, pady=1)
+        link_frame.pack(fill="x", pady=(0, 15))
+
+        self.link_entry = tk.Entry(
+            link_frame,
             bg=self.colors["bg_card"],
-            fg=self.colors["fg_text"],
-            insertbackground="white",
-            font=("Segoe UI", 10),
+            fg=self.colors["accent"],
+            insertbackground=self.colors["accent"],
+            font=("Segoe UI", 9),
             relief="flat",
             bd=0,
+            readonlybackground=self.colors["bg_card"],
         )
-        self.email_entry.pack(fill="x", ipady=6, pady=(0, 15))
-        self.email_entry.focus_set()
-        self.email_entry.bind("<Return>", lambda e: self._on_send())
+        self.link_entry.pack(fill="x", ipady=6, padx=1, pady=1)
+        self.link_entry.insert(0, DOWNLOAD_URL)
+        self.link_entry.config(state="readonly")
 
         # Buttons
         btn_frame = tk.Frame(content, bg=self.colors["bg_root"])
         btn_frame.pack(fill="x")
 
-        btn_cancel = tk.Label(
+        btn_close = tk.Label(
             btn_frame,
-            text="Cancel",
+            text="Close",
             fg="#AAAAAA",
             bg=self.colors["bg_root"],
             font=("Segoe UI", 10),
@@ -98,12 +101,12 @@ class ShareDialog(tk.Toplevel):
             padx=15,
             pady=5,
         )
-        btn_cancel.pack(side="right", padx=5)
-        btn_cancel.bind("<Button-1>", lambda e: self.destroy())
+        btn_close.pack(side="right", padx=5)
+        btn_close.bind("<Button-1>", lambda e: self.destroy())
 
-        btn_send = tk.Label(
+        self.btn_copy = tk.Label(
             btn_frame,
-            text="  Send  ",
+            text="  \U0001F4CB  Copy Download Link  ",
             fg="white",
             bg=self.colors["accent"],
             font=("Segoe UI", 10, "bold"),
@@ -111,89 +114,77 @@ class ShareDialog(tk.Toplevel):
             padx=15,
             pady=5,
         )
-        btn_send.pack(side="right", padx=5)
-        btn_send.bind("<Button-1>", lambda e: self._on_send())
+        self.btn_copy.pack(side="right", padx=5)
+        self.btn_copy.bind("<Button-1>", lambda e: self._copy_link())
 
         # Hover effects
-        btn_send.bind("<Enter>", lambda e: btn_send.config(bg="#40b0ff"))
-        btn_send.bind("<Leave>", lambda e: btn_send.config(bg=self.colors["accent"]))
-        btn_cancel.bind("<Enter>", lambda e: btn_cancel.config(fg="white"))
-        btn_cancel.bind("<Leave>", lambda e: btn_cancel.config(fg="#AAAAAA"))
+        self.btn_copy.bind("<Enter>", lambda e: self.btn_copy.config(bg="#40b0ff"))
+        self.btn_copy.bind("<Leave>", lambda e: self._reset_copy_btn())
+        btn_close.bind("<Enter>", lambda e: btn_close.config(fg="white"))
+        btn_close.bind("<Leave>", lambda e: btn_close.config(fg="#AAAAAA"))
+
+        # Track copied state for hover reset
+        self._copied = False
 
         # Toast label (hidden initially)
         self._toast = tk.Label(
             self,
             text="",
             fg="white",
-            bg="#2E7D32",
+            bg=self.colors["success"],
             font=("Segoe UI", 10),
             anchor="center",
             pady=6,
         )
 
-    def _show_toast(self, message, success=True):
-        """Show an auto-dismissing toast notification, then close the dialog."""
-        color = "#2E7D32" if success else "#C62828"
-        self._toast.config(text=message, bg=color)
-        self._toast.place(x=0, y=0, relwidth=1.0)
-        self._toast.lift()
-        # Auto-dismiss and close after 2 seconds
-        self.after(2000, self._dismiss)
-    
-    def _dismiss(self):
-        """Close the dialog."""
+    def _reset_copy_btn(self):
+        """Reset button color on mouse leave."""
+        if self._copied:
+            self.btn_copy.config(bg=self.colors["success"])
+        else:
+            self.btn_copy.config(bg=self.colors["accent"])
+
+    def _copy_link(self):
+        """Copy the download URL to the clipboard."""
         try:
-            self.destroy()
+            self.clipboard_clear()
+            self.clipboard_append(DOWNLOAD_URL)
+            self.update()  # Required for clipboard to persist
+
+            # Visual feedback - change button text and color
+            self._copied = True
+            self.btn_copy.config(
+                text="  \u2713  Copied!  ",
+                bg=self.colors["success"],
+            )
+            # Reset after 2 seconds
+            self.after(2000, self._reset_copy_state)
+        except Exception as e:
+            print("Copy error: {}".format(e))
+            self._show_toast("Failed to copy to clipboard", success=False)
+
+    def _reset_copy_state(self):
+        """Reset the copy button to its original state."""
+        self._copied = False
+        try:
+            self.btn_copy.config(
+                text="  \U0001F4CB  Copy Download Link  ",
+                bg=self.colors["accent"],
+            )
         except:
             pass
 
-    def _on_send(self):
-        email = self.email_var.get().strip()
+    def _show_toast(self, message, success=True):
+        """Show an auto-dismissing toast notification."""
+        color = self.colors["success"] if success else "#C62828"
+        self._toast.config(text=message, bg=color)
+        self._toast.place(x=0, y=0, relwidth=1.0)
+        self._toast.lift()
+        self.after(2000, self._dismiss_toast)
 
-        # Validate email
-        if not email:
-            self._show_toast("Please enter an email address", success=False)
-            return
-        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
-            self._show_toast("Invalid email address", success=False)
-            return
-
-        # Build email with download link
-        subject = "Try InboxBar - Outlook Sidebar ({})".format(VERSION)
-        body = (
-            "Hi,\n\n"
-            "I'd like to share InboxBar with you - a streamlined sidebar for Outlook "
-            "that keeps you updated without the clutter of the full Outlook window.\n\n"
-            "Download the latest version here:\n"
-            "{}\n\n"
-            "To install:\n"
-            "1. Download InboxBar_Setup and run the installer\n"
-            "2. InboxBar will appear in your Start Menu and optionally on your Desktop\n\n"
-            "To uninstall, use Add/Remove Programs in Windows Settings.\n\n"
-            "Requirements: Windows 10/11 + Microsoft Outlook (Classic)\n\n"
-            "Enjoy!"
-        ).format(DOWNLOAD_URL)
-
-        # Send via abstracted client
+    def _dismiss_toast(self):
+        """Hide the toast notification."""
         try:
-            # Try the native app approach (works for COM and Hybrid)
-            native = None
-            if hasattr(self.outlook_client, 'get_native_app'):
-                native = self.outlook_client.get_native_app()
-            elif hasattr(self.outlook_client, 'outlook'):
-                native = self.outlook_client.outlook
-            elif hasattr(self.outlook_client, 'com') and self.outlook_client.com:
-                native = self.outlook_client.com.outlook
-            
-            if native:
-                mail = native.CreateItem(0)  # olMailItem
-                mail.To = email
-                mail.Subject = subject
-                mail.Body = body
-                mail.Send()
-                self._show_toast("Sent to {}".format(email), success=True)
-            else:
-                self._show_toast("No email client available.", success=False)
-        except Exception as e:
-            print("Share email error: {}".format(e))
-            self._show_toast("Failed to send. Check Outlook.", success=False)
+            self._toast.place_forget()
+        except:
+            pass

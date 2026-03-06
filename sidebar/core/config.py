@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.29" # Fix account X button, fix share dialog, update retry logic, Reply All/Forward
+VERSION = "v1.3.30" # Share dialog: copy-link instead of email, fix accounts showing all Outlook stores
 
 # --- Image Resampling Mode ---
 try:
