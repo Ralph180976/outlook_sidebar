@@ -6,7 +6,7 @@ from sidebar.core.config import VERSION
 # (will be replaced with Microsoft Store link later)
 DOWNLOAD_URL = "https://github.com/Ralph180976/outlook_sidebar/releases/latest/download/InboxBar_Setup.exe"
 
-LINK_TEXT = "InboxBar Download"
+LINK_TEXT = "InboxBar Download Link"
 
 SHARE_MESSAGE = (
     "Hi,\n"
@@ -68,7 +68,7 @@ def _copy_html_link(widget):
         win32clipboard.EmptyClipboard()
         # Set both HTML and plain text so it pastes nicely everywhere
         win32clipboard.SetClipboardData(CF_HTML, cf_html.encode("utf-8"))
-        win32clipboard.SetClipboardData(win32clipboard.CF_UNICODETEXT, DOWNLOAD_URL)
+        win32clipboard.SetClipboardData(win32clipboard.CF_UNICODETEXT, "{} - {}".format(LINK_TEXT, DOWNLOAD_URL))
         win32clipboard.CloseClipboard()
         return True
         
@@ -156,10 +156,16 @@ class ShareDialog(tk.Toplevel):
         self.attributes("-topmost", True)
         self.grab_set()
 
-        # Center on parent
+        # Center on parent, but clamp to screen bounds
         try:
-            px = parent.winfo_rootx() + (parent.winfo_width() // 2) - 170
-            py = parent.winfo_rooty() + (parent.winfo_height() // 2) - 92
+            dlg_w, dlg_h = 340, 185
+            px = parent.winfo_rootx() + (parent.winfo_width() // 2) - (dlg_w // 2)
+            py = parent.winfo_rooty() + (parent.winfo_height() // 2) - (dlg_h // 2)
+            # Clamp to screen edges with 10px margin
+            screen_w = self.winfo_screenwidth()
+            screen_h = self.winfo_screenheight()
+            px = max(10, min(px, screen_w - dlg_w - 10))
+            py = max(10, min(py, screen_h - dlg_h - 10))
             self.geometry("+{}+{}".format(px, py))
         except:
             pass

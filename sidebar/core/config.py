@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.30" # Share dialog: copy-link instead of email, fix accounts showing all Outlook stores
+VERSION = "v1.3.31" # Fix email body content display, share dialog positioning, share link text
 
 # --- Image Resampling Mode ---
 try:

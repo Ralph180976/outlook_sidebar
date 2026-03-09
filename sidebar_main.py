@@ -1569,7 +1569,8 @@ class SidebarWindow(tk.Tk):
                         cursor="arrow"
                     )
                     # Get preview text or fallback - will be populated on hover if needed
-                    preview_text = email.get('body', '').strip() 
+                    # COM client uses 'preview', Graph client uses 'body_preview'
+                    preview_text = (email.get('preview', '') or email.get('body_preview', '') or email.get('body', '') or '').strip() 
                     if not preview_text:
                         preview_text = ""
                     else:
