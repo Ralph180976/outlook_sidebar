@@ -1,12 +1,45 @@
 
 import json
 import os
+import shutil
 from sidebar.core.config import (
     DEFAULT_MIN_WIDTH, DEFAULT_EXPANDED_WIDTH,
     DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE
 )
 
-CONFIG_FILE = "sidebar_config.json"
+def _get_config_path():
+    """Returns a stable, absolute path for the config file.
+    
+    Uses %LOCALAPPDATA%\\OutlookSidebar\\ so the config is always in the same
+    location regardless of working directory (dev vs installed exe).
+    """
+    app_dir = os.path.join(
+        os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+        "OutlookSidebar"
+    )
+    if not os.path.exists(app_dir):
+        try:
+            os.makedirs(app_dir)
+        except OSError:
+            pass
+    return os.path.join(app_dir, "sidebar_config.json")
+
+def _migrate_old_config(new_path):
+    """If old CWD-relative config exists but new path doesn't, migrate it."""
+    if os.path.exists(new_path):
+        return  # New config already exists, nothing to migrate
+    
+    # Check CWD-relative (old dev/installed location)
+    old_cwd = os.path.join(os.getcwd(), "sidebar_config.json")
+    if os.path.exists(old_cwd):
+        try:
+            shutil.copy2(old_cwd, new_path)
+            print("Migrated config from {} to {}".format(old_cwd, new_path))
+        except Exception as e:
+            print("Config migration failed: {}".format(e))
+
+CONFIG_FILE = _get_config_path()
+_migrate_old_config(CONFIG_FILE)
 
 class ConfigManager:
     """
