@@ -1,3 +1,4 @@
+# Quick console-mode build to debug exe issues
 # -*- mode: python ; coding: utf-8 -*-
 
 a = Analysis(
@@ -24,7 +25,6 @@ a = Analysis(
         'requests',
         'urllib3',
         'sentry_sdk',
-        # --- All sidebar modules ---
         'sidebar',
         'sidebar.core',
         'sidebar.core.config',
@@ -33,8 +33,8 @@ a = Analysis(
         'sidebar.core.compat',
         'sidebar.core.appbar',
         'sidebar.services',
-        'sidebar.services.mail_client',
         'sidebar.services.outlook_client',
+        'sidebar.services.mail_client',
         'sidebar.services.hybrid_client',
         'sidebar.services.graph_client',
         'sidebar.services.graph_auth',
@@ -65,19 +65,18 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='InboxBar',
+    name='InboxBar_Debug',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,
+    console=True,   # <<< CONSOLE MODE for debugging
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
     icon=['icons\\inboxbar.ico'],
-    version='file_version_info.txt',
 )
 coll = COLLECT(
     exe,
@@ -86,5 +85,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='InboxBar',
+    name='InboxBar_Debug',
 )

@@ -1,53 +1,52 @@
+# Quick diagnostic: test if emails can be fetched
+import sys, os
+sys.path.insert(0, os.path.dirname(__file__))
 
-import win32com.client
-import datetime
-from datetime import timedelta     
+from sidebar.services.outlook_client import OutlookClient
 
-def debug_fetch():
-    print("--- STARTING DEBUG FETCH ---")
-    try:
-        outlook = win32com.client.Dispatch("Outlook.Application")
-        namespace = outlook.GetNamespace("MAPI")
-        print("Connected to Outlook NameSpace")
-    except Exception as e:
-        print("CRITICAL: Failed to connect to Outlook: {}".format(e))
-        return
+client = OutlookClient()
+ok = client.connect()
+print("Connected: {}".format(ok))
+if not ok:
+    print("FAILED to connect to Outlook")
+    sys.exit(1)
 
-    try:
-        stores = namespace.Stores
-        print("Found {} stores.".format(stores.Count))
-        
-        for store in stores:
-            print("\nScanning Store: {}".format(store.DisplayName))
-            try:
-                inbox = store.GetDefaultFolder(6) # olFolderInbox
-                print("  Inbox: {}".format(inbox.Name))
-                print("  Unread Count: {}".format(inbox.UnReadItemCount))
-                
-                # Try Table access (sidebar method)
-                table = inbox.GetTable()
-                count = table.GetRowCount()
-                print("  Table Row Count: {}".format(count))
-                
-                # Try fetching 5 rows
-                table.Columns.RemoveAll()
-                table.Columns.Add("Subject")
-                table.Columns.Add("ReceivedTime")
-                
-                rows_fetched = 0
-                while not table.EndOfTable and rows_fetched < 5:
-                    row = table.GetNextRow()
-                    vals = row.GetValues()
-                    print("    Msg {}: {} ({})".format(rows_fetched+1, vals[0], vals[1]))
-                    rows_fetched += 1
-                    
-            except Exception as e:
-                print("  Error scanning store: {}".format(e))
-                
-    except Exception as e:
-        print("Error iterating stores: {}".format(e))
+print("\nAttempting to fetch 5 emails...")
+try:
+    emails, unread = client.get_inbox_items(count=5, unread_only=False)
+    print("Got {} emails, {} unread".format(len(emails), unread))
+    for i, e in enumerate(emails):
+        print("  [{}] From: {} | Subject: {} | Preview: '{}'".format(
+            i+1, e.get('sender','?'), e.get('subject','?')[:50], e.get('preview','')[:30]))
+except Exception as ex:
+    import traceback
+    print("ERROR: {}".format(ex))
+    traceback.print_exc()
 
-    print("--- END DEBUG FETCH ---")
-
-if __name__ == "__main__":
-    debug_fetch()
+# Also test a raw Table fetch to check GetValues works
+print("\n--- Raw Table test ---")
+try:
+    for store in client.namespace.Stores:
+        try:
+            inbox = store.GetDefaultFolder(6)
+            table = inbox.GetTable()
+            table.Sort("ReceivedTime", True)
+            table.Columns.RemoveAll()
+            table.Columns.Add("EntryID")
+            table.Columns.Add("Subject")
+            table.Columns.Add("SenderName")
+            table.Columns.Add("ReceivedTime")
+            table.Columns.Add("UnRead")
+            table.Columns.Add("FlagStatus")
+            
+            if not table.EndOfTable:
+                row = table.GetNextRow()
+                vals = row.GetValues()
+                print("Store '{}': OK - {} columns, Subject='{}'".format(
+                    store.DisplayName, len(vals), vals[1][:40] if vals[1] else "?"))
+            else:
+                print("Store '{}': Empty inbox".format(store.DisplayName))
+        except Exception as se:
+            print("Store '{}': ERROR - {}".format(store.DisplayName, se))
+except Exception as ex:
+    print("ERROR iterating stores: {}".format(ex))
