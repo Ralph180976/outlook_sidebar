@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.31" # Fix email body content display, share dialog positioning, share link text
+VERSION = "v1.3.32" # Fix emails not loading (revert PR_PREVIEW), lazy-fetch body content
 
 # --- Image Resampling Mode ---
 try:

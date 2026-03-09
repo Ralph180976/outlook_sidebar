@@ -540,8 +540,9 @@ class OutlookClient(MailClient):
             except: pass
             try: table.Columns.Add("TaskDueDate")
             except: pass
-            try: table.Columns.Add("http://schemas.microsoft.com/mapi/proptag/0x3FD9001F")  # PR_PREVIEW - message preview text
-            except: pass
+            # NOTE: PR_PREVIEW (0x3FD9001F) was tried here but causes GetValues()
+            # to fail for every row, just like Body. Preview text is fetched
+            # lazily per-item in the rendering code instead.
             
             items = []
             c = 0
@@ -551,7 +552,7 @@ class OutlookClient(MailClient):
                     if not row: break
                     
                     vals = row.GetValues()
-                    # EntryID=0, Subject=1, Sender=2, Recv=3, UnRead=4, Flag=5, Class=6, HasAttach=7, Importance=8, FlagReq=9, TaskDue=10, Preview=11
+                    # EntryID=0, Subject=1, Sender=2, Recv=3, UnRead=4, Flag=5, Class=6, HasAttach=7, Importance=8, FlagReq=9, TaskDue=10
                     
                     # Filter out Non-Mail items if possible (e.g. Meeting Requests/Responses often clog inbox)
                     msg_class = vals[6] if len(vals) > 6 else "IPM.Note"
@@ -559,10 +560,6 @@ class OutlookClient(MailClient):
                     importance = vals[8] if len(vals) > 8 else 1
                     flag_request = vals[9] if len(vals) > 9 else ""
                     task_due = vals[10] if len(vals) > 10 else None
-                    preview_text = vals[11] if len(vals) > 11 else ""
-                    # PR_PREVIEW may return non-string types on error
-                    if not isinstance(preview_text, str):
-                        preview_text = ""
                     
                     items.append({
                         "entry_id": vals[0],
@@ -575,7 +572,7 @@ class OutlookClient(MailClient):
                         "importance": importance,
                         "flag_request": flag_request or "",
                         "due_date": task_due,
-                        "preview": preview_text,
+                        "preview": "",
                         "is_meeting_request": "IPM.Schedule" in str(msg_class),
                         "store_id": store.StoreID, # Needed for actions
                         "account": store.DisplayName

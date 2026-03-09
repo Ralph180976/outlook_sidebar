@@ -1568,14 +1568,51 @@ class SidebarWindow(tk.Tk):
                         wrap="word",
                         cursor="arrow"
                     )
-                    # Get preview text or fallback - will be populated on hover if needed
+                    # Get preview text or fallback
                     # COM client uses 'preview', Graph client uses 'body_preview'
-                    preview_text = (email.get('preview', '') or email.get('body_preview', '') or email.get('body', '') or '').strip() 
-                    if not preview_text:
-                        preview_text = ""
-                    else:
+                    preview_text = (email.get('preview', '') or email.get('body_preview', '') or '').strip() 
+                    
+                    # If preview is empty and permanent body display is on, fetch from item
+                    if not preview_text and self.config.email_show_body:
+                        try:
+                            item = self.outlook_client.get_item_by_entryid(
+                                email.get('entry_id'), email.get('store_id'))
+                            if item:
+                                body_text = ""
+                                try: body_text = item.Body or ""
+                                except: pass
+                                if body_text:
+                                    import re
+                                    body_text = re.sub(r'^\s*https?://\S+\s*$', '', body_text, flags=re.MULTILINE)
+                                    body_text = re.sub(r'https?://\S+', '', body_text)
+                                    body_text = body_text.strip()
+                                # If plain body too short, try HTML
+                                if len(body_text.strip()) < 30:
+                                    try:
+                                        import re
+                                        html = item.HTMLBody or ""
+                                        text = re.sub(r'<a[^>]*>(.*?)</a>', r'\1', html, flags=re.DOTALL|re.IGNORECASE)
+                                        text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL)
+                                        text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL)
+                                        text = re.sub(r'<[^>]+>', ' ', text)
+                                        text = re.sub(r'&nbsp;', ' ', text)
+                                        text = re.sub(r'&amp;', '&', text)
+                                        text = re.sub(r'https?://\S+', '', text)
+                                        text = re.sub(r'[ \t]+', ' ', text)
+                                        text = re.sub(r'\n\s*\n', '\n', text)
+                                        text = text.strip()
+                                        if len(text) > len(body_text.strip()):
+                                            body_text = text
+                                    except: pass
+                                if body_text:
+                                    preview_text = body_text
+                        except: pass
+                    
+                    if preview_text:
                         # Strip empty lines for cleaner display
                         preview_text = "\n".join(line for line in preview_text.splitlines() if line.strip())
+                    else:
+                        preview_text = ""
                     
                     lbl_preview.insert("1.0", preview_text)
                     lbl_preview.config(state="disabled") # Read-only
