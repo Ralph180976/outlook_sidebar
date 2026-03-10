@@ -2,7 +2,7 @@
 ; Creates a proper Windows installer with Add/Remove Programs support
 
 #define MyAppName "InboxBar"
-#define MyAppVersion "1.3.33"
+#define MyAppVersion "1.3.34"
 #define MyAppPublisher "Coveya"
 #define MyAppURL "https://github.com/Ralph180976/outlook_sidebar"
 #define MyAppExeName "InboxBar.exe"
@@ -78,8 +78,10 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: startupicon
 
 [Run]
-; Launch after install
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+; Launch after install — use explorer.exe as trampoline to drop admin elevation
+; (If installer runs as admin, launching directly would run the app elevated,
+; which breaks COM access to the user's Outlook profile)
+Filename: "{cmd}"; Parameters: "/C start """" ""{app}\{#MyAppExeName}"""; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent runhidden
 
 [UninstallRun]
 ; Kill running instance before uninstall

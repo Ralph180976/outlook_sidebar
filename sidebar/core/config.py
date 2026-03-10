@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.33" # Fix config path to use %LOCALAPPDATA%, fix PyInstaller hidden imports
+VERSION = "v1.3.34" # Enable COM CoInitialize + retry, fix installed exe Outlook connection
 
 # --- Image Resampling Mode ---
 try:

@@ -151,7 +151,7 @@ def create_portable_zip():
         return False
     
     os.makedirs(INSTALLER_OUTPUT, exist_ok=True)
-    zip_path = os.path.join(INSTALLER_OUTPUT, "InboxBar_Portable_v1.3.15")
+    zip_path = os.path.join(INSTALLER_OUTPUT, "InboxBar_Portable_v1.3.34")
     
     shutil.make_archive(zip_path, 'zip', DIST_DIR, 'InboxBar')
     

@@ -63,18 +63,28 @@ class OutlookClient(MailClient):
             self.namespace = None
             return False
         
-        try:
-            # Helper to initialize COM in this thread if needed
-            # pythoncom.CoInitialize() 
-            self.outlook = win32com.client.Dispatch("Outlook.Application")
-            self.namespace = self.outlook.GetNamespace("MAPI")
-            # print("Connected to Outlook")
-            return True
-        except Exception as e:
-            print("Error connecting to Outlook: {}".format(e))
-            self.outlook = None
-            self.namespace = None
-            return False
+        # Try connecting with retries (COM may need time to initialize,
+        # especially in frozen/elevated contexts)
+        for attempt in range(3):
+            try:
+                # Ensure COM is initialized in this thread
+                try:
+                    pythoncom.CoInitialize()
+                except Exception:
+                    pass
+                self.outlook = win32com.client.Dispatch("Outlook.Application")
+                self.namespace = self.outlook.GetNamespace("MAPI")
+                if attempt > 0:
+                    print("COM connected on attempt {}".format(attempt + 1))
+                return True
+            except Exception as e:
+                print("COM connect attempt {} failed: {}".format(attempt + 1, e))
+                self.outlook = None
+                self.namespace = None
+                if attempt < 2:
+                    time.sleep(2)  # Wait before retry
+        
+        return False
 
     def reconnect(self):
         """Force a full COM reconnection (e.g. after network change)."""
