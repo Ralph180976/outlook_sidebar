@@ -3,7 +3,7 @@ import win32com.client
 from datetime import datetime, timedelta
 import pythoncom
 import os
-import time
+import sys
 import time
 try:
     import winreg
@@ -42,30 +42,47 @@ class OutlookClient(MailClient):
         self.namespace = None
         self.last_received_time = None
         self._last_connect_time = 0
+        self._first_connect = True
         self.connect()
         # Initialize last_received_time
         if self.namespace:
             self.check_latest_time()
 
     def connect(self):
-        """Attempts to connect to the Outlook COM object with a cooldown."""
-        # Cool down of 60 seconds if it recently failed
-        if self.outlook and self.namespace: return True
-        now = time.time()
-        if now - getattr(self, '_last_connect_time', 0) < 60:
-            return False
-            
-        self._last_connect_time = now
+        """Attempts to connect to the Outlook COM object.
+        
+        First attempt (startup): Up to 5 retries with 3s waits — frozen exes
+        need extra time for Outlook COM to become available.
+        Subsequent attempts: 60-second cooldown to avoid hammering.
+        """
+        # Already connected
+        if self.outlook and self.namespace:
+            return True
+        
+        # Cooldown only applies AFTER the first connect attempt
+        if not self._first_connect:
+            now = time.time()
+            if now - self._last_connect_time < 60:
+                return False
+            self._last_connect_time = now
         
         if not _has_outlook_profile():
             print("No Outlook profile found in registry. Skipping COM initialization to avoid wizard.")
             self.outlook = None
             self.namespace = None
+            self._first_connect = False
             return False
         
-        # Try connecting with retries (COM may need time to initialize,
-        # especially in frozen/elevated contexts)
-        for attempt in range(3):
+        # Frozen exe (PyInstaller) needs more retries — COM may not be ready
+        is_frozen = getattr(sys, 'frozen', False)
+        max_attempts = 5 if (self._first_connect and is_frozen) else 3
+        wait_seconds = 3 if (self._first_connect and is_frozen) else 2
+        
+        if self._first_connect:
+            print("COM: Initial connect ({} attempts, {}s wait, frozen={})".format(
+                max_attempts, wait_seconds, is_frozen))
+        
+        for attempt in range(max_attempts):
             try:
                 # Ensure COM is initialized in this thread
                 try:
@@ -76,14 +93,19 @@ class OutlookClient(MailClient):
                 self.namespace = self.outlook.GetNamespace("MAPI")
                 if attempt > 0:
                     print("COM connected on attempt {}".format(attempt + 1))
+                self._first_connect = False
+                self._last_connect_time = time.time()
                 return True
             except Exception as e:
-                print("COM connect attempt {} failed: {}".format(attempt + 1, e))
+                print("COM connect attempt {}/{} failed: {}".format(
+                    attempt + 1, max_attempts, e))
                 self.outlook = None
                 self.namespace = None
-                if attempt < 2:
-                    time.sleep(2)  # Wait before retry
+                if attempt < max_attempts - 1:
+                    time.sleep(wait_seconds)
         
+        self._first_connect = False
+        self._last_connect_time = time.time()
         return False
 
     def reconnect(self):

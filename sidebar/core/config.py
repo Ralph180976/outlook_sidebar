@@ -19,7 +19,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- Application Constants ---
-VERSION = "v1.3.34" # Enable COM CoInitialize + retry, fix installed exe Outlook connection
+VERSION = "v1.3.35" # Robust COM startup: 5 retries for frozen exe, deferred retry on first fetch
 
 # --- Image Resampling Mode ---
 try:

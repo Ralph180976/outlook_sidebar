@@ -11,12 +11,19 @@ class HybridMailClient(MailClient):
         self.com = None
         self.graph = None
         self.last_received_time = None
+        self._com_retry_pending = False
         
         # Try COM backend
         try:
             self.com = OutlookClient()
+            if self.com.is_connected():
+                print("[Hybrid] COM backend connected successfully")
+            else:
+                print("[Hybrid] COM backend created but not connected — will retry on first fetch")
+                self._com_retry_pending = True
         except Exception as e:
             print("[Hybrid] COM backend failed to init: {}".format(e))
+            self._com_retry_pending = True
         
         # Try Graph backend (may fail if msal not installed)
         try:
@@ -24,8 +31,35 @@ class HybridMailClient(MailClient):
         except Exception as e:
             print("[Hybrid] Graph backend failed to init: {}".format(e))
 
+    def _try_deferred_com_connect(self):
+        """If COM failed at startup, try once more now (enough time may have passed)."""
+        if not self._com_retry_pending:
+            return
+        self._com_retry_pending = False
+        
+        if self.com and not self.com.is_connected():
+            print("[Hybrid] Deferred COM retry...")
+            if self.com.connect():
+                print("[Hybrid] Deferred COM retry succeeded!")
+            else:
+                print("[Hybrid] Deferred COM retry failed — COM emails unavailable")
+        elif not self.com:
+            try:
+                self.com = OutlookClient()
+                if self.com.is_connected():
+                    print("[Hybrid] Deferred COM init succeeded!")
+                else:
+                    print("[Hybrid] Deferred COM init failed")
+                    self.com = None
+            except Exception as e:
+                print("[Hybrid] Deferred COM init exception: {}".format(e))
+                self.com = None
+
     def _split_accounts(self, account_names):
         """Splits the requested account names into COM and Graph based on known accounts."""
+        # Try deferred COM connect if it failed at startup
+        self._try_deferred_com_connect()
+        
         com_accs = self.com.get_accounts() if self.com else []
         graph_accs = self.graph.get_accounts() if self.graph else []
         
